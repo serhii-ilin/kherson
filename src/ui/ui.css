@@ -1,0 +1,142 @@
+.vk-btn {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 8px 14px;
+  border: 1px solid #ffffff33;
+  border-radius: 12px;
+  background: #111c;
+  color: #fff;
+  font: 14px/1.2 system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.vk-btn:hover,
+.vk-btn:focus-visible {
+  background: #222e;
+}
+
+.vk-panel {
+  position: fixed;
+  top: 60px;
+  right: 12px;
+  z-index: 20;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, 90vw);
+  max-height: 60vh;
+  padding: 10px;
+  border: 1px solid #ffffff26;
+  border-radius: 12px;
+  background: #111c;
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.vk-panel[hidden] {
+  display: none;
+}
+
+.vk-search {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #ffffff33;
+  border-radius: 8px;
+  background: #00000066;
+  color: #fff;
+  font: inherit;
+  outline: none;
+}
+
+.vk-search:focus {
+  border-color: #ffffff66;
+}
+
+.vk-place-list {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+}
+
+.vk-place-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.vk-place-row:hover,
+.vk-place-row:focus-visible {
+  background: #ffffff1a;
+}
+
+.vk-place-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vk-place-en {
+  color: #aaaaaa;
+  font-size: 12px;
+}
+
+.vk-place-kind {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #ffffff22;
+  color: #cccccc;
+  font-size: 11px;
+}
+
+.vk-minimap {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 15;
+  width: 180px;
+  height: 180px;
+  border: 1px solid #ffffff4d;
+  border-radius: 12px;
+  background: #121a22;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Touch layout: the bottom corners belong to the joystick and buttons. */
+@media (pointer: coarse) {
+  .vk-minimap {
+    top: 64px;
+    bottom: auto;
+  }
+  #hud {
+    font-size: 11px;
+    max-width: calc(100vw - 150px);
+    white-space: pre-wrap;
+  }
+}

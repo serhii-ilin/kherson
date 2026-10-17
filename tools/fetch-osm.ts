@@ -42,7 +42,7 @@ async function fetchOverpass(url: string, query: string): Promise<string> {
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
-      "User-Agent": "voxel-kherson/0.1 (+https://github.com/voxel-kherson)",
+      "User-Agent": "voxel-kherson/0.1 (+https://github.com/serhii-ilin/kherson)",
     },
     body: `data=${encodeURIComponent(query)}`,
   });

@@ -5,12 +5,17 @@ import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
+import { TouchControls } from './player/touch.ts';
+import { Minimap } from './ui/minimap.ts';
+import { PlacesMenu, type Place } from './ui/places.ts';
+import { PALETTE } from './world/materials.ts';
+import { REGION, VOXEL } from './world/constants.ts';
 
 const SKY = 0x9cc8ef;
-const isMobile = matchMedia('(pointer: coarse)').matches || /Mobi|Android/i.test(navigator.userAgent);
+const isMobile = TouchControls.isTouchDevice() || /Mobi|Android/i.test(navigator.userAgent);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -45,12 +50,40 @@ async function start(): Promise<void> {
     player.spawn(sx, sz);
     player.yaw = (num('yaw') ?? 0) * deg;
   }
+  if (isMobile) {
+    const touch = new TouchControls();
+    touch.attach(document.body);
+    touch.onToggleMode = () => player.toggle();
+    input.touch = touch;
+  }
+
+  const worldSpan = REGION * VOXEL;
+  const minimap = new Minimap(document.body, {
+    worldW: manifest.regionsX * worldSpan,
+    worldH: manifest.regionsZ * worldSpan,
+    size: isMobile ? 120 : 180,
+  });
+
+  fetch(`${base}world/places.json`)
+    .then((r) => r.json() as Promise<Place[]>)
+    .then((places) => {
+      new PlacesMenu(document.body, places, (p) => {
+        if (player.mode === 'fly') player.setFlyPose(p.x, Math.max(player.y, 80), p.z, player.yaw, player.pitch);
+        else player.spawn(p.x, p.z);
+      });
+    })
+    .catch((err) => console.warn('places unavailable', err));
+
   if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
     .then((r) => r.arrayBuffer())
-    .then((buf) => { overview = new Overview(scene, parseOverview(buf), sx, sz); })
+    .then((buf) => {
+      const data = parseOverview(buf);
+      overview = new Overview(scene, data, sx, sz);
+      minimap.setBackground(data, PALETTE);
+    })
     .catch((err) => console.warn('overview unavailable', err));
 
   window.addEventListener('resize', () => {
@@ -78,6 +111,7 @@ async function start(): Promise<void> {
       overview.setHole(camera.position.x, camera.position.z, streamer.holeRadius(camera.position.x, camera.position.z));
     }
     renderer.render(scene, camera);
+    minimap.update(camera.position.x, camera.position.z, player.yaw);
 
     frames++;
     if (now - fpsStart >= 500) {
@@ -94,7 +128,9 @@ async function start(): Promise<void> {
         `x ${x.toFixed(0)}  y ${y.toFixed(1)}  z ${z.toFixed(0)} m · ${lat.toFixed(5)}, ${lon.toFixed(5)}\n` +
         `regions ${streamer.loadedRegions} · chunks ${streamer.chunkCount} · jobs ${streamer.inflightJobs} · ` +
         `${(streamer.triangles / 1000).toFixed(0)}k tris\n` +
-        'Click to look around · WASD move · Space jump/up · F fly/walk';
+        (isMobile
+          ? 'Left: move · Right: look · ✈ fly/walk'
+          : 'Click to look around · WASD move · Shift sprint · Space jump/up · F fly/walk');
     }
   };
   requestAnimationFrame(frame);
