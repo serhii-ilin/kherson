@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FIELDS, REGION, VOXEL } from '../src/world/constants';
 import { FEATURE_BRIDGE_DECK, FEATURE_TREE, cellIndex, type RegionData } from '../src/world/format';
-import { meshChunk } from '../src/world/mesher';
+import { edgeTops, meshChunk } from '../src/world/mesher';
 import { MAT } from '../src/world/materials';
 
 function flat(): RegionData {
@@ -114,5 +114,60 @@ describe('meshChunk', () => {
         expect(v).toBeLessThanOrEqual(REGION * VOXEL + 100);
       }
     }
+  });
+});
+
+describe('meshChunk region seams', () => {
+  function raised(top: number): RegionData {
+    const r = flat();
+    r.cells.fill(top, REGION * REGION, 2 * REGION * REGION);
+    return r;
+  }
+
+  /** Counts quads that face along x lying on plane x. */
+  function wallQuads(m: ReturnType<typeof meshChunk>, x: number, nx: number): number {
+    let n = 0;
+    for (let v = 0; v < m.positions.length / 3; v += 4) {
+      if (m.normals[v * 3] !== nx) continue;
+      let on = true;
+      for (let k = 0; k < 4; k++) if (m.positions[(v + k) * 3] !== x) on = false;
+      if (on) n++;
+    }
+    return n;
+  }
+
+  it('without neighbour info there is no wall at the region border', () => {
+    expect(wallQuads(meshChunk(raised(6), 0, 0), 0, -1)).toBe(0);
+  });
+
+  it('a taller region gets a wall where its neighbour is lower', () => {
+    const lowCol = new Uint8Array(REGION).fill(2);
+    const m = meshChunk(raised(6), 0, 0, { nx: lowCol });
+    expect(wallQuads(m, 0, -1)).toBe(1); // merged along z over the chunk
+    const q = m.positions;
+    let ymax = 0;
+    for (let i = 1; i < q.length; i += 3) ymax = Math.max(ymax, q[i]!);
+    expect(ymax).toBe(6 * VOXEL);
+    quadNormalDirs(m);
+  });
+
+  it('the lower region emits nothing, and equal heights emit nothing', () => {
+    const high = new Uint8Array(REGION).fill(6);
+    expect(wallQuads(meshChunk(flat(), 7, 0, { px: high }), REGION * VOXEL, 1)).toBe(0);
+    const same = new Uint8Array(REGION).fill(2);
+    expect(wallQuads(meshChunk(flat(), 7, 0, { px: same }), REGION * VOXEL, 1)).toBe(0);
+  });
+
+  it('works on all four sides, and edgeTops reads the touching column/row', () => {
+    const lower = new Uint8Array(REGION).fill(2);
+    const r = raised(5);
+    const m = meshChunk(r, 7, 7, { px: lower, pz: lower });
+    expect(wallQuads(m, REGION * VOXEL, 1)).toBe(1);
+    const nb = flat();
+    nb.cells[REGION * REGION + 3 * REGION + 0] = 9; // x=0, z=3
+    nb.cells[REGION * REGION + 0 * REGION + 7] = 8; // x=7, z=0
+    expect(edgeTops(nb.cells, 'px')[3]).toBe(9);
+    expect(edgeTops(nb.cells, 'pz')[7]).toBe(8);
+    expect(edgeTops(nb.cells, 'nx')[3]).toBe(2);
   });
 });

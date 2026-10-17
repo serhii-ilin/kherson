@@ -1,8 +1,13 @@
 import * as THREE from 'three';
-import { CHUNK, REGION, REGION_CHUNKS, VOXEL } from './world/constants';
-import { decodeRegion, encodeRegion } from './world/format';
-import type { ChunkMesh } from './world/mesher';
-import { buildSyntheticRegion } from './world/synthetic';
+import { toLatLon } from './world/geo.ts';
+import { Overview, parseOverview } from './world/lod.ts';
+import type { Manifest } from './world/manifest.ts';
+import { WorldStreamer } from './world/streamer.ts';
+import { PlayerController } from './player/controller.ts';
+import { Input } from './player/input.ts';
+
+const SKY = 0x9cc8ef;
+const isMobile = matchMedia('(pointer: coarse)').matches || /Mobi|Android/i.test(navigator.userAgent);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -10,106 +15,92 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 2500, 9000);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 3000);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x556655, 1.2));
-const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-sun.position.set(300, 500, 200);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 12000);
+scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 0.9));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.6);
+sun.position.set(-300, 500, 300); // from the south-west
 scene.add(sun);
 
-const hud = document.getElementById('hud');
-const material = new THREE.MeshLambertMaterial({ vertexColors: true });
-const regionSize = REGION * VOXEL;
-const center = new THREE.Vector3(regionSize / 2, 0, regionSize / 2);
+const hud = document.getElementById('hud')!;
+const base = import.meta.env.BASE_URL;
 
-function addChunk(mesh: ChunkMesh, cx: number, cz: number): void {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(mesh.colors, 3));
-  g.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-  g.computeBoundingSphere();
-  const m = new THREE.Mesh(g, material);
-  m.name = `chunk_${cx}_${cz}`;
-  scene.add(m);
-}
-
-function buildWorld(): void {
-  // Exercise the on-disk format: encode then decode before meshing.
-  const encoded = encodeRegion(buildSyntheticRegion());
-  const region = decodeRegion(encoded);
-  const bytes = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
-
-  const poolSize = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
-  const workers: Worker[] = [];
-  const queue: { cx: number; cz: number }[] = [];
-  for (let cz = 0; cz < REGION_CHUNKS; cz++) {
-    for (let cx = 0; cx < REGION_CHUNKS; cx++) queue.push({ cx, cz });
+async function start(): Promise<void> {
+  const manifest = (await (await fetch(`${base}world/manifest.json`)).json()) as Manifest;
+  const streamer = new WorldStreamer(scene, manifest, { viewRadius: isMobile ? 384 : 640 });
+  const input = new Input();
+  input.attach(renderer.domElement);
+  const player = new PlayerController(camera, input);
+  // ?x=&z= (metres) jumps to a spot; add y/yaw/pitch (degrees) and mode=fly for an exact view.
+  const q = new URLSearchParams(location.search);
+  const num = (k: string): number | null => (q.has(k) && Number.isFinite(Number(q.get(k))) ? Number(q.get(k)) : null);
+  const sx = num('x') ?? manifest.spawn[0];
+  const sz = num('z') ?? manifest.spawn[1];
+  const deg = Math.PI / 180;
+  if (q.get('mode') === 'fly') {
+    player.setFlyPose(sx, num('y') ?? 120, sz, (num('yaw') ?? 0) * deg, (num('pitch') ?? -20) * deg);
+  } else {
+    player.spawn(sx, sz);
+    player.yaw = (num('yaw') ?? 0) * deg;
   }
-  const pending = new Map<number, { cx: number; cz: number }>();
-  let nextId = 0;
-  let done = 0;
-  const t0 = performance.now();
-  console.info(`region ${region.rx},${region.rz}: ${encoded.length} bytes, ${region.features.length} features`);
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input } });
 
-  const dispatch = (w: Worker): void => {
-    const job = queue.shift();
-    if (!job) return;
-    const id = nextId++;
-    pending.set(id, job);
-    w.postMessage({ id, buffer: bytes.slice(0), cx: job.cx, cz: job.cz });
+  let overview: Overview | null = null;
+  fetch(`${base}world/overview.bin`)
+    .then((r) => r.arrayBuffer())
+    .then((buf) => { overview = new Overview(scene, parseOverview(buf), sx, sz); })
+    .catch((err) => console.warn('overview unavailable', err));
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  let last = performance.now();
+  let frames = 0;
+  let fpsStart = last;
+  let fps = 0;
+  let hudAt = 0;
+
+  const frame = (now: number): void => {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+
+    player.update(dt, streamer);
+    streamer.update(camera.position.x, camera.position.z);
+    if (overview !== null) {
+      if (!overview.done) overview.build(4);
+      overview.setHole(camera.position.x, camera.position.z, streamer.holeRadius(camera.position.x, camera.position.z));
+    }
+    renderer.render(scene, camera);
+
+    frames++;
+    if (now - fpsStart >= 500) {
+      fps = Math.round((frames * 1000) / (now - fpsStart));
+      frames = 0;
+      fpsStart = now;
+    }
+    if (now - hudAt >= 250) {
+      hudAt = now;
+      const { x, y, z } = camera.position;
+      const [lat, lon] = toLatLon(manifest.bbox, x, z);
+      hud.textContent =
+        `${player.mode === 'walk' ? 'WALK' : 'FLY'} · ${fps} fps\n` +
+        `x ${x.toFixed(0)}  y ${y.toFixed(1)}  z ${z.toFixed(0)} m · ${lat.toFixed(5)}, ${lon.toFixed(5)}\n` +
+        `regions ${streamer.loadedRegions} · chunks ${streamer.chunkCount} · jobs ${streamer.inflightJobs} · ` +
+        `${(streamer.triangles / 1000).toFixed(0)}k tris\n` +
+        'Click to look around · WASD move · Space jump/up · F fly/walk';
+    }
   };
-
-  for (let i = 0; i < poolSize; i++) {
-    const w = new Worker(new URL('./world/mesher.worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<{ id: number; mesh: ChunkMesh }>) => {
-      const job = pending.get(e.data.id);
-      pending.delete(e.data.id);
-      if (job) addChunk(e.data.mesh, job.cx, job.cz);
-      done++;
-      if (done === REGION_CHUNKS * REGION_CHUNKS) {
-        console.info(`meshed ${done} chunks (${CHUNK}^2 cells) in ${(performance.now() - t0).toFixed(0)} ms`);
-        for (const x of workers) x.terminate();
-      } else {
-        dispatch(w);
-      }
-    };
-    workers.push(w);
-    dispatch(w);
-  }
+  requestAnimationFrame(frame);
 }
-buildWorld();
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+start().catch((err) => {
+  hud.textContent = `Failed to start: ${String(err)}`;
+  console.error(err);
 });
-
-// Start at (256, 120, 600), then orbit around the region centre.
-const orbitRadius = Math.hypot(256 - center.x, 600 - center.z);
-const startAngle = Math.atan2(600 - center.z, 256 - center.x);
-let frames = 0;
-let fpsStart = performance.now();
-
-function animate(now: number): void {
-  requestAnimationFrame(animate);
-  const a = startAngle + now * 0.00005;
-  camera.position.set(
-    center.x + Math.cos(a) * orbitRadius,
-    120,
-    center.z + Math.sin(a) * orbitRadius,
-  );
-  camera.lookAt(center);
-  renderer.render(scene, camera);
-
-  frames++;
-  if (now - fpsStart >= 500) {
-    if (hud) hud.textContent = `Voxel Kherson - ${Math.round((frames * 1000) / (now - fpsStart))} fps`;
-    frames = 0;
-    fpsStart = now;
-  }
-}
-requestAnimationFrame(animate);

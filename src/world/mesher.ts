@@ -11,6 +11,32 @@ import {
 import { FEATURE_BRIDGE_DECK, FEATURE_TREE, type RegionData } from './format.ts';
 import { MAT, PALETTE } from './materials.ts';
 
+/**
+ * Region top heights (groundH + structH, in voxels) of the touching column/row of
+ * the four adjacent regions. Each array has REGION entries:
+ *  px: neighbour at +x, its column x=0 indexed by z;  nx: neighbour at -x, column x=REGION-1 by z;
+ *  pz: neighbour at +z, its row z=0 indexed by x;     nz: neighbour at -z, row z=REGION-1 by x.
+ */
+export interface RegionEdges {
+  px?: Uint8Array;
+  nx?: Uint8Array;
+  pz?: Uint8Array;
+  nz?: Uint8Array;
+}
+
+export type EdgeKey = keyof RegionEdges;
+
+/** Extracts the touching edge of `neighbour` as seen from the region on the opposite side. */
+export function edgeTops(neighbour: Uint8Array, key: EdgeKey): Uint8Array {
+  const out = new Uint8Array(REGION);
+  for (let i = 0; i < REGION; i++) {
+    const c = key === 'px' ? i * REGION : key === 'nx' ? i * REGION + REGION - 1
+      : key === 'pz' ? i : (REGION - 1) * REGION + i;
+    out[i] = neighbour[PLANE * F_GROUND_H + c]! + neighbour[PLANE * F_STRUCT_H + c]!;
+  }
+  return out;
+}
+
 export interface ChunkMesh {
   positions: Float32Array;
   normals: Float32Array;
@@ -23,7 +49,7 @@ const SIDE_SHADE = 0.8;
 const BOTTOM_SHADE = 0.65;
 
 /** Growable quad buffer producing the final typed arrays. */
-class QuadBuilder {
+export class QuadBuilder {
   private pos = new Float32Array(1024 * 12);
   private nor = new Float32Array(1024 * 12);
   private col = new Float32Array(1024 * 12);
@@ -173,7 +199,9 @@ function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): vo
  * (z for X-facing walls, x for Z-facing walls). Layer 0 is the soil part below
  * the ground top, layer 1 the structure part above it.
  */
-function meshSides(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): void {
+function meshSides(
+  b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined,
+): void {
   for (let dir = 0; dir < 4; dir++) {
     const alongX = dir >= 2; // run axis is x for Z-facing walls
     const step = dir === 0 || dir === 2 ? 1 : -1;
@@ -200,6 +228,9 @@ function meshSides(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): v
             if (nx >= 0 && nx < REGION && nz >= 0 && nz < REGION) {
               const ni = nz * REGION + nx;
               nTop = cells[PLANE * F_GROUND_H + ni]! + cells[PLANE * F_STRUCT_H + ni]!;
+            } else if (edges) {
+              const e = nx >= REGION ? edges.px : nx < 0 ? edges.nx : nz >= REGION ? edges.pz : edges.nz;
+              if (e) nTop = e[alongX ? cx : cz]!;
             }
             const gm = cells[i]!;
             if (layer === 0) {
@@ -263,12 +294,12 @@ function meshFeatures(b: QuadBuilder, region: RegionData, x0: number, z0: number
   }
 }
 
-export function meshChunk(region: RegionData, cx: number, cz: number): ChunkMesh {
+export function meshChunk(region: RegionData, cx: number, cz: number, edges?: RegionEdges): ChunkMesh {
   const b = new QuadBuilder();
   const x0 = cx * CHUNK;
   const z0 = cz * CHUNK;
   meshTops(b, region.cells, x0, z0);
-  meshSides(b, region.cells, x0, z0);
+  meshSides(b, region.cells, x0, z0, edges);
   meshFeatures(b, region, x0, z0);
   return b.build();
 }

@@ -1,34 +1,51 @@
 import { decodeRegion, type RegionData } from './format.ts';
-import { meshChunk, type ChunkMesh } from './mesher.ts';
+import { meshChunk, type ChunkMesh, type RegionEdges } from './mesher.ts';
 
-interface MeshRequest {
+/** Job from the streamer. `buffer` is present only when the worker may not have the region yet. */
+export interface MeshRequest {
   id: number;
-  buffer: ArrayBuffer;
+  /** Region cache key chosen by the streamer. */
+  region: number;
+  buffer?: ArrayBuffer;
+  /** Chunk coordinates inside the region, 0..REGION_CHUNKS-1. */
   cx: number;
   cz: number;
+  edges?: RegionEdges;
+}
+
+export interface MeshResponse {
+  id: number;
+  /** True when the region is not cached here; the streamer must resend with the buffer. */
+  missing?: boolean;
+  mesh?: ChunkMesh;
 }
 
 interface WorkerScope {
   onmessage: ((e: MessageEvent<MeshRequest>) => void) | null;
-  postMessage(message: unknown, transfer: Transferable[]): void;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 
 const scope = self as unknown as WorkerScope;
-
-let cached: RegionData | null = null;
-let cachedKey = '';
+const CACHE_MAX = 8;
+/** Map iteration order doubles as LRU order (oldest first). */
+const cache = new Map<number, RegionData>();
 
 scope.onmessage = (e) => {
-  const { id, buffer, cx, cz } = e.data;
-  // Cache key is the header's rx/rz, read without a full decode when possible.
-  const hdr = new DataView(buffer);
-  const key = `${hdr.getInt16(6, true)},${hdr.getInt16(8, true)}`;
-  if (cached === null || key !== cachedKey) {
-    cached = decodeRegion(buffer);
-    cachedKey = key;
+  const { id, region, buffer, cx, cz, edges } = e.data;
+  let data = cache.get(region);
+  if (data) {
+    cache.delete(region);
+    cache.set(region, data);
+  } else if (buffer) {
+    data = decodeRegion(buffer);
+    cache.set(region, data);
+    if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
+  } else {
+    scope.postMessage({ id, missing: true } satisfies MeshResponse);
+    return;
   }
-  const mesh: ChunkMesh = meshChunk(cached, cx, cz);
-  scope.postMessage({ id, mesh }, [
+  const mesh = meshChunk(data, cx, cz, edges);
+  scope.postMessage({ id, mesh } satisfies MeshResponse, [
     mesh.positions.buffer,
     mesh.normals.buffer,
     mesh.colors.buffer,

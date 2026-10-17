@@ -8,6 +8,7 @@ import { MAT } from "../src/world/materials.ts";
 import { BBOX } from "./bake/config.ts";
 import { WORLD_H, WORLD_W } from "./bake/project.ts";
 import { Grid, DEFAULT_CELLS } from "./bake/grid.ts";
+import { buildOverview } from "./bake/overview.ts";
 import { loadOsm, type OsmData, type Tags } from "./bake/osm.ts";
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
 
@@ -419,6 +420,8 @@ async function main(): Promise<void> {
   };
   fs.writeFileSync(path.join(OUT_DIR, "manifest.json"), JSON.stringify(manifest));
   fs.writeFileSync(path.join(OUT_DIR, "places.json"), JSON.stringify(places));
+  const overview = buildOverview(grid.regions, grid.regionsX, grid.regionsZ, DEFAULT_CELLS);
+  fs.writeFileSync(path.join(OUT_DIR, "overview.bin"), overview);
   stage("written");
   console.log(
     `regions: ${grid.regionsX}x${grid.regionsZ}=${grid.regionsX * grid.regionsZ}, written ${written}, empty ${empty}, ` +
