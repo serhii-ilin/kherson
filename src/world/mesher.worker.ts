@@ -1,5 +1,5 @@
-import { decodeRegion, type RegionData } from './format';
-import { meshChunk, type ChunkMesh } from './mesher';
+import { decodeRegion, type RegionData } from './format.ts';
+import { meshChunk, type ChunkMesh } from './mesher.ts';
 
 interface MeshRequest {
   id: number;

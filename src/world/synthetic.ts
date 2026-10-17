@@ -1,12 +1,12 @@
-import { FIELDS, REGION } from './constants';
+import { FIELDS, REGION } from './constants.ts';
 import {
   FEATURE_BRIDGE_DECK,
   FEATURE_TREE,
   cellIndex,
   type Feature,
   type RegionData,
-} from './format';
-import { MAT } from './materials';
+} from './format.ts';
+import { MAT } from './materials.ts';
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;

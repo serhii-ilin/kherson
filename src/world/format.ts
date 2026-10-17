@@ -1,4 +1,4 @@
-import { FIELDS, REGION } from './constants';
+import { FIELDS, REGION } from './constants.ts';
 
 export interface Feature {
   type: number;

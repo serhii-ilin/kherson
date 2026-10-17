@@ -7,9 +7,9 @@ import {
   F_STRUCT_MAT,
   REGION,
   VOXEL,
-} from './constants';
-import { FEATURE_BRIDGE_DECK, FEATURE_TREE, type RegionData } from './format';
-import { MAT, PALETTE } from './materials';
+} from './constants.ts';
+import { FEATURE_BRIDGE_DECK, FEATURE_TREE, type RegionData } from './format.ts';
+import { MAT, PALETTE } from './materials.ts';
 
 export interface ChunkMesh {
   positions: Float32Array;
