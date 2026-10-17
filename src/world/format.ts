@@ -5,6 +5,10 @@ export interface Feature {
   param: number;
   x: number;
   z: number;
+  /** Vegetation species id (see SPECIES in nature/models); 0 for non-vegetation. */
+  species: number;
+  /** Per-feature random seed byte. */
+  seed: number;
 }
 
 export interface RegionData {
@@ -17,6 +21,7 @@ export interface RegionData {
 
 export const FEATURE_TREE = 1;
 export const FEATURE_BRIDGE_DECK = 2;
+export const FEATURE_BUSH = 3;
 
 const HEADER_SIZE = 16;
 const PLANE = REGION * REGION;
@@ -63,7 +68,8 @@ export function encodeRegion(r: RegionData): Uint8Array {
     dv.setUint8(o + 1, f.param);
     dv.setUint16(o + 2, f.x, true);
     dv.setUint16(o + 4, f.z, true);
-    dv.setUint16(o + 6, 0, true);
+    dv.setUint8(o + 6, f.species);
+    dv.setUint8(o + 7, f.seed);
     o += 8;
   }
   return buf;
@@ -111,6 +117,8 @@ export function decodeRegion(input: ArrayBuffer | Uint8Array): RegionData {
       param: dv.getUint8(o + 1),
       x: dv.getUint16(o + 2, true),
       z: dv.getUint16(o + 4, true),
+      species: dv.getUint8(o + 6),
+      seed: dv.getUint8(o + 7),
     });
     o += 8;
   }

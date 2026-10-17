@@ -4,6 +4,7 @@ import { Overview, parseOverview } from './world/lod.ts';
 import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
 import { createWaterMaterial, updateWater } from './nature/water.ts';
+import { Vegetation } from './nature/vegetation.ts';
 import { BirdSystem, type BirdListener } from './nature/birds.ts';
 import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
@@ -46,7 +47,10 @@ const base = import.meta.env.BASE_URL;
 
 async function start(): Promise<void> {
   const manifest = (await (await fetch(`${base}world/manifest.json`)).json()) as Manifest;
-  const streamer = new WorldStreamer(scene, manifest, { viewRadius: isMobile ? 384 : 640, waterMaterial });
+  const viewRadius = isMobile ? 384 : 640;
+  const streamer = new WorldStreamer(scene, manifest, { viewRadius, waterMaterial });
+  const vegetation = new Vegetation(scene, { nearRadius: isMobile ? 150 : 250, farRadius: viewRadius });
+  streamer.onRegionData = (rx, rz, data) => vegetation.setRegion(rx, rz, data ? data.features : null, data?.cells);
   const input = new Input();
   input.attach(renderer.domElement);
   const player = new PlayerController(camera, input);
@@ -103,30 +107,20 @@ async function start(): Promise<void> {
     doveGroups: birds.doveGroups,
   };
   let surroundingsAt = 0;
-  // Greenery share and nearest water from a coarse ring sample around the listener.
+  // Real tree density from the instanced vegetation, nearest water from a coarse ring sample.
   const sampleSurroundings = (x: number, z: number): void => {
-    let green = 0;
-    let total = 0;
     let water = Infinity;
     for (const r of [12, 30, 60, 100, 150]) {
       for (let k = 0; k < 12; k++) {
         const a = (k / 12) * Math.PI * 2;
-        const sx = x + Math.cos(a) * r;
-        const sz = z + Math.sin(a) * r;
-        const mat = streamer.groundMatAt(sx, sz);
-        if (mat === null) continue;
-        if (mat === MAT.WATER) water = Math.min(water, r);
-        if (r <= 60) {
-          total++;
-          if (mat === MAT.PARK || mat === MAT.FOREST || mat === MAT.GRASS) green += mat === MAT.GRASS ? 0.5 : 1;
-        }
+        if (streamer.groundMatAt(x + Math.cos(a) * r, z + Math.sin(a) * r) === MAT.WATER) water = Math.min(water, r);
       }
     }
-    audioScene.treeDensity = total > 0 ? green / total : 0;
+    audioScene.treeDensity = vegetation.treeDensity(x, z);
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input, birds, ambience } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input, birds, ambience, vegetation, renderer } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -158,6 +152,7 @@ async function start(): Promise<void> {
 
     player.update(dt, streamer);
     streamer.update(camera.position.x, camera.position.z);
+    vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
       if (!overview.done) overview.build(4);
       overview.setHole(camera.position.x, camera.position.z, streamer.holeRadius(camera.position.x, camera.position.z));
@@ -198,6 +193,9 @@ async function start(): Promise<void> {
         `x ${x.toFixed(0)}  y ${y.toFixed(1)}  z ${z.toFixed(0)} m · ${lat.toFixed(5)}, ${lon.toFixed(5)}\n` +
         `${t('regions')} ${streamer.loadedRegions} · ${t('chunks')} ${streamer.chunkCount} · ${t('jobs')} ${streamer.inflightJobs} · ` +
         `${(streamer.triangles / 1000).toFixed(0)} ${t('tris')}\n` +
+        (import.meta.env.DEV
+          ? `veg ${vegetation.stats.instances} (${vegetation.stats.near} near) · ${renderer.info.render.triangles} tris · ${renderer.info.render.calls} calls\n`
+          : '') +
         (isMobile ? t('hintTouch') : t('hintDesktop'));
     }
   };

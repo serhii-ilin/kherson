@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  CHUNK,
   F_GROUND_H,
   F_GROUND_MAT,
   F_STRUCT_H,
@@ -7,7 +8,8 @@ import {
   REGION_CHUNKS,
   VOXEL,
 } from './constants.ts';
-import { FEATURE_BRIDGE_DECK, decodeRegion, type RegionData } from './format.ts';
+import { FEATURE_BRIDGE_DECK, FEATURE_TREE, decodeRegion, type RegionData } from './format.ts';
+import { jitterX, jitterZ } from '../nature/placement.ts';
 import type { Manifest } from './manifest.ts';
 import { MAT } from './materials.ts';
 import { QuadBuilder, edgeTops, type ChunkMesh, type EdgeKey, type RegionEdges, type WaterMesh } from './mesher.ts';
@@ -56,6 +58,8 @@ interface Entry {
   buffer: ArrayBuffer | null;
   /** cell index -> bridge deck top in voxels */
   decks: Map<number, number> | null;
+  /** Chunk keys holding trunk index entries of this region. */
+  trunkChunks: number[] | null;
   /** Bit per worker that has received this region's buffer. */
   sentMask: number;
   lastUsed: number;
@@ -83,6 +87,44 @@ interface Job {
   edges: RegionEdges | undefined;
 }
 
+/** Adds world-space value noise to upward-facing terrain colours (more on green ground). */
+function groundNoise(shader: { vertexShader: string; fragmentShader: string }): void {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vGWorld;\nvarying float vGNy;')
+    .replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\n  vGWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\n  vGNy = objectNormal.y;',
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+varying vec3 vGWorld;
+varying float vGNy;
+float gHash( vec2 p ) {
+  p = fract( p * vec2( 0.1031, 0.1030 ) );
+  p += dot( p, p.yx + 33.33 );
+  return fract( ( p.x + p.y ) * p.x );
+}
+float gVNoise( vec2 p ) {
+  vec2 i = floor( p );
+  vec2 f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( gHash( i ), gHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( gHash( i + vec2( 0.0, 1.0 ) ), gHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+}`,
+    )
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+  if ( vGNy > 0.5 ) {
+    float gn = ( gVNoise( vGWorld.xz / 8.0 ) * 0.6 + gVNoise( vGWorld.xz / 32.0 ) * 0.4 ) * 2.0 - 1.0;
+    vec3 gc = diffuseColor.rgb;
+    float gk = ( gc.g > gc.r * 1.1 && gc.g > gc.b * 1.1 ) ? 0.12 : 0.06;
+    diffuseColor.rgb *= 1.0 + gk * gn;
+  }`,
+    );
+}
+
 const EMPTY_EDGE = new Uint8Array(REGION).fill(DEFAULT_GROUND_H);
 
 export class WorldStreamer {
@@ -97,7 +139,12 @@ export class WorldStreamer {
   private readonly chunksX: number;
   private readonly chunksZ: number;
 
+  /** Called when a region's data arrives (RegionData) or is evicted (null). */
+  onRegionData?: (rx: number, rz: number, data: RegionData | null) => void;
+
   private readonly regions = new Map<number, Entry>();
+  /** chunk key -> flat [x, z, x, z, ...] of tree trunk centres (metres). */
+  private readonly trunks = new Map<number, Float32Array>();
   private readonly chunks = new Map<number, Chunk>();
   private readonly emptyQuads = new Map<number, THREE.Mesh>();
   private emptyGeometry: THREE.BufferGeometry | null = null;
@@ -128,6 +175,7 @@ export class WorldStreamer {
     this.scene = scene;
     this.manifest = manifest;
     this.viewRadius = opts.viewRadius ?? 640;
+    this.material.onBeforeCompile = groundNoise;
     this.ownsWaterMaterial = opts.waterMaterial === undefined;
     this.waterMaterial = opts.waterMaterial ?? new THREE.MeshBasicMaterial({ color: 0x3b78b8 });
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
@@ -251,6 +299,58 @@ export class WorldStreamer {
     return base;
   }
 
+  // ---------------------------------------------------------------- trunks
+
+  /**
+   * True when a tree trunk centre lies within r metres of (x, z). Only trees block, not bushes;
+   * trunks are indexed per chunk when a region's data arrives.
+   */
+  trunkNear(x: number, z: number, r: number): boolean {
+    const r2 = r * r;
+    // trunks are filed under their cell's chunk; jitter moves them < 0.7 m away from it
+    const m = r + 0.75;
+    const gx0 = Math.floor((x - m) / CHUNK_M), gx1 = Math.floor((x + m) / CHUNK_M);
+    const gz0 = Math.floor((z - m) / CHUNK_M), gz1 = Math.floor((z + m) / CHUNK_M);
+    for (let gz = gz0; gz <= gz1; gz++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const t = this.trunks.get(chunkKey(gx, gz));
+        if (t === undefined) continue;
+        for (let i = 0; i < t.length; i += 2) {
+          const dx = t[i]! - x, dz = t[i + 1]! - z;
+          if (dx * dx + dz * dz < r2) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private indexTrunks(e: Entry): void {
+    const data = e.data;
+    if (data === null) return;
+    const lists = new Map<number, number[]>();
+    for (const f of data.features) {
+      if (f.type !== FEATURE_TREE) continue;
+      const x = e.rx * REGION_M + (f.x + 0.5 + jitterX(f.seed)) * VOXEL;
+      const z = e.rz * REGION_M + (f.z + 0.5 + jitterZ(f.seed)) * VOXEL;
+      const k = chunkKey(e.rx * REGION_CHUNKS + Math.floor(f.x / CHUNK), e.rz * REGION_CHUNKS + Math.floor(f.z / CHUNK));
+      let l = lists.get(k);
+      if (l === undefined) lists.set(k, (l = []));
+      l.push(x, z);
+    }
+    if (lists.size === 0) return;
+    e.trunkChunks = [];
+    for (const [k, l] of lists) {
+      this.trunks.set(k, Float32Array.from(l));
+      e.trunkChunks.push(k);
+    }
+  }
+
+  private unindexTrunks(e: Entry): void {
+    if (e.trunkChunks === null) return;
+    for (const k of e.trunkChunks) this.trunks.delete(k);
+    e.trunkChunks = null;
+  }
+
   // ---------------------------------------------------------------- regions
 
   private getEntry(rx: number, rz: number): Entry | null {
@@ -262,7 +362,7 @@ export class WorldStreamer {
       const isEmpty = file === undefined || file === 'empty';
       e = {
         rx, rz, key, file: isEmpty ? null : file, state: isEmpty ? 'empty' : 'idle',
-        data: null, buffer: null, decks: null, sentMask: 0, lastUsed: this.tick, failedAt: 0,
+        data: null, buffer: null, decks: null, trunkChunks: null, sentMask: 0, lastUsed: this.tick, failedAt: 0,
       };
       this.regions.set(key, e);
     }
@@ -298,6 +398,8 @@ export class WorldStreamer {
         e.sentMask = 0;
         e.state = 'loaded';
         this.loadedCount++;
+        this.indexTrunks(e);
+        this.onRegionData?.(e.rx, e.rz, data);
         this.evictRegions();
       })
       .catch((err) => {
@@ -322,6 +424,8 @@ export class WorldStreamer {
       }
       if (victim === null) return; // everything is in use
       this.regions.delete(victim.key);
+      this.unindexTrunks(victim);
+      this.onRegionData?.(victim.rx, victim.rz, null);
       if (this.lastEntry === victim) this.lastEntry = null;
       this.loadedCount--;
     }

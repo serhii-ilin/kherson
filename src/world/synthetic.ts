@@ -45,7 +45,7 @@ export function buildSyntheticRegion(rx = 0, rz = 0, seed = 1337): RegionData {
         set(0, x, z, MAT.WATER);
         set(1, x, z, WATER_H);
         if (x % ROAD_PERIOD < ROAD_WIDTH) {
-          features.push({ type: FEATURE_BRIDGE_DECK, param: GROUND_H, x, z });
+          features.push({ type: FEATURE_BRIDGE_DECK, param: GROUND_H, x, z, species: 0, seed: 0 });
         }
       } else if (isRoad(x, z)) {
         set(0, x, z, MAT.ASPHALT);
@@ -90,7 +90,7 @@ export function buildSyntheticRegion(rx = 0, rz = 0, seed = 1337): RegionData {
     const x = 2 + Math.floor(rand() * (REGION - 4));
     const z = 2 + Math.floor(rand() * (REGION - 4));
     if (cells[cellIndex(0, x, z)] !== MAT.GRASS || cells[cellIndex(2, x, z)] !== 0) continue;
-    features.push({ type: FEATURE_TREE, param: 5 + Math.floor(rand() * 3), x, z });
+    features.push({ type: FEATURE_TREE, param: 5 + Math.floor(rand() * 3), x, z, species: 0, seed: Math.floor(rand() * 256) });
   }
 
   return { rx, rz, cells, features };

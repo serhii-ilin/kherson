@@ -93,6 +93,23 @@ describe('WalkBody', () => {
     expect(b.x).toBeLessThan(8);
   });
 
+  it('is stopped by a tree trunk and slides past it', () => {
+    const trunk = { x: 5, z: 0 };
+    const w: WalkWorld = {
+      heightAt: () => 4,
+      trunkNear: (x, z, r) => Math.hypot(x - trunk.x, z - trunk.z) < r,
+    };
+    const b = new WalkBody();
+    b.placeOnGround(w, 0, 0);
+    run(b, w, 3);
+    expect(b.x).toBeLessThan(5 - 0.4 + 0.2);
+    expect(b.x).toBeGreaterThan(4);
+    // walking diagonally past the trunk is not blocked on the free axis
+    b.placeOnGround(w, 0, 0);
+    run(b, w, 3, { forward: 1, right: 0, up: 0 }, -Math.PI / 2 + 0.6);
+    expect(b.z).toBeLessThan(-1);
+  });
+
   it('holds still while the column is not loaded', () => {
     const w: WalkWorld = { heightAt: () => null };
     const b = new WalkBody();

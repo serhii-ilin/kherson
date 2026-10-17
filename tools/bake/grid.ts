@@ -64,12 +64,12 @@ export class Grid {
     const r = this.region(cx, cz, true)!;
     r[field * PLANE + (cz & (REGION - 1)) * REGION + (cx & (REGION - 1))] = v;
   }
-  addFeature(type: number, param: number, cx: number, cz: number): void {
+  addFeature(type: number, param: number, cx: number, cz: number, species = 0, seed = 0): void {
     if (!this.inside(cx, cz)) return;
     this.region(cx, cz, true);
     const k = Math.floor(cx / REGION) * 65536 + Math.floor(cz / REGION);
     let list = this.features.get(k);
     if (!list) this.features.set(k, (list = []));
-    list.push({ type, param, x: cx & (REGION - 1), z: cz & (REGION - 1) });
+    list.push({ type, param, x: cx & (REGION - 1), z: cz & (REGION - 1), species, seed });
   }
 }

@@ -19,8 +19,8 @@ function makeRegion(): RegionData {
     rz: 7,
     cells,
     features: [
-      { type: 1, param: 6, x: 5, z: 250 },
-      { type: 2, param: 2, x: 255, z: 0 },
+      { type: 1, param: 6, x: 5, z: 250, species: 7, seed: 201 },
+      { type: 2, param: 2, x: 255, z: 0, species: 0, seed: 0 },
     ],
   };
 }

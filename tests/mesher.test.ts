@@ -90,13 +90,13 @@ describe('meshChunk', () => {
   it('features stay in bounds and render', () => {
     const r = flat();
     r.features.push(
-      { type: FEATURE_TREE, param: 6, x: 10, z: 10 },
-      { type: FEATURE_BRIDGE_DECK, param: 3, x: 20, z: 20 },
-      { type: FEATURE_TREE, param: 6, x: 100, z: 100 }, // other chunk
+      { type: FEATURE_TREE, param: 6, x: 10, z: 10, species: 1, seed: 0 }, // vegetation is instanced, not meshed
+      { type: FEATURE_BRIDGE_DECK, param: 3, x: 20, z: 20, species: 0, seed: 0 },
+      { type: FEATURE_TREE, param: 6, x: 100, z: 100, species: 1, seed: 0 }, // other chunk
     );
     const m = meshChunk(r, 0, 0);
-    // top + trunk(5) + leaves(6) + deck(6)
-    expect(m.positions.length / 12).toBe(1 + 5 + 6 + 6);
+    // top + deck(6); trees are not meshed
+    expect(m.positions.length / 12).toBe(1 + 6);
     const max = REGION * VOXEL;
     for (const v of m.positions) {
       expect(v).toBeGreaterThanOrEqual(0);

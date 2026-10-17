@@ -3,7 +3,8 @@ import path from "node:path";
 import {
   CHUNK, F_GROUND_H, F_GROUND_MAT, F_ROOF_MAT, F_STRUCT_H, F_STRUCT_MAT, REGION, VOXEL,
 } from "../src/world/constants.ts";
-import { FEATURE_BRIDGE_DECK, FEATURE_TREE, encodeRegion } from "../src/world/format.ts";
+import { FEATURE_BRIDGE_DECK, FEATURE_BUSH, FEATURE_TREE, encodeRegion } from "../src/world/format.ts";
+import { SPECIES } from "../src/nature/models.ts";
 import { MAT } from "../src/world/materials.ts";
 import { BBOX } from "./bake/config.ts";
 import { WORLD_H, WORLD_W } from "./bake/project.ts";
@@ -173,6 +174,8 @@ const SIDEWALK_ROAD = new Set([
   "tertiary", "tertiary_link", "residential", "unclassified", "living_street",
 ]);
 
+const TREE_LINED = new Set(["residential", "living_street", "tertiary", "secondary", "primary"]);
+
 function parseNum(v: string | undefined): number | null {
   if (!v) return null;
   const n = parseFloat(v.replace(",", "."));
@@ -222,7 +225,7 @@ async function main(): Promise<void> {
   const cellsX = Math.ceil(WORLD_W / VOXEL);
   const cellsZ = Math.ceil(WORLD_H / VOXEL);
   const grid = new Grid(cellsX, cellsZ);
-  const stats = { buildings: 0, water: 0, landuse: 0, roads: 0, rails: 0, bridgeDecks: 0, trees: 0, plazas: 0 };
+  const stats = { buildings: 0, water: 0, landuse: 0, roads: 0, rails: 0, bridgeDecks: 0, trees: 0, streetTrees: 0, bushes: 0, plazas: 0 };
 
   // a. ground areas
   const gAreas: { mat: number; prio: number; a: Area }[] = [];
@@ -231,8 +234,14 @@ async function main(): Promise<void> {
     if (g) gAreas.push({ ...g, a });
   }
   gAreas.sort((p, q) => p.prio - q.prio);
+  // 0 unknown/broadleaved, 1 needleleaved, 2 mixed (only meaningful where ground is FOREST)
+  const leafType = new Uint8Array(cellsX * cellsZ);
   for (const { mat, a } of gAreas) {
-    fillPolygon(a.rings, (cx, cz) => grid.set(F_GROUND_MAT, cx, cz, mat));
+    const lt = a.tags.leaf_type === "needleleaved" ? 1 : a.tags.leaf_type === "mixed" ? 2 : 0;
+    fillPolygon(a.rings, (cx, cz) => {
+      grid.set(F_GROUND_MAT, cx, cz, mat);
+      if (mat === MAT.FOREST && cx >= 0 && cz >= 0 && cx < cellsX && cz < cellsZ) leafType[cz * cellsX + cx] = lt;
+    });
     stats.landuse++;
   }
   stage(`ground areas: ${gAreas.length}`);
@@ -281,7 +290,7 @@ async function main(): Promise<void> {
     }
     grid.set(F_GROUND_MAT, cx, cz, mat);
   };
-  const roads: { hw: number; mat: number; bridge: boolean; sidewalk: boolean; pts: Pt[] }[] = [];
+  const roads: { hw: number; mat: number; bridge: boolean; sidewalk: boolean; lined: boolean; pts: Pt[] }[] = [];
   for (const l of lines) {
     const t = l.tags;
     if (has(t.tunnel)) continue;
@@ -290,9 +299,9 @@ async function main(): Promise<void> {
       const hwM = HW[t.highway];
       if (hwM === undefined) continue;
       const mat = t.highway === "track" ? MAT.DIRT : hwM <= 1.2 ? MAT.SIDEWALK : MAT.ASPHALT;
-      roads.push({ hw: hwM, mat, bridge, sidewalk: SIDEWALK_ROAD.has(t.highway), pts: l.pts });
+      roads.push({ hw: hwM, mat, bridge, sidewalk: SIDEWALK_ROAD.has(t.highway), lined: TREE_LINED.has(t.highway), pts: l.pts });
     } else if (t.railway === "rail" || t.railway === "tram") {
-      roads.push({ hw: 1.2, mat: MAT.RAIL, bridge, sidewalk: false, pts: l.pts });
+      roads.push({ hw: 1.2, mat: MAT.RAIL, bridge, sidewalk: false, lined: false, pts: l.pts });
     }
   }
   roads.sort((a, b) => a.hw - b.hw);
@@ -301,12 +310,15 @@ async function main(): Promise<void> {
     if (r.mat === MAT.RAIL) stats.rails++;
     else stats.roads++;
   }
+  const streetWalk = new Set<number>(); // sidewalk cells beside tree-lined road classes
   for (const r of roads) {
     if (!r.sidewalk || r.bridge) continue;
+    const lined = r.lined;
     bufferLine(r.pts, r.hw / VOXEL + 1, (cx, cz) => {
       const g = grid.get(F_GROUND_MAT, cx, cz);
       if (g === MAT.ASPHALT || g === MAT.WATER || g === MAT.RAIL || g === MAT.SIDEWALK) return;
       grid.set(F_GROUND_MAT, cx, cz, MAT.SIDEWALK);
+      if (lined) streetWalk.add(cx * 100000 + cz);
     });
   }
   stage(`roads: ${stats.roads}, rails: ${stats.rails}, bridge decks: ${stats.bridgeDecks}`);
@@ -335,24 +347,130 @@ async function main(): Promise<void> {
   }
   stage(`buildings: ${stats.buildings}`);
 
-  // e. trees
+  // e. vegetation
+  const S = SPECIES;
+  type Table = readonly (readonly [number, number])[];
+  const T_UNTAGGED: Table = [[S.GENERIC, 40], [S.CHESTNUT, 20], [S.LINDEN, 15], [S.ACACIA, 15], [S.POPLAR, 10]];
+  const T_STREET: Table = [[S.CHESTNUT, 30], [S.LINDEN, 25], [S.ACACIA, 25], [S.PLANE, 10], [S.POPLAR, 10]];
+  const T_PARK: Table = [[S.CHESTNUT, 30], [S.LINDEN, 25], [S.ACACIA, 15], [S.PLANE, 10], [S.POPLAR, 15], [S.WILLOW, 5]];
+  const T_FOREST: Table = [[S.GENERIC, 40], [S.POPLAR, 20], [S.ACACIA, 20], [S.LINDEN, 10], [S.WILLOW, 10]];
+  const T_ROW: Table = [[S.POPLAR, 40], [S.GENERIC, 30], [S.ACACIA, 30]];
+  const pick = (table: Table, r: number): number => {
+    let tot = 0;
+    for (const e of table) tot += e[1];
+    let acc = r * tot;
+    for (const e of table) {
+      if (acc < e[1]) return e[0];
+      acc -= e[1];
+    }
+    return table[table.length - 1]![0];
+  };
+  const speciesName = new Map<number, string>(Object.entries(S).map(([n, v]) => [v, n]));
+  const speciesCount = new Map<number, number>();
+
   const treeCells = new Set<number>();
-  const treeKey = (cx: number, cz: number): number => cx * 100000 + cz;
-  const canTree = (cx: number, cz: number): boolean => {
-    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (treeCells.has(treeKey(cx + dx, cz + dz))) return false;
+  const bushCells = new Set<number>();
+  const ck = (cx: number, cz: number): number => cx * 100000 + cz;
+  const canTree = (cx: number, cz: number, r = 1): boolean => {
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (treeCells.has(ck(cx + dx, cz + dz))) return false;
     return true;
+  };
+  const free = (cx: number, cz: number): boolean => {
+    if (!grid.inside(cx, cz) || grid.get(F_STRUCT_H, cx, cz) !== 0) return false;
+    const g = grid.get(F_GROUND_MAT, cx, cz);
+    return g !== MAT.WATER && g !== MAT.ASPHALT && g !== MAT.RAIL;
+  };
+  const addTree = (cx: number, cz: number, species: number, h: number): void => {
+    treeCells.add(ck(cx, cz));
+    grid.addFeature(FEATURE_TREE, 5, cx, cz, species, h & 255);
+    stats.trees++;
+    speciesCount.set(species, (speciesCount.get(species) ?? 0) + 1);
+  };
+  const nearWater = (cx: number, cz: number): boolean => {
+    for (let dz = -10; dz <= 10; dz += 2) for (let dx = -10; dx <= 10; dx += 2) if (grid.get(F_GROUND_MAT, cx + dx, cz + dz) === MAT.WATER) return true;
+    return false;
+  };
+  const ptsOfNodes = (ids: number[]): Pt[] => {
+    const out: Pt[] = [];
+    for (const id of ids) {
+      const i = osm.nodes.find(id);
+      if (i >= 0) out.push([osm.nodes.xs[i]!, osm.nodes.zs[i]!]);
+    }
+    return out;
+  };
+
+  // explicit natural=tree nodes
+  const speciesOfTags = (t: Tags, h: number): number => {
+    const txt = `${t.species ?? ""} ${t.genus ?? ""} ${t.taxon ?? ""}`.toLowerCase();
+    if (txt.includes("populus")) return S.POPLAR;
+    if (txt.includes("pinus")) return S.PINE;
+    if (txt.includes("salix")) return S.WILLOW;
+    if (txt.includes("robinia")) return S.ACACIA;
+    if (txt.includes("aesculus")) return S.CHESTNUT;
+    if (txt.includes("tilia")) return S.LINDEN;
+    if (txt.includes("platanus")) return S.PLANE;
+    if (/acer|ulmus|fraxinus|quercus|betula|carpinus|fagus|morus|juglans|prunus|malus|pyrus/.test(txt)) return S.GENERIC;
+    if (t.leaf_type === "needleleaved") return S.PINE;
+    return pick(T_UNTAGGED, (hash(h, 11) & 0xffff) / 65536);
   };
   for (const n of osm.taggedNodes) {
     if (n.tags.natural !== "tree") continue;
     const cx = Math.floor(n.cx), cz = Math.floor(n.cz);
-    if (!grid.inside(cx, cz) || grid.get(F_STRUCT_H, cx, cz) !== 0) continue;
-    const g = grid.get(F_GROUND_MAT, cx, cz);
-    if (g === MAT.WATER || g === MAT.ASPHALT || g === MAT.RAIL) continue;
-    if (!canTree(cx, cz)) continue;
-    treeCells.add(treeKey(cx, cz));
-    grid.addFeature(FEATURE_TREE, 5, cx, cz);
-    stats.trees++;
+    if (!free(cx, cz) || !canTree(cx, cz)) continue;
+    const h = hash(cx, cz);
+    addTree(cx, cz, speciesOfTags(n.tags, h), hash(h, 3));
   }
+  stage(`trees from OSM nodes: ${stats.trees}`);
+
+  // natural=tree_row lines
+  let rows = 0, hedgeWays = 0;
+  for (const w of osm.ways.values()) {
+    if (w.tags.natural !== "tree_row") continue;
+    const pts = ptsOfNodes(w.nodes);
+    if (pts.length < 2) continue;
+    rows++;
+    let carry = 0;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i]!, b = pts[i + 1]!;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      let d = carry;
+      while (d <= len) {
+        const t = len > 0 ? d / len : 0;
+        const cx = Math.floor(a[0] + (b[0] - a[0]) * t), cz = Math.floor(a[1] + (b[1] - a[1]) * t);
+        const h = hash(cx, cz);
+        if (free(cx, cz) && canTree(cx, cz)) {
+          const sp = w.tags.leaf_type === "needleleaved" ? S.PINE : pick(T_ROW, (hash(h, 5) & 0xffff) / 65536);
+          addTree(cx, cz, sp, hash(h, 7));
+        }
+        d += 4 + (hash(h, 9) & 1);
+      }
+      carry = d - len;
+    }
+  }
+  stage(`tree rows: ${rows}, trees ${stats.trees}`);
+
+  // street trees on the sidewalk border of residential..primary roads
+  {
+    const keys = [...streetWalk].sort((p, q) => p - q);
+    for (const k of keys) {
+      const cx = Math.floor(k / 100000), cz = k % 100000;
+      const h = hash(cx, cz);
+      if ((h & 0xffff) / 65536 >= 0.4) continue;
+      let ok = free(cx, cz);
+      for (let dz = -1; ok && dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (grid.get(F_STRUCT_H, cx + dx, cz + dz) !== 0 || grid.get(F_GROUND_MAT, cx + dx, cz + dz) === MAT.WATER) { ok = false; break; }
+        }
+      }
+      if (!ok || !canTree(cx, cz, 3)) continue;
+      const hs = hash(h, 21);
+      addTree(cx, cz, pick(T_STREET, ((hs >>> 8) & 0xffff) / 65536), hs);
+      stats.streetTrees++;
+    }
+  }
+  stage(`street trees: ${stats.streetTrees}, trees ${stats.trees}`);
+
+  // park and forest trees
   for (const [k, cells] of [...grid.regions]) {
     const rx = Math.floor(k / 65536), rz = k % 65536;
     const P = REGION * REGION;
@@ -363,16 +481,80 @@ async function main(): Promise<void> {
         if ((g !== MAT.PARK && g !== MAT.FOREST) || cells[F_STRUCT_H * P + i] !== 0) continue;
         const cx = rx * REGION + lx, cz = rz * REGION + lz;
         const h = hash(cx, cz);
-        const prob = g === MAT.PARK ? 0.04 : 0.12;
+        const prob = g === MAT.PARK ? 0.07 : 0.1;
         if ((h & 0xffff) / 65536 >= prob) continue;
         if (!canTree(cx, cz)) continue;
-        treeCells.add(treeKey(cx, cz));
-        grid.addFeature(FEATURE_TREE, 4 + ((h >>> 16) % 4), cx, cz);
-        stats.trees++;
+        const hs = hash(h, 31);
+        const r = ((hs >>> 8) & 0xffff) / 65536;
+        let sp: number;
+        if (g === MAT.FOREST) {
+          const lt = cx < cellsX && cz < cellsZ ? leafType[cz * cellsX + cx]! : 0;
+          if (lt === 1) sp = S.PINE;
+          else if (lt === 2) sp = r < 0.5 ? S.PINE : S.GENERIC;
+          else sp = pick(T_FOREST, r);
+        } else sp = pick(T_PARK, r);
+        if (sp !== S.PINE && sp !== S.WILLOW && nearWater(cx, cz) && ((hs >>> 24) & 255) / 256 < 0.6) sp = S.WILLOW;
+        addTree(cx, cz, sp, hs);
       }
     }
   }
   stage(`trees: ${stats.trees}`);
+
+  // bushes
+  const addBush = (cx: number, cz: number, h: number, hedge: boolean): void => {
+    const hs = hash(h, 41);
+    let sp: number = S.BUSH;
+    if (!hedge && ((hs >>> 8) & 255) / 256 < 0.12) sp = hs & 0x10000 ? S.BUSH_LILAC : S.BUSH_PINK;
+    bushCells.add(ck(cx, cz));
+    grid.addFeature(FEATURE_BUSH, 1 + ((hs >>> 20) % 3), cx, cz, sp, hs & 255);
+    stats.bushes++;
+    speciesCount.set(sp, (speciesCount.get(sp) ?? 0) + 1);
+  };
+  const bushOk = (cx: number, cz: number): boolean => free(cx, cz) && !treeCells.has(ck(cx, cz)) && !bushCells.has(ck(cx, cz));
+  for (const [k, cells] of [...grid.regions]) {
+    const rx = Math.floor(k / 65536), rz = k % 65536;
+    const P = REGION * REGION;
+    for (let lz = 0; lz < REGION; lz++) {
+      for (let lx = 0; lx < REGION; lx++) {
+        const i = lz * REGION + lx;
+        const g = cells[F_GROUND_MAT * P + i]!;
+        if (g !== MAT.PARK && g !== MAT.FOREST && g !== MAT.SIDEWALK && g !== MAT.GRASS) continue;
+        if (cells[F_STRUCT_H * P + i] !== 0) continue;
+        const cx = rx * REGION + lx, cz = rz * REGION + lz;
+        const h = hash(cx + 77, cz + 191);
+        const r = (h & 0xffff) / 65536;
+        if (r >= 0.1) continue;
+        if (g === MAT.PARK) {
+          if (r >= 0.06) continue;
+        } else if (g === MAT.FOREST) {
+          if (r >= 0.04) continue;
+        } else if (g === MAT.SIDEWALK) {
+          let park = false;
+          for (let dz = -1; dz <= 1 && !park; dz++) for (let dx = -1; dx <= 1; dx++) if (grid.get(F_GROUND_MAT, cx + dx, cz + dz) === MAT.PARK) { park = true; break; }
+          if (!park) continue;
+        } else {
+          if (r >= 0.05) continue;
+          let near = false;
+          for (let dz = -3; dz <= 3 && !near; dz++) for (let dx = -3; dx <= 3; dx++) if (grid.get(F_STRUCT_H, cx + dx, cz + dz) !== 0) { near = true; break; }
+          if (!near) continue;
+        }
+        if (bushOk(cx, cz)) addBush(cx, cz, h, false);
+      }
+    }
+  }
+  for (const w of osm.ways.values()) {
+    if (w.tags.barrier !== "hedge") continue;
+    const pts = ptsOfNodes(w.nodes);
+    if (pts.length < 1) continue;
+    hedgeWays++;
+    bufferLine(pts, 0.5, (cx, cz) => {
+      if (bushOk(cx, cz)) addBush(cx, cz, hash(cx, cz), true);
+    });
+  }
+  stage(`bushes: ${stats.bushes} (hedge ways ${hedgeWays})`);
+  console.log(
+    "species: " + [...speciesCount].sort((p, q) => p[0] - q[0]).map(([id, n]) => `${speciesName.get(id)}=${n}`).join(" "),
+  );
 
   // places
   const places = collectPlaces(osm, areas, lines);

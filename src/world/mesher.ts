@@ -8,7 +8,7 @@ import {
   REGION,
   VOXEL,
 } from './constants.ts';
-import { FEATURE_BRIDGE_DECK, FEATURE_TREE, type RegionData } from './format.ts';
+import { FEATURE_BRIDGE_DECK, type RegionData } from './format.ts';
 import { MAT, PALETTE } from './materials.ts';
 
 /**
@@ -413,22 +413,11 @@ function meshWater(cells: Uint8Array, x0: number, z0: number, edges: RegionEdges
 }
 
 function meshFeatures(b: QuadBuilder, region: RegionData, x0: number, z0: number): void {
-  const cells = region.cells;
   for (const f of region.features) {
     if (f.x < x0 || f.x >= x0 + CHUNK || f.z < z0 || f.z >= z0 + CHUNK) continue;
     const xm = f.x * VOXEL;
     const zm = f.z * VOXEL;
-    if (f.type === FEATURE_TREE) {
-      const i = f.z * REGION + f.x;
-      const base = cells[PLANE * F_GROUND_H + i]! + cells[PLANE * F_STRUCT_H + i]!;
-      const trunkTop = base + Math.max(1, f.param - 2);
-      b.box(xm, base * VOXEL, zm, xm + VOXEL, trunkTop * VOXEL, zm + VOXEL, MAT.TRUNK, false);
-      b.box(
-        xm - VOXEL, trunkTop * VOXEL, zm - VOXEL,
-        xm + 2 * VOXEL, (trunkTop + 2) * VOXEL, zm + 2 * VOXEL,
-        MAT.LEAVES, true,
-      );
-    } else if (f.type === FEATURE_BRIDGE_DECK) {
+    if (f.type === FEATURE_BRIDGE_DECK) {
       b.box(xm, f.param * VOXEL, zm, xm + VOXEL, (f.param + 1) * VOXEL, zm + VOXEL, MAT.BRIDGE, true);
     }
   }

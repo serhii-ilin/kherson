@@ -18,7 +18,12 @@ export interface WalkWorld {
   /** Top surface in metres, or null when unknown. `refY` makes bridge decks above it be ignored. */
   heightAt(x: number, z: number, refY?: number): number | null;
   isWater?(x: number, z: number, refY?: number): boolean;
+  /** True when a tree trunk centre lies within r metres of (x, z). */
+  trunkNear?(x: number, z: number, r: number): boolean;
 }
+
+/** A walker is stopped when its centre comes this close to a tree trunk centre. */
+export const TRUNK_RADIUS = 0.4;
 
 /** First-person walking body. `y` is the feet height. */
 export class WalkBody {
@@ -61,6 +66,12 @@ export class WalkBody {
     return !(this.y < g + WATER_CLEARANCE && this.wet(world, x, z, this.y + STEP_HEIGHT));
   }
 
+  /** Moving into a trunk is blocked; leaving one the body already overlaps is not. */
+  private hitsTrunk(world: WalkWorld, x: number, z: number): boolean {
+    if (!world.trunkNear) return false;
+    return world.trunkNear(x, z, TRUNK_RADIUS) && !world.trunkNear(this.x, this.z, TRUNK_RADIUS);
+  }
+
   /** Puts the feet on the highest surface at (x, z); false when that column is not loaded. */
   placeOnGround(world: WalkWorld, x: number, z: number): boolean {
     const g = this.ground(world, x, z, Infinity);
@@ -89,8 +100,8 @@ export class WalkBody {
     const dz = wz * speed * dt;
 
     // per-axis resolution: try x, then z (lets the player slide along walls)
-    if (dx !== 0 && this.passable(world, this.x + dx, this.z)) this.x += dx;
-    if (dz !== 0 && this.passable(world, this.x, this.z + dz)) this.z += dz;
+    if (dx !== 0 && this.passable(world, this.x + dx, this.z) && !this.hitsTrunk(world, this.x + dx, this.z)) this.x += dx;
+    if (dz !== 0 && this.passable(world, this.x, this.z + dz) && !this.hitsTrunk(world, this.x, this.z + dz)) this.z += dz;
 
     // vertical
     const ground = this.ground(world, this.x, this.z, this.y + STEP_HEIGHT);
