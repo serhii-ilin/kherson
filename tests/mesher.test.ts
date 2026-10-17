@@ -82,8 +82,9 @@ describe('meshChunk', () => {
       }
     }
     const m = meshChunk(r, 0, 0);
-    expect(m.positions.length / 12).toBe(1); // lower than surrounding land, so only the top face
-    quadNormalDirs(m);
+    expect(m.positions.length / 12).toBe(0); // water tops live in the water mesh
+    expect(m.water).not.toBeNull();
+    expect(m.water!.indices.length / 6).toBe(16 * 16);
   });
 
   it('features stay in bounds and render', () => {
@@ -169,5 +170,79 @@ describe('meshChunk region seams', () => {
     expect(edgeTops(nb.cells, 'px')[3]).toBe(9);
     expect(edgeTops(nb.cells, 'pz')[7]).toBe(8);
     expect(edgeTops(nb.cells, 'nx')[3]).toBe(2);
+  });
+});
+
+describe('water mesh', () => {
+  /** Water band covering cells x in [8, 40) for the whole region height. */
+  function river(): RegionData {
+    const r = flat();
+    for (let z = 0; z < REGION; z++) {
+      for (let x = 8; x < 40; x++) {
+        r.cells[cellIndex(0, x, z)] = MAT.WATER;
+        r.cells[cellIndex(1, x, z)] = 1;
+      }
+    }
+    return r;
+  }
+
+  it('emits a 4 m quad grid, no water tops in the main mesh, shore 0 at land and 1 far away', () => {
+    const m = meshChunk(river(), 0, 0);
+    const w = m.water!;
+    expect(w).not.toBeNull();
+    // chunk 0 spans cells 0..31; water cells 8..31 -> 12 blocks wide x 16 tall
+    expect(w.indices.length / 6).toBe(12 * 16);
+    expect(w.positions.length / 3).toBe(13 * 17);
+    expect(w.shore.length).toBe(13 * 17);
+    // no main-mesh top quad may lie at the water level over the river
+    for (let v = 0; v < m.positions.length / 3; v += 4) {
+      if (m.normals[v * 3 + 1] !== 1) continue;
+      expect(m.positions[v * 3 + 1]).not.toBe(1 * VOXEL);
+    }
+    const shoreAt = (xm: number, zm: number): number => {
+      for (let v = 0; v < w.positions.length / 3; v++) {
+        if (w.positions[v * 3] === xm && w.positions[v * 3 + 2] === zm) return w.shore[v]!;
+      }
+      return NaN;
+    };
+    expect(shoreAt(8 * VOXEL, 16 * VOXEL)).toBe(0); // on the bank
+    expect(shoreAt(24 * VOXEL, 16 * VOXEL)).toBe(1); // mid-river, >= 3 cells from either bank
+  });
+
+  it('far from land the shore is 1', () => {
+    const r = river();
+    for (let z = 0; z < REGION; z++) {
+      for (let x = 8; x < 100; x++) {
+        r.cells[cellIndex(0, x, z)] = MAT.WATER;
+        r.cells[cellIndex(1, x, z)] = 1;
+      }
+    }
+    const w = meshChunk(r, 1, 1).water!;
+    let max = 0;
+    for (const s of w.shore) max = Math.max(max, s);
+    expect(max).toBe(1);
+    const w0 = meshChunk(r, 0, 0).water!;
+    const near = [...w0.shore].filter((s) => s === 0).length;
+    expect(near).toBeGreaterThan(0);
+  });
+
+  it('border vertices coincide between neighbouring chunks', () => {
+    const r = river();
+    const a = meshChunk(r, 0, 0).water!;
+    const b = meshChunk(r, 1, 0).water!;
+    const border = 32 * VOXEL;
+    const pick = (w: NonNullable<typeof a>): string[] => {
+      const out: string[] = [];
+      for (let v = 0; v < w.positions.length / 3; v++) {
+        if (w.positions[v * 3] === border) out.push(`${w.positions[v * 3 + 1]},${w.positions[v * 3 + 2]},${w.shore[v]}`);
+      }
+      return out.sort();
+    };
+    expect(pick(a).length).toBeGreaterThan(0);
+    expect(pick(a)).toEqual(pick(b));
+  });
+
+  it('chunks without water have none', () => {
+    expect(meshChunk(flat(), 0, 0).water).toBeNull();
   });
 });

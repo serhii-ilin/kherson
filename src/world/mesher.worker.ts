@@ -1,5 +1,5 @@
 import { decodeRegion, type RegionData } from './format.ts';
-import { meshChunk, type ChunkMesh, type RegionEdges } from './mesher.ts';
+import { meshChunk, type ChunkMeshResult, type RegionEdges } from './mesher.ts';
 
 /** Job from the streamer. `buffer` is present only when the worker may not have the region yet. */
 export interface MeshRequest {
@@ -17,7 +17,7 @@ export interface MeshResponse {
   id: number;
   /** True when the region is not cached here; the streamer must resend with the buffer. */
   missing?: boolean;
-  mesh?: ChunkMesh;
+  mesh?: ChunkMeshResult;
 }
 
 interface WorkerScope {
@@ -50,5 +50,6 @@ scope.onmessage = (e) => {
     mesh.normals.buffer,
     mesh.colors.buffer,
     mesh.indices.buffer,
+    ...(mesh.water ? [mesh.water.positions.buffer, mesh.water.shore.buffer, mesh.water.indices.buffer] : []),
   ]);
 };

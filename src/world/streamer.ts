@@ -10,7 +10,7 @@ import {
 import { FEATURE_BRIDGE_DECK, decodeRegion, type RegionData } from './format.ts';
 import type { Manifest } from './manifest.ts';
 import { MAT } from './materials.ts';
-import { QuadBuilder, edgeTops, type ChunkMesh, type EdgeKey, type RegionEdges } from './mesher.ts';
+import { QuadBuilder, edgeTops, type ChunkMesh, type EdgeKey, type RegionEdges, type WaterMesh } from './mesher.ts';
 import type { MeshRequest, MeshResponse } from './mesher.worker.ts';
 import {
   CHUNK_M,
@@ -30,6 +30,8 @@ import {
 export interface StreamerOptions {
   /** Radius (metres) around the camera in which chunk meshes are kept. */
   viewRadius?: number;
+  /** Shared material for tessellated water; a plain blue fallback is used when omitted. */
+  waterMaterial?: THREE.Material;
 }
 
 const MAX_REGIONS = 24;
@@ -65,6 +67,7 @@ interface Chunk {
   gcx: number;
   gcz: number;
   mesh: THREE.Mesh | null;
+  water: THREE.Mesh | null;
   /** DIR_* bits whose neighbour edge info was used for the current mesh. */
   edgeMask: number;
   busy: boolean;
@@ -85,6 +88,8 @@ const EMPTY_EDGE = new Uint8Array(REGION).fill(DEFAULT_GROUND_H);
 export class WorldStreamer {
   readonly viewRadius: number;
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  readonly waterMaterial: THREE.Material;
+  private readonly ownsWaterMaterial: boolean;
 
   private readonly scene: THREE.Scene;
   private readonly manifest: Manifest;
@@ -123,6 +128,8 @@ export class WorldStreamer {
     this.scene = scene;
     this.manifest = manifest;
     this.viewRadius = opts.viewRadius ?? 640;
+    this.ownsWaterMaterial = opts.waterMaterial === undefined;
+    this.waterMaterial = opts.waterMaterial ?? new THREE.MeshBasicMaterial({ color: 0x3b78b8 });
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     this.chunksX = manifest.regionsX * REGION_CHUNKS;
     this.chunksZ = manifest.regionsZ * REGION_CHUNKS;
@@ -184,6 +191,19 @@ export class WorldStreamer {
     return this.sample(x, z, refY) !== UNKNOWN && this.sampleWater;
   }
 
+  /** Ground material of the cell at (x, z), or null when not loaded. */
+  groundMatAt(x: number, z: number): number | null {
+    if (x < 0 || z < 0) return null;
+    const rx = Math.floor(x / REGION_M);
+    const rz = Math.floor(z / REGION_M);
+    const e = this.regions.get(regionKey(rx, rz));
+    if (e === undefined) return null;
+    if (e.state === 'empty') return MAT.GRASS;
+    if (e.data === null) return null;
+    const i = (Math.floor(z / VOXEL) - rz * REGION) * REGION + Math.floor(x / VOXEL) - rx * REGION;
+    return e.data.cells[PLANE * F_GROUND_MAT + i]!;
+  }
+
   dispose(): void {
     for (const w of this.workers) w.terminate();
     for (const c of this.chunks.values()) this.freeChunk(c);
@@ -192,6 +212,7 @@ export class WorldStreamer {
     this.emptyQuads.clear();
     this.emptyGeometry?.dispose();
     this.material.dispose();
+    if (this.ownsWaterMaterial) this.waterMaterial.dispose();
   }
 
   // ---------------------------------------------------------------- sampling
@@ -418,7 +439,7 @@ export class WorldStreamer {
         continue;
       }
       if (chunk === undefined) {
-        chunk = { key, gcx: ref.gcx, gcz: ref.gcz, mesh: null, edgeMask: 0, busy: false, disposed: false };
+        chunk = { key, gcx: ref.gcx, gcz: ref.gcz, mesh: null, water: null, edgeMask: 0, busy: false, disposed: false };
         this.chunks.set(key, chunk);
       }
       if (!this.dispatch(chunk, entry, avail) && chunk.mesh === null) this.addPending(ref);
@@ -518,7 +539,7 @@ export class WorldStreamer {
     return g;
   }
 
-  private setChunkMesh(chunk: Chunk, mesh: ChunkMesh, entry: Entry, mask: number): void {
+  private setChunkMesh(chunk: Chunk, mesh: ChunkMesh & { water: WaterMesh | null }, entry: Entry, mask: number): void {
     const geometry = this.geometryFrom(mesh);
     if (chunk.mesh !== null) {
       this.triCount -= chunk.mesh.geometry.index!.count / 3;
@@ -534,11 +555,43 @@ export class WorldStreamer {
       this.meshCount++;
     }
     this.triCount += mesh.indices.length / 3;
+    this.setChunkWater(chunk, mesh.water, entry);
     chunk.edgeMask = mask;
+  }
+
+  private setChunkWater(chunk: Chunk, water: WaterMesh | null, entry: Entry): void {
+    if (chunk.water !== null) {
+      this.scene.remove(chunk.water);
+      this.triCount -= chunk.water.geometry.index!.count / 3;
+      chunk.water.geometry.dispose();
+      chunk.water = null;
+    }
+    if (water === null) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(water.positions, 3));
+    g.setAttribute('shore', new THREE.BufferAttribute(water.shore, 1));
+    g.setIndex(new THREE.BufferAttribute(water.indices, 1));
+    g.computeBoundingSphere();
+    // waves lift the surface by up to ~0.5 m; keep the culling sphere conservative
+    g.boundingSphere!.radius += 1;
+    const m = new THREE.Mesh(g, this.waterMaterial);
+    m.position.set(entry.rx * REGION_M, 0, entry.rz * REGION_M);
+    m.matrixAutoUpdate = false;
+    m.updateMatrix();
+    m.renderOrder = 1;
+    this.scene.add(m);
+    chunk.water = m;
+    this.triCount += water.indices.length / 3;
   }
 
   private freeChunk(c: Chunk): void {
     c.disposed = true;
+    if (c.water !== null) {
+      this.scene.remove(c.water);
+      this.triCount -= c.water.geometry.index!.count / 3;
+      c.water.geometry.dispose();
+      c.water = null;
+    }
     if (c.mesh === null) return;
     this.scene.remove(c.mesh);
     this.triCount -= c.mesh.geometry.index!.count / 3;

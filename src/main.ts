@@ -3,6 +3,8 @@ import { toLatLon } from './world/geo.ts';
 import { Overview, parseOverview } from './world/lod.ts';
 import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
+import { createWaterMaterial, updateWater } from './nature/water.ts';
+import { BirdSystem, type BirdListener } from './nature/birds.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
 import { applyDocument, createLangSwitcher, t } from './i18n.ts';
@@ -29,6 +31,11 @@ scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 0.9));
 const sun = new THREE.DirectionalLight(0xfff0d0, 1.6);
 sun.position.set(-300, 500, 300); // from the south-west
 scene.add(sun);
+const waterMaterial = createWaterMaterial({
+  skyColor: new THREE.Color(SKY),
+  sunDir: sun.position.clone().normalize(),
+  fog: true,
+});
 
 const hud = document.getElementById('hud')!;
 applyDocument();
@@ -37,7 +44,7 @@ const base = import.meta.env.BASE_URL;
 
 async function start(): Promise<void> {
   const manifest = (await (await fetch(`${base}world/manifest.json`)).json()) as Manifest;
-  const streamer = new WorldStreamer(scene, manifest, { viewRadius: isMobile ? 384 : 640 });
+  const streamer = new WorldStreamer(scene, manifest, { viewRadius: isMobile ? 384 : 640, waterMaterial });
   const input = new Input();
   input.attach(renderer.domElement);
   const player = new PlayerController(camera, input);
@@ -77,14 +84,17 @@ async function start(): Promise<void> {
     })
     .catch((err) => console.warn('places unavailable', err));
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input } });
+  const birds = new BirdSystem(scene, { mobile: isMobile });
+  const birdListener: BirdListener = { x: 0, y: 0, z: 0, speed: 0 };
+
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input, birds } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
     .then((r) => r.arrayBuffer())
     .then((buf) => {
       const data = parseOverview(buf);
-      overview = new Overview(scene, data, sx, sz);
+      overview = new Overview(scene, data, sx, sz, waterMaterial);
       minimap.setBackground(data, PALETTE);
     })
     .catch((err) => console.warn('overview unavailable', err));
@@ -113,6 +123,13 @@ async function start(): Promise<void> {
       if (!overview.done) overview.build(4);
       overview.setHole(camera.position.x, camera.position.z, streamer.holeRadius(camera.position.x, camera.position.z));
     }
+    updateWater(waterMaterial, now / 1000, camera.position);
+    const cp = camera.position;
+    if (dt > 0) birdListener.speed = Math.hypot(cp.x - birdListener.x, cp.z - birdListener.z) / dt;
+    birdListener.x = cp.x;
+    birdListener.y = cp.y;
+    birdListener.z = cp.z;
+    birds.update(dt, now / 1000, streamer, birdListener);
     renderer.render(scene, camera);
     minimap.update(camera.position.x, camera.position.z, player.yaw);
 

@@ -44,6 +44,18 @@ export interface ChunkMesh {
   indices: Uint32Array;
 }
 
+/** Tessellated water surface; normals and colours are computed by the water shader. */
+export interface WaterMesh {
+  positions: Float32Array;
+  /** 0 at the shore .. 1 three or more cells from land. */
+  shore: Float32Array;
+  indices: Uint32Array;
+}
+
+export interface ChunkMeshResult extends ChunkMesh {
+  water: WaterMesh | null;
+}
+
 const PLANE = REGION * REGION;
 const SIDE_SHADE = 0.8;
 const BOTTOM_SHADE = 0.65;
@@ -166,10 +178,11 @@ function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): vo
       } else {
         mat = cells[PLANE * F_GROUND_MAT + i]!;
       }
-      topKey[lz * CHUNK + lx] = ((gh + sh) << 8) | mat;
+      topKey[lz * CHUNK + lx] = sh === 0 && mat === MAT.WATER ? -1 : ((gh + sh) << 8) | mat;
     }
   }
   const used = new Uint8Array(CHUNK * CHUNK);
+  for (let k = 0; k < CHUNK * CHUNK; k++) if (topKey[k] === -1) used[k] = 1;
   for (let lz = 0; lz < CHUNK; lz++) {
     for (let lx = 0; lx < CHUNK; lx++) {
       const s = lz * CHUNK + lx;
@@ -272,6 +285,133 @@ function meshSides(
   }
 }
 
+const BLOCKS = CHUNK / 2;
+const GRID = BLOCKS + 1;
+const SHORE_MARGIN = 3;
+const WIN = CHUNK + 2 * SHORE_MARGIN;
+const shoreDist = new Uint8Array(WIN * WIN);
+const gridVert = new Int32Array(GRID * GRID);
+
+/** Chebyshev distance (capped at SHORE_MARGIN) to the nearest land cell, over the chunk plus a margin. */
+function computeShore(cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined, level: number): void {
+  for (let wz = 0; wz < WIN; wz++) {
+    for (let wx = 0; wx < WIN; wx++) {
+      const cx = x0 - SHORE_MARGIN + wx;
+      const cz = z0 - SHORE_MARGIN + wz;
+      let water: boolean;
+      if (cx >= 0 && cx < REGION && cz >= 0 && cz < REGION) {
+        water = cells[cz * REGION + cx] === MAT.WATER;
+      } else if (edges && cz >= 0 && cz < REGION && (cx < 0 ? edges.nx : cx >= REGION ? edges.px : undefined)) {
+        water = (cx < 0 ? edges.nx! : edges.px!)[cz]! <= level;
+      } else if (edges && cx >= 0 && cx < REGION && (cz < 0 ? edges.nz : cz >= REGION ? edges.pz : undefined)) {
+        water = (cz < 0 ? edges.nz! : edges.pz!)[cx]! <= level;
+      } else {
+        water = true; // unknown
+      }
+      shoreDist[wz * WIN + wx] = water ? SHORE_MARGIN : 0;
+    }
+  }
+  for (let wz = 0; wz < WIN; wz++) {
+    for (let wx = 0; wx < WIN; wx++) {
+      let d = shoreDist[wz * WIN + wx]!;
+      if (d === 0) continue;
+      for (let dz = -1; dz <= 0; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dz === 0 && dx >= 0) break;
+          const nx = wx + dx;
+          const nz = wz + dz;
+          if (nx < 0 || nx >= WIN || nz < 0) continue;
+          const v = shoreDist[nz * WIN + nx]! + 1;
+          if (v < d) d = v;
+        }
+      }
+      shoreDist[wz * WIN + wx] = d;
+    }
+  }
+  for (let wz = WIN - 1; wz >= 0; wz--) {
+    for (let wx = WIN - 1; wx >= 0; wx--) {
+      let d = shoreDist[wz * WIN + wx]!;
+      if (d === 0) continue;
+      for (let dz = 1; dz >= 0; dz--) {
+        for (let dx = 1; dx >= -1; dx--) {
+          if (dz === 0 && dx <= 0) break;
+          const nx = wx + dx;
+          const nz = wz + dz;
+          if (nx < 0 || nx >= WIN || nz >= WIN) continue;
+          const v = shoreDist[nz * WIN + nx]! + 1;
+          if (v < d) d = v;
+        }
+      }
+      shoreDist[wz * WIN + wx] = d;
+    }
+  }
+}
+
+/**
+ * Water surface: shared-vertex grid of 2x2-cell quads over every 2x2 block containing a water cell.
+ * Vertex (i, j) sits at cell corner (x0 + 2i, z0 + 2j), so neighbouring chunks agree on border vertices.
+ */
+function meshWater(cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined): WaterMesh | null {
+  let level = -1;
+  const blockLevel = new Int16Array(BLOCKS * BLOCKS);
+  let blockCount = 0;
+  for (let bz = 0; bz < BLOCKS; bz++) {
+    for (let bx = 0; bx < BLOCKS; bx++) {
+      let lv = -1;
+      for (let k = 0; k < 4 && lv < 0; k++) {
+        const i = (z0 + bz * 2 + (k >> 1)) * REGION + x0 + bx * 2 + (k & 1);
+        if (cells[i] === MAT.WATER) lv = cells[PLANE * F_GROUND_H + i]!;
+      }
+      blockLevel[bz * BLOCKS + bx] = lv;
+      if (lv >= 0) {
+        blockCount++;
+        if (level < 0) level = lv;
+      }
+    }
+  }
+  if (blockCount === 0) return null;
+  computeShore(cells, x0, z0, edges, level);
+
+  gridVert.fill(-1);
+  const pos = new Float32Array(blockCount * 4 * 3);
+  const shore = new Float32Array(blockCount * 4);
+  const idx = new Uint32Array(blockCount * 6);
+  let nv = 0;
+  let ni = 0;
+  const vert = (gi: number, gj: number, y: number): number => {
+    const g = gj * GRID + gi;
+    let v = gridVert[g]!;
+    if (v >= 0) return v;
+    v = nv++;
+    gridVert[g] = v;
+    pos[v * 3] = (x0 + gi * 2) * VOXEL;
+    pos[v * 3 + 1] = y * VOXEL;
+    pos[v * 3 + 2] = (z0 + gj * 2) * VOXEL;
+    // vertex touches window cells (cx-1..cx, cz-1..cz) with cx = SHORE_MARGIN + 2*gi
+    const wx = SHORE_MARGIN + gi * 2;
+    const wz = SHORE_MARGIN + gj * 2;
+    const d = Math.min(
+      shoreDist[(wz - 1) * WIN + wx - 1]!, shoreDist[(wz - 1) * WIN + wx]!,
+      shoreDist[wz * WIN + wx - 1]!, shoreDist[wz * WIN + wx]!,
+    );
+    shore[v] = d / SHORE_MARGIN;
+    return v;
+  };
+  for (let bz = 0; bz < BLOCKS; bz++) {
+    for (let bx = 0; bx < BLOCKS; bx++) {
+      const lv = blockLevel[bz * BLOCKS + bx]!;
+      if (lv < 0) continue;
+      const a = vert(bx, bz + 1, lv);
+      const b = vert(bx + 1, bz + 1, lv);
+      const c = vert(bx + 1, bz, lv);
+      const d = vert(bx, bz, lv);
+      idx[ni++] = a; idx[ni++] = b; idx[ni++] = c;
+      idx[ni++] = a; idx[ni++] = c; idx[ni++] = d;
+    }
+  }
+  return { positions: pos.slice(0, nv * 3), shore: shore.slice(0, nv), indices: idx };
+}
+
 function meshFeatures(b: QuadBuilder, region: RegionData, x0: number, z0: number): void {
   const cells = region.cells;
   for (const f of region.features) {
@@ -294,12 +434,12 @@ function meshFeatures(b: QuadBuilder, region: RegionData, x0: number, z0: number
   }
 }
 
-export function meshChunk(region: RegionData, cx: number, cz: number, edges?: RegionEdges): ChunkMesh {
+export function meshChunk(region: RegionData, cx: number, cz: number, edges?: RegionEdges): ChunkMeshResult {
   const b = new QuadBuilder();
   const x0 = cx * CHUNK;
   const z0 = cz * CHUNK;
   meshTops(b, region.cells, x0, z0);
   meshSides(b, region.cells, x0, z0, edges);
   meshFeatures(b, region, x0, z0);
-  return b.build();
+  return { ...b.build(), water: meshWater(region.cells, x0, z0, edges) };
 }

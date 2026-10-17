@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { VOXEL } from './constants.ts';
-import { QuadBuilder, type ChunkMesh } from './mesher.ts';
+import { createOverviewWaterMaterial } from '../nature/water.ts';
+import { MAT } from './materials.ts';
+import { QuadBuilder, type ChunkMeshResult } from './mesher.ts';
 
 /** Metres per overview block (8 cells). */
 export const BLOCK_M = 8 * VOXEL;
@@ -24,12 +26,14 @@ export function parseOverview(buf: ArrayBuffer): OverviewData {
 /**
  * Meshes blocks [bx0,bx1) x [bz0,bz1) in world coordinates: greedy-merged tops, and side
  * walls only where the neighbouring block is lower (neighbours outside the world add none).
+ * With `splitWater`, water tops go to `water` (shore = 1 everywhere) instead of the main mesh.
  */
 export function buildOverviewTile(
-  d: OverviewData, bx0: number, bz0: number, bx1: number, bz1: number,
-): ChunkMesh {
+  d: OverviewData, bx0: number, bz0: number, bx1: number, bz1: number, splitWater = false,
+): ChunkMeshResult {
   const { w, h, blocks } = d;
   const b = new QuadBuilder();
+  const wb = new QuadBuilder();
   const tw = bx1 - bx0;
   const th = bz1 - bz0;
   const height = (x: number, z: number): number => blocks[(z * w + x) * 3 + 1]!;
@@ -55,7 +59,10 @@ export function buildOverviewTile(
         rh++;
       }
       for (let dz = 0; dz < rh; dz++) used.fill(1, s + dz * tw, s + dz * tw + rw);
-      b.top((bx0 + lx) * BLOCK_M, (bx0 + lx + rw) * BLOCK_M, hh * VOXEL, (bz0 + lz) * BLOCK_M, (bz0 + lz + rh) * BLOCK_M, mm);
+      (splitWater && mm === MAT.WATER ? wb : b).top(
+        (bx0 + lx) * BLOCK_M, (bx0 + lx + rw) * BLOCK_M, hh * VOXEL,
+        (bz0 + lz) * BLOCK_M, (bz0 + lz + rh) * BLOCK_M, mm,
+      );
     }
   }
 
@@ -103,7 +110,12 @@ export function buildOverviewTile(
       }
     }
   }
-  return b.build();
+  let water: ChunkMeshResult['water'] = null;
+  if (wb.quads > 0) {
+    const m = wb.build();
+    water = { positions: m.positions, shore: new Float32Array(m.positions.length / 3).fill(1), indices: m.indices };
+  }
+  return { ...b.build(), water };
 }
 
 /** Far terrain: tiled meshes built incrementally, with a circular hole around the camera. */
@@ -111,12 +123,17 @@ export class Overview {
   readonly group = new THREE.Group();
   readonly material: THREE.MeshLambertMaterial;
   private readonly hole = { value: new THREE.Vector3(0, 0, 0) };
+  private readonly waterMaterial: THREE.ShaderMaterial | null;
   private readonly queue: { x0: number; z0: number }[] = [];
   private readonly data: OverviewData;
   triangles = 0;
 
-  constructor(scene: THREE.Scene, data: OverviewData, focusX: number, focusZ: number) {
+  constructor(
+    scene: THREE.Scene, data: OverviewData, focusX: number, focusZ: number,
+    waterBase?: THREE.ShaderMaterial,
+  ) {
     this.data = data;
+    this.waterMaterial = waterBase ? createOverviewWaterMaterial(waterBase) : null;
     this.material = new THREE.MeshLambertMaterial({
       vertexColors: true,
       polygonOffset: true,
@@ -155,6 +172,7 @@ export class Overview {
       const t = this.queue.pop()!;
       const mesh = buildOverviewTile(
         this.data, t.x0, t.z0, Math.min(t.x0 + TILE_BLOCKS, this.data.w), Math.min(t.z0 + TILE_BLOCKS, this.data.h),
+        this.waterMaterial !== null,
       );
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
@@ -166,11 +184,24 @@ export class Overview {
       m.matrixAutoUpdate = false;
       this.group.add(m);
       this.triangles += mesh.indices.length / 3;
+      if (mesh.water !== null && this.waterMaterial !== null) {
+        const wg = new THREE.BufferGeometry();
+        wg.setAttribute('position', new THREE.BufferAttribute(mesh.water.positions, 3));
+        wg.setAttribute('shore', new THREE.BufferAttribute(mesh.water.shore, 1));
+        wg.setIndex(new THREE.BufferAttribute(mesh.water.indices, 1));
+        wg.computeBoundingSphere();
+        const wm = new THREE.Mesh(wg, this.waterMaterial);
+        wm.matrixAutoUpdate = false;
+        wm.renderOrder = 1;
+        this.group.add(wm);
+        this.triangles += mesh.water.indices.length / 3;
+      }
     }
   }
 
   /** Cuts a hole of `radius` metres around (x, z). */
   setHole(x: number, z: number, radius: number): void {
     this.hole.value.set(x, z, radius * radius);
+    this.waterMaterial?.uniforms.uHole!.value.set(x, z, radius * radius);
   }
 }
