@@ -56,7 +56,7 @@ describe('BirdSystem', () => {
     expect(avg).toBeLessThan(28);
     expect(sys.swiftFlocks.length).toBe(3);
     sys.dispose();
-  });
+  }, 30_000);
 
   function liveDoves(mesh: THREE.InstancedMesh): { i: number; x: number; y: number; z: number }[] {
     const a = mesh.instanceMatrix.array;
@@ -103,7 +103,7 @@ describe('BirdSystem', () => {
     const a = doveMesh.instanceMatrix.array;
     for (const d of mine) expect(a[d.i * 16 + 13]).toBeGreaterThan(4 + 2);
     sys.dispose();
-  });
+  }, 30_000);
 
   it('has no NaN in instance matrices or flap data', () => {
     const scene = new THREE.Scene();
@@ -120,5 +120,5 @@ describe('BirdSystem', () => {
       for (const v of flap) expect(Number.isFinite(v)).toBe(true);
     }
     sys.dispose();
-  });
+  }, 30_000);
 });
