@@ -1,0 +1,4 @@
+node_modules
+dist
+data/osm/*.json
+.DS_Store
