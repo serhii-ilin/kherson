@@ -29,6 +29,8 @@ function buildQuery(b: string): string {
   nwr(${b})["historic"]["name"];
   nwr(${b})["bridge"="yes"];
   nwr(${b})["man_made"="bridge"];
+  nwr(${b})["natural"="tree_row"];
+  nwr(${b})["barrier"="hedge"];
 );
 out body;
 >;

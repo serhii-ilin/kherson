@@ -5,6 +5,8 @@ import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
 import { createWaterMaterial, updateWater } from './nature/water.ts';
 import { BirdSystem, type BirdListener } from './nature/birds.ts';
+import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
+import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
 import { applyDocument, createLangSwitcher, t } from './i18n.ts';
@@ -87,7 +89,44 @@ async function start(): Promise<void> {
   const birds = new BirdSystem(scene, { mobile: isMobile });
   const birdListener: BirdListener = { x: 0, y: 0, z: 0, speed: 0 };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input, birds } });
+  const ambience = new Ambience();
+  createMuteButton(document.body, ambience);
+  // Browsers only allow audio after a user gesture.
+  const unlockAudio = (): void => ambience.unlock();
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, unlockAudio, { once: true });
+  const audioScene: AudioScene = {
+    listener: { x: 0, y: 0, z: 0, yaw: 0 },
+    groundY: 4,
+    treeDensity: 0,
+    waterDistance: Infinity,
+    swiftFlocks: birds.swiftFlocks,
+    doveGroups: birds.doveGroups,
+  };
+  let surroundingsAt = 0;
+  // Greenery share and nearest water from a coarse ring sample around the listener.
+  const sampleSurroundings = (x: number, z: number): void => {
+    let green = 0;
+    let total = 0;
+    let water = Infinity;
+    for (const r of [12, 30, 60, 100, 150]) {
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        const sx = x + Math.cos(a) * r;
+        const sz = z + Math.sin(a) * r;
+        const mat = streamer.groundMatAt(sx, sz);
+        if (mat === null) continue;
+        if (mat === MAT.WATER) water = Math.min(water, r);
+        if (r <= 60) {
+          total++;
+          if (mat === MAT.PARK || mat === MAT.FOREST || mat === MAT.GRASS) green += mat === MAT.GRASS ? 0.5 : 1;
+        }
+      }
+    }
+    audioScene.treeDensity = total > 0 ? green / total : 0;
+    audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
+  };
+
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input, birds, ambience } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -130,6 +169,17 @@ async function start(): Promise<void> {
     birdListener.y = cp.y;
     birdListener.z = cp.z;
     birds.update(dt, now / 1000, streamer, birdListener);
+    const l = audioScene.listener;
+    l.x = cp.x;
+    l.y = cp.y;
+    l.z = cp.z;
+    l.yaw = player.yaw;
+    audioScene.groundY = streamer.heightAt(cp.x, cp.z) ?? audioScene.groundY;
+    if (now - surroundingsAt > 500) {
+      surroundingsAt = now;
+      sampleSurroundings(cp.x, cp.z);
+    }
+    ambience.update(dt, audioScene);
     renderer.render(scene, camera);
     minimap.update(camera.position.x, camera.position.z, player.yaw);
 

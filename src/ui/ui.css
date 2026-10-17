@@ -162,3 +162,9 @@
 .vk-lang-sep {
   color: #ffffff80;
 }
+
+.vk-btn.vk-mute {
+  right: 228px;
+  padding: 8px 10px;
+  font-size: 18px;
+}

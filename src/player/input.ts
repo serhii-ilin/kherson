@@ -73,7 +73,7 @@ export class Input {
 
   get sprint(): boolean { return this.down('ShiftLeft', 'ShiftRight') || (this.touch?.sprint ?? false); }
   get jump(): boolean { return this.keys.has('Space') || (this.touch !== null && this.touch.up > 0); }
-  get crouch(): boolean { return this.down('KeyC', 'ControlLeft'); }
+  get crouch(): boolean { return this.down('KeyC', 'KeyQ') || this.keys.has('ControlLeft'); }
 
   /** Mouse movement since the last call, in radians (x = yaw delta, y = pitch delta, screen-down positive). */
   consumeLook(): LookDelta {

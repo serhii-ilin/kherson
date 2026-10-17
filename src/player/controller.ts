@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import { flyStep, type Vec3 } from './fly.ts';
+import { flyCollide, flyStep, type Vec3 } from './fly.ts';
 import type { Input } from './input.ts';
 import { EYE_HEIGHT, WalkBody, type WalkWorld } from './walk.ts';
 
@@ -83,7 +83,10 @@ export class PlayerController {
     const axis = this.input.axis();
 
     if (this.mode === 'fly') {
+      const px = this.flyPos.x;
+      const pz = this.flyPos.z;
       flyStep(this.flyPos, dt, axis, this.yaw, this.pitch, this.input.sprint);
+      flyCollide(this.flyPos, px, pz, world);
       this.camera.position.set(this.flyPos.x, this.flyPos.y, this.flyPos.z);
     } else {
       if (this.spawnPending) {
