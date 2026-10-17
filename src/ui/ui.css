@@ -91,9 +91,16 @@
   background: #ffffff1a;
 }
 
-.vk-place-name {
+.vk-place-text {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
+  text-align: left;
+}
+
+.vk-place-name,
+.vk-place-en {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -135,8 +142,23 @@
     bottom: auto;
   }
   #hud {
+    top: 56px;
     font-size: 11px;
     max-width: calc(100vw - 150px);
     white-space: pre-wrap;
   }
+}
+
+/* Language switcher sits left of the Places button. */
+.vk-btn.vk-lang {
+  right: 132px;
+  letter-spacing: 0.02em;
+}
+.vk-lang-on {
+  font-weight: 700;
+  color: #fff;
+}
+.vk-lang-off,
+.vk-lang-sep {
+  color: #ffffff80;
 }

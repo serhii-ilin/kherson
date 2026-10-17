@@ -5,6 +5,7 @@ import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
+import { applyDocument, createLangSwitcher, t } from './i18n.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
 import { PlacesMenu, type Place } from './ui/places.ts';
@@ -30,6 +31,8 @@ sun.position.set(-300, 500, 300); // from the south-west
 scene.add(sun);
 
 const hud = document.getElementById('hud')!;
+applyDocument();
+createLangSwitcher(document.body);
 const base = import.meta.env.BASE_URL;
 
 async function start(): Promise<void> {
@@ -124,19 +127,17 @@ async function start(): Promise<void> {
       const { x, y, z } = camera.position;
       const [lat, lon] = toLatLon(manifest.bbox, x, z);
       hud.textContent =
-        `${player.mode === 'walk' ? 'WALK' : 'FLY'} · ${fps} fps\n` +
+        `${player.mode === 'walk' ? t('walk') : t('fly')} · ${fps} fps\n` +
         `x ${x.toFixed(0)}  y ${y.toFixed(1)}  z ${z.toFixed(0)} m · ${lat.toFixed(5)}, ${lon.toFixed(5)}\n` +
-        `regions ${streamer.loadedRegions} · chunks ${streamer.chunkCount} · jobs ${streamer.inflightJobs} · ` +
-        `${(streamer.triangles / 1000).toFixed(0)}k tris\n` +
-        (isMobile
-          ? 'Left: move · Right: look · ✈ fly/walk'
-          : 'Click to look around · WASD move · Shift sprint · Space jump/up · F fly/walk');
+        `${t('regions')} ${streamer.loadedRegions} · ${t('chunks')} ${streamer.chunkCount} · ${t('jobs')} ${streamer.inflightJobs} · ` +
+        `${(streamer.triangles / 1000).toFixed(0)} ${t('tris')}\n` +
+        (isMobile ? t('hintTouch') : t('hintDesktop'));
     }
   };
   requestAnimationFrame(frame);
 }
 
 start().catch((err) => {
-  hud.textContent = `Failed to start: ${String(err)}`;
+  hud.textContent = `${t('failed')}: ${String(err)}`;
   console.error(err);
 });

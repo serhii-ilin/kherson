@@ -1,3 +1,5 @@
+import { onLangChange, t } from '../i18n.ts';
+
 export interface MinimapOptions {
   worldW: number;
   worldH: number;
@@ -39,6 +41,9 @@ export class Minimap {
     this.worldW = opts.worldW;
     this.worldH = opts.worldH;
     this.size = opts.size ?? DEFAULT_SIZE;
+    onLangChange(() => {
+      this.lastX = Number.NaN; // redraw the north label
+    });
     this.dpr = Math.max(1, window.devicePixelRatio || 1);
 
     this.canvas = document.createElement('canvas');
@@ -162,6 +167,6 @@ export class Minimap {
     ctx.font = 'bold 11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('N', s / 2, 4);
+    ctx.fillText(t('north'), s / 2, 4);
   }
 }

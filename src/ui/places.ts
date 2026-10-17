@@ -1,4 +1,5 @@
 import './ui.css';
+import { kindLabel, onLangChange, placeAltName, placeName, t } from '../i18n.ts';
 
 export interface Place {
   name: string;
@@ -71,7 +72,7 @@ export class PlacesMenu {
     this.button = document.createElement('button');
     this.button.type = 'button';
     this.button.className = 'vk-btn';
-    this.button.textContent = '📍 Places';
+    this.button.textContent = t('places');
     this.button.addEventListener('click', () => this.toggle());
 
     this.panel = document.createElement('div');
@@ -81,7 +82,7 @@ export class PlacesMenu {
     this.input = document.createElement('input');
     this.input.type = 'search';
     this.input.className = 'vk-search';
-    this.input.placeholder = 'Search places…';
+    this.input.placeholder = t('search');
     this.input.setAttribute('autocomplete', 'off');
     this.input.addEventListener('input', () => this.render());
     this.input.addEventListener('keydown', (e) => {
@@ -97,6 +98,11 @@ export class PlacesMenu {
     this.panel.append(this.input, this.list);
     parent.append(this.button, this.panel);
     this.render();
+    onLangChange(() => {
+      this.button.textContent = t('places');
+      this.input.placeholder = t('search');
+      this.render();
+    });
   }
 
   get isOpen(): boolean {
@@ -131,21 +137,24 @@ export class PlacesMenu {
       row.type = 'button';
       row.className = 'vk-place-row';
 
+      const text = document.createElement('span');
+      text.className = 'vk-place-text';
       const name = document.createElement('span');
       name.className = 'vk-place-name';
-      name.textContent = p.name;
-      row.appendChild(name);
-
-      if (p.nameEn !== undefined) {
-        const en = document.createElement('span');
-        en.className = 'vk-place-en';
-        en.textContent = p.nameEn;
-        row.appendChild(en);
+      name.textContent = placeName(p);
+      text.appendChild(name);
+      const alt = placeAltName(p);
+      if (alt !== null) {
+        const sub = document.createElement('span');
+        sub.className = 'vk-place-en';
+        sub.textContent = alt;
+        text.appendChild(sub);
       }
+      row.appendChild(text);
 
       const kind = document.createElement('span');
       kind.className = 'vk-place-kind';
-      kind.textContent = p.kind;
+      kind.textContent = kindLabel(p.kind);
       row.appendChild(kind);
 
       row.addEventListener('click', () => {
