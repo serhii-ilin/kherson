@@ -14,7 +14,17 @@ interface ShaderSource {
   fragmentShader: string;
 }
 
-export function facadeShader(shader: ShaderSource): void {
+/** Shared constant uniform for materials that never fade. */
+const NO_FADE = { value: 1 };
+
+/**
+ * Material hook. A material may carry `userData.uFade = { value }` (0..1): the fragment shader then
+ * screen-door dithers the surface in (ordered interleaved-gradient noise, no blending), used to
+ * cross-fade a new detail tier over the one underneath it.
+ */
+export function facadeShader(this: { userData?: Record<string, unknown> } | void, shader: ShaderSource & { uniforms: Record<string, { value: unknown }> }): void {
+  const fade = (this && this.userData?.uFade) as { value: number } | undefined;
+  shader.uniforms.uFade = fade ?? NO_FADE;
   shader.vertexShader = shader.vertexShader
     .replace(
       '#include <common>',
@@ -27,7 +37,11 @@ varying vec4 vWall;`,
     .replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
+  #ifdef USE_BATCHING
+  vGWorld = ( modelMatrix * batchingMatrix * vec4( transformed, 1.0 ) ).xyz;
+  #else
   vGWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+  #endif
   vGN = objectNormal;
   vWall = aWall;`,
     );
@@ -38,6 +52,7 @@ varying vec4 vWall;`,
 varying vec3 vGWorld;
 varying vec3 vGN;
 varying vec4 vWall;
+uniform float uFade;
 float gHash( vec2 p ) {
   p = fract( p * vec2( 0.1031, 0.1030 ) );
   p += dot( p, p.yx + 33.33 );
@@ -52,6 +67,59 @@ float gVNoise( vec2 p ) {
 // anti-aliased box: 1 inside [lo, hi] along one axis, softened by the pixel footprint w
 float fBox( float v, float lo, float hi, float w ) {
   return clamp( ( v - lo ) / w + 0.5, 0.0, 1.0 ) * clamp( ( hi - v ) / w + 0.5, 0.0, 1.0 );
+}
+// ---- micro detail (<= 10 cm), world space. p = (u along wall, y); px = pixel footprint in metres
+float fFade( float px, float lo, float hi ) { return 1.0 - smoothstep( lo, hi, px ); }
+// dark line of width lw (m) at multiples of period
+float fLine( float v, float period, float lw, float px ) {
+  float f = fract( v / period ) * period;
+  float d = min( f, period - f );
+  return 1.0 - clamp( ( d - lw * 0.5 ) / max( px, 1e-4 ) + 0.5, 0.0, 1.0 );
+}
+vec3 fMicro( vec3 c, float id, vec2 p, float hy, float px, float seed, float gf ) {
+  float k = gf;
+  if ( k <= 0.0 ) return c;
+  bool brick = id > 24.5 && id < 25.5;
+  if ( id > 29.5 && id < 34.5 ) brick = c.r > c.g * 1.12 && c.r > c.b * 1.3;
+  if ( brick ) {
+    float ch = 0.075;
+    float row = floor( p.y / ch );
+    float uu = p.x / 0.26 + 0.5 * mod( row, 2.0 );
+    float bf = fract( p.y / ch );
+    float uf = fract( uu );
+    float mx = max( px / 0.26, 1e-4 ), my = max( px / ch, 1e-4 );
+    float inB = clamp( ( uf - 0.02 ) / mx + 0.5, 0.0, 1.0 ) * clamp( ( 0.98 - uf ) / mx + 0.5, 0.0, 1.0 )
+      * clamp( ( bf - 0.07 ) / my + 0.5, 0.0, 1.0 ) * clamp( ( 0.93 - bf ) / my + 0.5, 0.0, 1.0 );
+    float bt = gHash( vec2( floor( uu ), row ) + seed );
+    float f = k * fFade( px, 0.04, 0.16 );
+    c *= 1.0 + f * 0.10 * ( bt - 0.5 );
+    c = mix( c, c * 0.80 + 0.03, f * ( 1.0 - inB ) * 0.8 );
+  } else if ( id > 25.5 && id < 26.5 ) {
+    // panel seams: 3.0 x 1.4 m panels, dark joints, faint per-panel tone
+    vec2 pq = vec2( p.x + seed * 3.0, p.y - 0.0 );
+    float jl = max( fLine( pq.x, 3.0, 0.03, px ), fLine( pq.y, 1.4, 0.03, px ) );
+    float f = k * fFade( px, 0.15, 0.7 );
+    c *= 1.0 - 0.22 * f * jl;
+    c *= 1.0 + 0.05 * f * ( gHash( floor( vec2( pq.x / 3.0, pq.y / 1.4 ) ) + seed ) - 0.5 );
+    c *= 1.0 + 0.04 * k * fFade( px, 0.03, 0.12 ) * ( gHash( floor( p * 25.0 ) ) - 0.5 );
+  } else if ( ( id > 21.5 && id < 22.5 ) || ( id > 28.5 && id < 29.5 ) ) {
+    // corrugated sheet: vertical ribs every 15 cm
+    float rib = sin( p.x * 41.8879 );
+    c *= 1.0 + 0.11 * k * fFade( px, 0.03, 0.10 ) * rib;
+    c *= 1.0 + 0.04 * k * ( gVNoise( vec2( p.x * 0.7, p.y * 0.2 ) ) - 0.5 );
+  } else {
+    // plaster: grain at 3-30 cm, large soft mottling
+    float g = gVNoise( p * 9.0 ) * 0.55 + gVNoise( p * 33.0 ) * 0.45;
+    c *= 1.0 + 0.07 * k * fFade( px, 0.03, 0.2 ) * ( g - 0.5 );
+    c *= 1.0 + 0.05 * k * ( gVNoise( p * 0.9 + seed ) - 0.5 );
+  }
+  // weathering: vertical streaks, strongest near the ground, damp band at the foot
+  float st = gVNoise( vec2( p.x * 2.3 + seed, p.y * 0.12 ) );
+  float st2 = gVNoise( vec2( p.x * 6.1, p.y * 0.3 + seed ) );
+  float streak = smoothstep( 0.55, 0.9, st ) * ( 0.5 + 0.5 * st2 );
+  c *= 1.0 - 0.10 * k * streak * ( 0.4 + 0.6 * ( 1.0 - smoothstep( 0.0, 5.0, hy ) ) );
+  c *= 1.0 - 0.10 * k * ( 1.0 - smoothstep( 0.1, 0.9, hy ) ) * ( 0.6 + 0.8 * gVNoise( p * 3.0 ) );
+  return c;
 }
 // returns style parameters per wall material:
 //   x floor height (m), y bay width (m), z window width fraction, w window height fraction
@@ -73,6 +141,7 @@ vec4 fStyle( float m ) {
     .replace(
       '#include <color_fragment>',
       `#include <color_fragment>
+  if ( uFade < 1.0 && fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) >= uFade ) discard;
   float gDist = length( vViewPosition );
   float gFade = 1.0 - smoothstep( 120.0, 400.0, gDist );
   if ( vGN.y > 0.5 ) {
@@ -86,7 +155,16 @@ vec4 fStyle( float m ) {
     float px = max( fwidth( gw.x ), fwidth( gw.y ) );
     float fine = gFade * ( 1.0 - smoothstep( 0.15, 0.6, px ) );
     // 0.2 m blades-of-grass speckle on green ground (matters for the fine tier only; fades with distance)
-    if ( gk > 0.1 ) diffuseColor.rgb *= 1.0 + 0.08 * fine * ( gHash( floor( gw * 5.0 ) ) - 0.5 );
+    if ( gk > 0.1 ) {
+      diffuseColor.rgb *= 1.0 + 0.08 * fine * ( gHash( floor( gw * 5.0 ) ) - 0.5 );
+      // tufts (~0.5 m clumps) and dry / lush colour patches
+      float tuft = gVNoise( gw * 2.2 );
+      diffuseColor.rgb *= 1.0 + 0.10 * fine * ( tuft - 0.5 );
+      float dry = smoothstep( 0.6, 0.85, gVNoise( gw / 6.0 + 17.0 ) );
+      diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.18, 1.02, 0.7 ), 0.35 * dry * gFade );
+    }
+    // dirt: pebbly texture
+    if ( gc.r > gc.g * 1.15 && gc.g > gc.b * 1.2 && vWall.x < 0.5 ) diffuseColor.rgb *= 1.0 + 0.12 * fine * ( gHash( floor( gw * 9.0 ) ) - 0.5 );
     if ( vWall.x > 6.5 && vWall.x < 7.5 ) {
       // rail ballast: coarse gravel
       float gv = gHash( floor( gw * 8.0 ) ) * 0.65 + gHash( floor( gw * 23.0 ) ) * 0.35;
@@ -111,12 +189,28 @@ vec4 fStyle( float m ) {
       // asphalt: fine grain
       float gr = gHash( floor( gw * 6.0 ) );
       diffuseColor.rgb *= 1.0 + 0.10 * fine * ( gr - 0.5 );
+      // sparse low-frequency darker patches (repairs, oil) and hairline cracks along noise iso-lines
+      float pat = gVNoise( gw / 3.5 + 11.0 );
+      diffuseColor.rgb *= 1.0 - 0.14 * gFade * smoothstep( 0.62, 0.8, pat );
+      float cn = gVNoise( gw * 0.55 + 5.0 );
+      float cw = max( fwidth( cn ), 1e-4 );
+      float crack = 1.0 - smoothstep( 0.0, 1.0, abs( cn - 0.5 ) / ( cw * 1.5 ) );
+      float cmask = smoothstep( 0.68, 0.85, gVNoise( gw / 9.0 + 2.0 ) );
+      // cracks are pixel-wide iso-lines, so they must stay faint and close or they read as drawn curves
+      float cnear = 1.0 - smoothstep( 4.0, 12.0, gDist );
+      diffuseColor.rgb *= 1.0 - 0.16 * crack * cmask * cnear * fine * ( 1.0 - smoothstep( 0.05, 0.25, px ) );
     } else if ( vWall.x > 3.5 && vWall.x < 4.5 ) {
       // sidewalk: 0.5 m tiles
       vec2 tf = fract( gw / 0.5 );
       float line = 1.0 - ( fBox( tf.x, 0.04, 0.96, 0.08 ) * fBox( tf.y, 0.04, 0.96, 0.08 ) );
       diffuseColor.rgb *= 1.0 - 0.10 * fine * line;
+      float th = gHash( floor( gw / 0.5 ) + 3.0 );
       diffuseColor.rgb *= 1.0 + 0.03 * fine * ( gHash( floor( gw / 0.5 ) ) - 0.5 );
+      // the odd darker / cracked tile
+      diffuseColor.rgb *= 1.0 - 0.08 * fine * step( 0.93, th ) - 0.05 * fine * step( 0.985, th );
+      vec2 tc = tf - 0.5;
+      float tcr = 1.0 - smoothstep( 0.0, 0.03 + px, abs( tc.x * 0.8 + tc.y * 0.6 + 0.1 * sin( tc.y * 9.0 ) ) );
+      diffuseColor.rgb *= 1.0 - 0.25 * fine * tcr * step( 0.97, th );
     } else if ( vWall.x > 9.5 && vWall.x < 10.5 ) {
       // plaza: 1.5 m paving with offset courses
       vec2 pg = gw / 1.5;
@@ -139,8 +233,13 @@ vec4 fStyle( float m ) {
     float totalH = max( wallTop - wallBase, 0.5 );
     // contact AO at the wall base, fading over ~2 m
     // aWall.w: ground-contact flag, +2 on 1 m block faces whose windows, doors and trims are real geometry
-    bool carved = vWall.w > 1.5;
-    float gcontact = ( vWall.w - 2.0 * step( 1.5, vWall.w ) ) * ( 1.0 - smoothstep( 0.0, 2.2, hy ) );
+    // +4 marks a 1 m slot (reveal) between solid blocks
+    float recessF = step( 5.5, vWall.w );
+    float wcode = vWall.w - 4.0 * recessF;
+    bool carved = wcode > 1.5;
+    float gcontact = ( wcode - 2.0 * step( 1.5, wcode ) ) * ( 1.0 - smoothstep( 0.0, 2.2, hy ) );
+    float mpx = max( fwidth( u ), fwidth( vGWorld.y ) );
+    float mk = gFade;
     vec3 base = diffuseColor.rgb;
     if ( styleId > 44.5 && styleId < 59.5 ) {
       // ---- block-tier details: glass (45), shop glass (50), trims, concrete, metal, doors
@@ -168,6 +267,13 @@ vec4 fStyle( float m ) {
         float frameAmt = ( 1.0 - inner ) * bdetail * ( shopGlass ? 0.7 : 0.85 );
         bcol = mix( glass, frame, frameAmt );
         bcol = mix( glass * 0.9, bcol, bdetail );
+        // set back behind the reveal: darker at the back, gradient toward the pane edges
+        float edgeD = min( min( fu, 1.0 - fu ), min( fyb, 1.0 - fyb ) );
+        bcol *= 0.86 * ( 1.0 - 0.30 * bdetail * ( 1.0 - smoothstep( 0.0, 0.5, edgeD ) ) );
+      }
+      if ( styleId > 46.5 && styleId < 47.5 ) {
+        // bare concrete: grain, faint board marks
+        bcol *= 1.0 + 0.10 * bdetail * ( gVNoise( vec2( u, vGWorld.y ) * 14.0 ) - 0.5 ) + 0.05 * gFade * ( gVNoise( vec2( u, vGWorld.y ) * 1.7 ) - 0.5 );
       }
       diffuseColor.rgb = bcol;
     } else if ( styleId > 19.5 && styleId < 39.5 ) {
@@ -179,7 +285,11 @@ vec4 fStyle( float m ) {
         // geometry carries the windows: keep the tint and a faint per-block variation
         vec3 bcell = floor( vGWorld - vGN * 0.5 );
         float bh = gHash( bcell.xz + bcell.y * 17.0 );
-        diffuseColor.rgb = base * ( 0.94 + 0.12 * r3 ) * ( 1.0 + 0.07 * gFade * ( bh - 0.5 ) );
+        vec3 cc = base * ( 0.94 + 0.12 * r3 ) * ( 1.0 + 0.07 * gFade * ( bh - 0.5 ) );
+        cc = fMicro( cc, styleId, vec2( u, vGWorld.y ), hy, mpx, r, mk * fFade( mpx, 0.3, 1.0 ) );
+        // reveal / slot: occluded, darker toward the middle of the 1 m channel
+        cc *= 1.0 - recessF * ( 0.26 + 0.10 * gFade );
+        diffuseColor.rgb = cc;
       } else {
       vec4 st = fStyle( styleId );
       bool garage = styleId > 28.5 && styleId < 29.5;
@@ -205,7 +315,7 @@ vec4 fStyle( float m ) {
       float detail = gFade * ( 1.0 - smoothstep( 0.35, 0.9, max( pxw, pyw ) ) );
 
       vec3 tint = base * ( 0.92 + 0.16 * r3 );
-      vec3 wall = tint;
+      vec3 wall = fMicro( tint, styleId, vec2( u, vGWorld.y ), hy, max( fwidth( u ), fwidth( vGWorld.y ) ), r, gFade * fFade( max( pxw * bay, pyw * fh ), 0.3, 1.0 ) );
       // ground-floor shop fronts on public / modern / historic / stalin
       float shopChance = ( pub || modern || historic || stalin ) ? 0.55 : 0.0;
       float shop = ( fl < 0.5 && gHash( vec2( bi, plane ) + bid ) < shopChance ) ? 1.0 : 0.0;
@@ -224,10 +334,6 @@ vec4 fStyle( float m ) {
       bool hasWin = !garage;
       if ( styleId > 21.5 && styleId < 22.5 ) hasWin = fl > 0.5 || totalH < 7.0; // industrial: strip only above ground
       // panel blocks: seam grid
-      if ( panel ) {
-        float seam = max( 1.0 - fBox( fx, 0.02, 0.98, pxw * 1.5 ), 1.0 - fBox( fy, 0.02, 0.98, pyw * 1.5 ) );
-        wall *= 1.0 - 0.10 * detail * seam;
-      }
       if ( stalin ) {
         // rustication / vertical pilaster tone on every 3rd bay edge
         wall *= 1.0 - 0.06 * detail * ( 1.0 - fBox( fx, 0.06, 0.94, pxw * 1.5 ) );

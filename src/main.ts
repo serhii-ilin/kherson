@@ -4,6 +4,7 @@ import { Overview, parseOverview } from './world/lod.ts';
 import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
 import { FineStreamer } from './fine/streamer.ts';
+import { SignLayer } from './fine/signs.ts';
 import { createSky } from './world/sky.ts';
 import { createWaterMaterial, updateWater } from './nature/water.ts';
 import { Vegetation } from './nature/vegetation.ts';
@@ -57,6 +58,10 @@ scene.fog = new THREE.Fog(sky.horizonColor, 2500, 9000);
 // Sun shadows: a ~200 m orthographic box that follows the camera, snapped to shadow texels.
 const SHADOW_HALF = 100;
 const SHADOW_MAP = 2048;
+/** Camera height above ground at which the shadow pass is frozen / resumed. */
+const SHADOW_OFF = 300;
+const SHADOW_ON = 250;
+let shadowFrozen = false;
 const SHADOW_TEXEL = (SHADOW_HALF * 2) / SHADOW_MAP;
 if (shadowsOn) {
   sun.castShadow = true;
@@ -104,7 +109,7 @@ async function start(): Promise<void> {
   const manifest = (await (await fetch(`${base}world/manifest.json`)).json()) as Manifest;
   const viewRadius = isMobile ? 384 : 640;
   const streamer = new WorldStreamer(scene, manifest, { viewRadius, waterMaterial });
-  const vegetation = new Vegetation(scene, { nearRadius: isMobile ? 150 : 250, farRadius: viewRadius });
+  const vegetation = new Vegetation(scene, { nearRadius: isMobile ? 150 : 250, farRadius: viewRadius, fineRadius: isMobile ? 25 : 40 });
   streamer.onRegionData = (rx, rz, data) => vegetation.setRegion(rx, rz, data ? data.features : null, data?.cells);
   const q = new URLSearchParams(location.search);
   // Fine tier (0.2 m ground near the camera): High quality + baked vector tiles; ?fine=0|1 overrides.
@@ -118,6 +123,7 @@ async function start(): Promise<void> {
       radius: isMobile ? 70 : 150,
       blockRadius: blocksOn ? (isMobile ? 100 : 250) : 0,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
+      signs: blocksOn ? new SignLayer(scene) : undefined,
     })
     : null;
   /** Physics world: coarse heights plus fine kerbs where a fine chunk is loaded. */
@@ -194,7 +200,7 @@ async function start(): Promise<void> {
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, fine, input, birds, ambience, vegetation, renderer } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, fine, input, birds, ambience, vegetation, renderer, scene, camera } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -215,6 +221,7 @@ async function start(): Promise<void> {
 
   let last = performance.now();
   let frames = 0;
+  let rendered = 0;
   let fpsStart = last;
   let fps = 0;
   let hudAt = 0;
@@ -225,9 +232,17 @@ async function start(): Promise<void> {
     last = now;
 
     player.update(dt, physics);
-    if (shadowsOn) updateShadowFrustum(camera.position.x, 0, camera.position.z);
+    const agl = camera.position.y - (streamer.heightAt(camera.position.x, camera.position.z) ?? 0);
+    if (shadowsOn) {
+      // High above the city the 200 m shadow box is a speck: freeze it (map and frustum together, so the
+      // old shadows stay consistent) and skip the whole shadow pass.
+      if (!shadowFrozen && agl > SHADOW_OFF && rendered > 0) shadowFrozen = true; // needs one rendered map first
+      else if (shadowFrozen && agl < SHADOW_ON) shadowFrozen = false;
+      sun.shadow.autoUpdate = !shadowFrozen;
+      if (!shadowFrozen) updateShadowFrustum(camera.position.x, 0, camera.position.z);
+    }
     streamer.update(camera.position.x, camera.position.z);
-    fine?.update(camera.position.x, camera.position.z);
+    fine?.update(camera.position.x, camera.position.z, agl);
     vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
       if (!overview.done) overview.build(4);
@@ -253,6 +268,7 @@ async function start(): Promise<void> {
     }
     ambience.update(dt, audioScene);
     renderer.render(scene, camera);
+    rendered++;
     minimap.update(camera.position.x, camera.position.z, player.yaw);
 
     frames++;

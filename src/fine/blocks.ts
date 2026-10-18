@@ -10,6 +10,8 @@
  * `walls` (see QuadBuilder): wall-style faces carry the style id, a 1 m "carved" marker
  * (w = 2 + contact) that tells the facade shader to skip its procedural windows, and the column's
  * lowest block as the wall base. GLASS and SHOPFRONT faces carry their own id for glass shading.
+ * Vertical faces also add 4 * a 4-bit recess mask to w (bit0 +u, bit1 -u, bit2 +v, bit3 -v for the face's
+ * tangent axes (a+1)%3, (a+2)%3: x/y/z = 0/1/2): which neighbours of the outward cell are solid.
  */
 import { BOTTOM_SHADE, QuadBuilder, SIDE_SHADE, type ChunkMesh } from '../world/mesher.ts';
 import { MAT } from '../world/materials.ts';
@@ -150,7 +152,18 @@ export function meshBlocks(mats: Uint8Array, size: number, pad: number, groundY?
                   const a01 = flat ? 3 : aoOf(a, sg, c3, -1, 1);
                   const ao = a00 | (a10 << 2) | (a11 << 4) | (a01 << 6);
                   const base = isWallMat(m) ? lowest[c3[2]! * S + c3[0]!]! : 0;
-                  key = m | (ao << 8) | (base << 16);
+                  // recess mask: which of the outward cell's four tangent neighbours are solid (vertical
+                  // faces only). The shader turns it into a cheap per-cell edge gradient, so reveals and
+                  // balcony undersides get occlusion without per-corner AO splitting the greedy quads.
+                  let rmask = 0;
+                  if (flat && isWallMat(m)) {
+                    const tu = ta === 0 ? 1 : 0, tv = ta === 1 ? 1 : 0, tw = ta === 2 ? 1 : 0;
+                    const su = tb === 0 ? 1 : 0, sv = tb === 1 ? 1 : 0, sw = tb === 2 ? 1 : 0;
+                    // a slot: solid on both sides along one tangent axis (window head and sill, side piers)
+                    if ((occ(nx + tu, ny + tv, nz + tw) && occ(nx - tu, ny - tv, nz - tw)) ||
+                      (occ(nx + su, ny + sv, nz + sw) && occ(nx - su, ny - sv, nz - sw))) rmask = 1;
+                  }
+                  key = m | (ao << 8) | (base << 16) | (rmask << 24);
                   any = true;
                 }
               }
@@ -194,6 +207,7 @@ function emit(b: QuadBuilder, a: number, sg: number, ca: number, cu: number, cv:
   const mat = key & 255;
   const ao = (key >> 8) & 255;
   const base = (key >> 16) & 255;
+  const rmask = (key >> 24) & 15;
   const ta = (a + 1) % 3, tb = (a + 2) % 3;
   const plane = sg > 0 ? ca + 1 : ca;
   // corners (u0,v0) (u1,v0) (u1,v1) (u0,v1)
@@ -219,7 +233,7 @@ function emit(b: QuadBuilder, a: number, sg: number, ca: number, cu: number, cv:
   if (isWallMat(mat)) {
     wTop = 1;
     wBase = base;
-    wContact = 3; // carved (2) + ground contact (1)
+    wContact = 3 + rmask * 4; // carved (2) + ground contact (1) + 4 * recess mask
   } else if (mat >= MAT.GLASS && mat < 60) {
     wTop = 1;
     wMat = mat;

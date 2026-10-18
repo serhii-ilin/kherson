@@ -18,26 +18,17 @@ _Last updated: 2026-10-18_
 | Step 0: realism plan, Article 4 budget amendment | ✅ | `0e2902c`, `6b82737` |
 | Phase 1: light (AO, shadows, ACES, sky), facade styles and shader, HQ/LQ toggle | ✅ | `6dbd080` |
 | Phase 2: vector tiles, 0.2 m ground (roads, kerbs, markings, zebras, tracks) | ✅ | `ac355fd` |
-| Phase 3: buildings and bridges as 1 m blocks | 🟡 blocks and bridges done; shop signs open | `657dc30` |
+| Phase 3: buildings and bridges as 1 m blocks, shop signs | ✅ | `657dc30`, PH4 |
 | City limited to Kherson (OSM relation 2175078) | ✅ | `35e6147` |
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
-| Phase 4: 10× near detail (0.2 m trees, props, surface detail, polish) | ⬜ | |
+| Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (real-device fps pending) | PH4 |
 | Later: time of day, lit windows at dusk | ⬜ | |
 
 ## Open tasks
 
-### Phase 3 (remaining)
-- ⬜ **Shop signs**: Ukrainian names of the ~476 named shop/amenity points as a `CanvasTexture` atlas (system font), quads above the nearest shop front.
-
-### Phase 4
-- ⬜ 0.2 m trees and bushes within 40 m (25 m on phone), ≤ 6k triangles per tree, leaf cut-out pattern, crown AO.
-- ⬜ Street props (instanced): lamps (189 OSM + generated every 25–35 m along lit roads), bus shelters (309), traffic lights (154), benches and bins along park paths, fences/walls from `barrier` lines, bollards. The snapshot has no benches, bins or entrances, so these are generated deterministically.
-- ⬜ Surface micro-detail ≤ 10 cm: brick courses, plaster stains, panel seams, asphalt cracks and patches, grass tufts; fade with distance.
-- ⬜ Cross-fade (dithered, ~0.3 s) when 0.2 m ground and 1 m blocks swap in.
-- ⬜ Performance pass against Article 4; phone tuning.
-
 ### Later
 - ⬜ Time of day with lit windows at dusk.
+- ⬜ Bollards along plaza edges (optional prop, not placed yet).
 
 ## Open issues
 
@@ -45,9 +36,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | # | P | Issue | Notes / proposed fix |
 |---|---|---|---|
-| 2 | P1 | Draw calls over budget at altitude: 409 at 900 m, 576 at 1,600 m (limit 400) | disable 0.2 m ground and 1 m block tiers above ~300 m |
-| 3 | P1 | Draw calls tight at street level: 377/400 worst measured | merge meshes before adding props or signs |
-| 4 | P2 | 1 m / 2 m seam on buildings straddling the 250 m block-tier edge | fade, or extend a building's tier by ownership |
+| 4 | P2 | 1 m / 2 m seam on buildings straddling the 250 m block-tier edge | now fades in instead of popping; a real fix assigns each building whole to one tier |
 | 5 | P2 | 0.2 m ground AO near walls uses the 2 m building outline (halo up to 1 m off) | use the 1 m block column raster |
 | 6 | P2 | Street trees and bushes placed on the 2 m grid may sit on fine asphalt or inside 1 m building edges | re-check placement against vector roads and 1 m footprints; unverified |
 | 7 | P2 | Water edges still 2 m staircases with brown soil steps | fine-tier shoreline from water polygons |
@@ -57,10 +46,14 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 11 | P2 | Walking on bridges uses the 2 m deck height; railings aren't solid | use the 1 m deck and rail columns in FineWorld |
 | 12 | P3 | Coarse (2 m) facade tint varies per 24 m wall segment, not per building | needs a building id or palette in the coarse data |
 | 13 | P3 | Coarse painted windows can be cut at wall-run ends | shader doesn't know run boundaries |
-| 14 | P3 | No AO on vertical faces of 1 m blocks (disabled for the triangle budget) | shader-based reveal darkening |
-| 15 | P3 | Dev HUD coarse triangle counter still counts hidden geometry | subtract hidden ranges |
 | 16 | P3 | Areas straddling the city boundary: painted in full in vector tiles, clipped in the coarse tier | clip concave polygons exactly |
 | 17 | P3 | Few pines: OSM forests lack `leaf_type` | owner decision below |
+| 18 | P2 | Coarse world uses `THREE.BatchedMesh`; browsers without `WEBGL_multi_draw` (possibly older Safari) fall back to one draw per chunk | check on Safari/iOS; keep per-chunk meshes as a fallback if needed |
+| 19 | P3 | Above 300 m the sun-shadow map freezes (a fixed 200 m patch) | acceptable at that height; revisit with time of day |
+| 20 | P3 | Traffic lights face along the nearest road, not the OSM `dir` | use `dir` when present |
+| 21 | P3 | About 10% of shops have no building within 25 m, so no sign; long names are already truncated in OSM | free-standing sign posts for those |
+| 22 | P3 | 0.5 m and mid tree models are still built on the main thread (≈2 ms each, up to 9 ms cold) | move to the veg worker if hitches show |
+| 23 | P3 | 1 m khrushchevka is 3,962 triangles against the 4,000 test bound: little headroom for more facade detail | trim elsewhere before adding detail |
 
 ## Waiting on the owner
 
@@ -75,6 +68,12 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| #2 Draw calls at altitude 409/576 → 135/99: 0.2 m and 1 m tiers off above 250 m, shadows frozen above 300 m | PH4 |
+| #3 Street-level draw calls 342–377 → 214–243: coarse chunks and water in `BatchedMesh` | PH4 |
+| #14 Recess shading for 1 m block window reveals, balcony undersides and glass | PH4 |
+| #15 HUD coarse triangle counter counts only drawn geometry | PH4 |
+| 0.2 m tree regression (sparse pads, bead poplars, thick trunks, striped cut-out) → dense shells, slender trunks, cut-out off | PH4 |
+| Asphalt cracks read as long drawn curves → faint and only within 12 m | PH4 |
 | #1 In-app "© OpenStreetMap contributors" credit, both languages, desktop and phone | `b4a3d12` |
 | Fly mode fell through the ground → fly collision | before `bcac053` |
 | Speckled shop windows (unsnapped wall plane in hashes) | `6dbd080` |

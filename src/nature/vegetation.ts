@@ -2,30 +2,40 @@ import * as THREE from 'three';
 import { F_GROUND_H, F_STRUCT_H, REGION, VOXEL } from '../world/constants.ts';
 import { FEATURE_BUSH, FEATURE_TREE, type Feature } from '../world/format.ts';
 import { jitterX, jitterZ } from './placement.ts';
-import { BUSH_SPECIES, SPECIES, TREE_SPECIES, VARIANTS, buildModel } from './models.ts';
+import { BUSH_SPECIES, SPECIES, TREE_SPECIES, VARIANTS, buildModel, type VegModel } from './models.ts';
+import { VegModelQueue } from './veg-queue.ts';
+import type { VegResponse } from './veg.worker.ts';
 
 export interface VegetationOptions {
   /** Mid models (lod 2) are used up to this distance, metres. */
   nearRadius: number;
   /** Far boxes (lod 1) are used up to this distance, metres. */
   farRadius: number;
-  /** Full-detail models (lod 0) up to this distance; default 70 m (40 m when nearRadius < 200). */
+  /** 0.5 m models (lod 0) up to this distance; default 70 m (40 m when nearRadius < 200). */
   lod0Radius?: number;
+  /** Finest 0.2 m models (lod 3: branches and leaf clusters) up to this distance; default 40 m (25 m on phones). */
+  fineRadius?: number;
+  /** Alpha-tested ~5 cm leaf holes on the finest models, in the colour and shadow passes; default false. */
+  leafCutout?: boolean;
 }
 
 export interface VegetationStats {
   instances: number;
   near: number;
+  /** Instances drawn with the finest 0.2 m model. */
+  fine: number;
   triangles: number;
 }
 
 const REGION_M = REGION * VOXEL;
-const RECOMPUTE_M = 64;
+/** LOD lists are rebuilt when the camera crosses a cell of this size (Article 4 rule 3). */
+const RECOMPUTE_M = 16;
 const SPECIES_LIST: readonly number[] = [...TREE_SPECIES, ...BUSH_SPECIES];
 const N_MODELS = SPECIES_LIST.length * VARIANTS;
 const FIRST_BUSH_MODEL = TREE_SPECIES.length * VARIANTS;
-/** Group slots per model: 0 = lod0, 1 = lod2 (mid), 2 = lod1 (far). */
-const LOD_OF_SLOT = [0, 2, 1] as const;
+/** Group slots per model: 0 = lod3 (0.2 m), 1 = lod0 (0.5 m), 2 = lod2 (mid), 3 = lod1 (far). */
+const SLOTS = 4;
+const LOD_OF_SLOT = [3, 0, 2, 1] as const;
 const SPECIES_INDEX = new Map<number, number>(SPECIES_LIST.map((s, i) => [s, i]));
 
 /** Per-region instance data (structure of arrays). */
@@ -59,24 +69,41 @@ function modelOf(f: Feature): number {
   return si * VARIANTS + (((f.seed >> 6) & 3) % VARIANTS);
 }
 
+function toGeometry(m: VegModel): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(m.colors, 3));
+  g.setAttribute('sway', new THREE.BufferAttribute(m.sway, 1));
+  if (m.leaf) g.setAttribute('leaf', new THREE.BufferAttribute(m.leaf, 1));
+  g.setIndex(new THREE.BufferAttribute(m.indices, 1));
+  return g;
+}
+
 /** Instanced, wind-swayed trees and bushes streamed with the world regions. */
 export class Vegetation {
-  readonly stats: VegetationStats = { instances: 0, near: 0, triangles: 0 };
+  readonly stats: VegetationStats = { instances: 0, near: 0, fine: 0, triangles: 0 };
   readonly material: THREE.MeshLambertMaterial;
   /** Depth material with the same sway, so shadows move with the foliage. */
   readonly depthMaterial: THREE.MeshDepthMaterial;
+  /** Material of the finest LOD: the same, plus the leaf cut-out when enabled. */
+  readonly fineMaterial: THREE.MeshLambertMaterial;
+  readonly fineDepthMaterial: THREE.MeshDepthMaterial;
 
   private readonly scene: THREE.Scene;
+  private readonly fineSq: number;
   private readonly lod0Sq: number;
   private readonly nearSq: number;
   private readonly farSq: number;
   private readonly farRadius: number;
   private readonly regions = new Map<number, RegionVeg>();
-  private readonly geoms: (THREE.BufferGeometry | null)[] = new Array(N_MODELS * 3).fill(null);
+  private readonly geoms: (THREE.BufferGeometry | null)[] = new Array(N_MODELS * SLOTS).fill(null);
   private readonly groups: Group[] = [];
-  private readonly counts = new Int32Array(N_MODELS * 3);
-  private readonly cursor = new Int32Array(N_MODELS * 3);
+  private readonly counts = new Int32Array(N_MODELS * SLOTS);
+  private readonly cursor = new Int32Array(N_MODELS * SLOTS);
   private readonly uTime = { value: 0 };
+  /** Finest (lod 3) models are built in a Web Worker; the cheap LODs are built synchronously (< 2 ms each). */
+  private readonly queue: VegModelQueue;
   private camX = 0;
   private camZ = 0;
   private lastCx = -1e9;
@@ -85,12 +112,26 @@ export class Vegetation {
 
   constructor(scene: THREE.Scene, opts: VegetationOptions) {
     this.scene = scene;
-    const r0 = opts.lod0Radius ?? (opts.nearRadius < 200 ? 40 : 70);
+    this.queue = new VegModelQueue(
+      () => {
+        const w = new Worker(new URL('./veg.worker.ts', import.meta.url), { type: 'module' });
+        w.onmessage = (e: MessageEvent<VegResponse>) => this.queue.receive(e.data);
+        return { post: (req) => w.postMessage(req), terminate: () => w.terminate() };
+      },
+      (key, m) => {
+        if (this.geoms[key * SLOTS] !== null) return;
+        this.geoms[key * SLOTS] = toGeometry(m);
+        this.dirty = true; // instances switch from the 0.5 m model on the next update
+      },
+    );
+    const rf = opts.fineRadius ?? 40;
+    const r0 = Math.max(rf, opts.lod0Radius ?? (opts.nearRadius < 200 ? 40 : 70));
+    this.fineSq = rf * rf;
     this.lod0Sq = r0 * r0;
     this.nearSq = opts.nearRadius * opts.nearRadius;
     this.farRadius = opts.farRadius;
     this.farSq = opts.farRadius * opts.farRadius;
-    for (let i = 0; i < N_MODELS * 3; i++) this.groups.push({ mesh: null, capacity: 0, tris: 0 });
+    for (let i = 0; i < N_MODELS * SLOTS; i++) this.groups.push({ mesh: null, capacity: 0, tris: 0 });
 
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true });
     const uTime = this.uTime;
@@ -118,6 +159,33 @@ export class Vegetation {
     };
     this.material.onBeforeCompile = patch;
     this.depthMaterial.onBeforeCompile = patch;
+
+    // finest LOD: same sway, plus ~5 cm leaf holes keyed on the (un-swayed) world position
+    this.fineMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.fineDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    if (opts.leafCutout !== true) {
+      this.fineMaterial.onBeforeCompile = patch;
+      this.fineDepthMaterial.onBeforeCompile = patch;
+    } else {
+      const patchFine = (fade: boolean) => (shader: THREE.WebGLProgramParametersWithUniforms): void => {
+        patch(shader);
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nattribute float leaf;\nvarying float vLeaf;\nvarying vec3 vWp;')
+          .replace('mvPosition = modelMatrix * mvPosition;', 'mvPosition = modelMatrix * mvPosition;\n  vWp = mvPosition.xyz;\n  vLeaf = leaf;');
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying float vLeaf;\nvarying vec3 vWp;')
+          .replace(
+            '#include <clipping_planes_fragment>',
+            `#include <clipping_planes_fragment>
+  if ( vLeaf > 0.5 ${fade ? '&& distance( vWp, cameraPosition ) < 26.0' : ''} ) {
+    vec3 hc = floor( vWp * 20.0 );
+    if ( fract( sin( dot( hc, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ) < 0.15 ) discard;
+  }`,
+          );
+      };
+      this.fineMaterial.onBeforeCompile = patchFine(true);
+      this.fineDepthMaterial.onBeforeCompile = patchFine(false);
+    }
   }
 
   /** Adds (or, with null features, removes) a region's vegetation. `cells` provides ground heights. */
@@ -203,23 +271,20 @@ export class Vegetation {
     }
     for (const g of this.geoms) g?.dispose();
     this.regions.clear();
+    this.queue.dispose();
     this.material.dispose();
     this.depthMaterial.dispose();
+    this.fineMaterial.dispose();
+    this.fineDepthMaterial.dispose();
   }
 
   // ---------------------------------------------------------------- internals
 
   private geometry(model: number, slot: number): THREE.BufferGeometry {
-    const gi = model * 3 + slot;
+    const gi = model * SLOTS + slot;
     let g = this.geoms[gi];
     if (g) return g;
-    const m = buildModel(SPECIES_LIST[Math.floor(model / VARIANTS)]!, model % VARIANTS, LOD_OF_SLOT[slot]!);
-    g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(m.colors, 3));
-    g.setAttribute('sway', new THREE.BufferAttribute(m.sway, 1));
-    g.setIndex(new THREE.BufferAttribute(m.indices, 1));
+    g = toGeometry(buildModel(SPECIES_LIST[Math.floor(model / VARIANTS)]!, model % VARIANTS, LOD_OF_SLOT[slot]!));
     this.geoms[gi] = g;
     return g;
   }
@@ -232,30 +297,31 @@ export class Vegetation {
       grp.mesh.dispose();
     }
     const cap = Math.max(64, Math.ceil(need * 1.5));
-    const mesh = new THREE.InstancedMesh(this.geometry(Math.floor(gi / 3), gi % 3), this.material, cap);
+    const fine = gi % SLOTS === 0;
+    const mesh = new THREE.InstancedMesh(this.geometry(Math.floor(gi / SLOTS), gi % SLOTS), fine ? this.fineMaterial : this.material, cap);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false; // one mesh spans every loaded region
     mesh.matrixAutoUpdate = false;
-    // lod0 (slot 0) and mid (slot 1) cast and receive; far boxes only receive
-    mesh.castShadow = gi % 3 !== 2;
+    // fine, 0.5 m and mid cast and receive; far boxes only receive
+    mesh.castShadow = gi % SLOTS !== SLOTS - 1;
     mesh.receiveShadow = true;
-    mesh.customDepthMaterial = this.depthMaterial;
+    mesh.customDepthMaterial = fine ? this.fineDepthMaterial : this.depthMaterial;
     this.scene.add(mesh);
     grp.mesh = mesh;
     grp.capacity = cap;
-    grp.tris = this.geometry(Math.floor(gi / 3), gi % 3).index!.count / 3;
+    grp.tris = this.geometry(Math.floor(gi / SLOTS), gi % SLOTS).index!.count / 3;
     return mesh;
   }
 
   /** Re-assigns an LOD to every instance around the camera and refills the instance buffers. */
   private rebuild(): void {
-    const { camX, camZ, lod0Sq, nearSq, farSq } = this;
+    const { camX, camZ, fineSq, lod0Sq, nearSq, farSq } = this;
     const counts = this.counts;
     counts.fill(0);
     const reach = this.farRadius + REGION_M * 1.5;
-    let near = 0, total = 0;
+    let near = 0, fine = 0, total = 0;
     // pass 1: LOD per instance and group sizes
     for (const r of this.regions.values()) {
       const cxm = (r.rx + 0.5) * REGION_M - camX, czm = (r.rz + 0.5) * REGION_M - camZ;
@@ -264,9 +330,15 @@ export class Vegetation {
         if (skip) { r.slot[i] = -1; continue; }
         const dx = r.x[i]! - camX, dz = r.z[i]! - camZ;
         const d2 = dx * dx + dz * dz;
-        const s = d2 < lod0Sq ? 0 : d2 < nearSq ? 1 : d2 < farSq ? 2 : -1;
+        let s = d2 < fineSq ? 0 : d2 < lod0Sq ? 1 : d2 < nearSq ? 2 : d2 < farSq ? 3 : -1;
+        if (s === 0 && this.geoms[r.model[i]! * SLOTS] === null) {
+          // the 0.2 m model is built in a worker; until it arrives the 0.5 m model stands in
+          const m = r.model[i]!;
+          this.queue.request(m, SPECIES_LIST[Math.floor(m / VARIANTS)]!, m % VARIANTS, 3);
+          s = 1;
+        }
         r.slot[i] = s;
-        if (s >= 0) counts[r.model[i]! * 3 + s]!++;
+        if (s >= 0) counts[r.model[i]! * SLOTS + s]!++;
       }
     }
     // pass 2: fill
@@ -279,7 +351,7 @@ export class Vegetation {
       for (let i = 0; i < r.count; i++) {
         const s = r.slot[i]!;
         if (s < 0) continue;
-        const gi = r.model[i]! * 3 + s;
+        const gi = r.model[i]! * SLOTS + s;
         const mesh = this.groups[gi]!.mesh!;
         const k = cursor[gi]!++;
         const m = mesh.instanceMatrix.array as Float32Array;
@@ -295,7 +367,8 @@ export class Vegetation {
         const ca = mesh.instanceColor!.array as Float32Array;
         ca[k * 3] = r.tint[i * 3]!; ca[k * 3 + 1] = r.tint[i * 3 + 1]!; ca[k * 3 + 2] = r.tint[i * 3 + 2]!;
         total++;
-        if (s === 0) near++;
+        if (s <= 1) near++;
+        if (s === 0) fine++;
       }
     }
     let tris = 0;
@@ -311,6 +384,7 @@ export class Vegetation {
     }
     this.stats.instances = total;
     this.stats.near = near;
+    this.stats.fine = fine;
     this.stats.triangles = tris;
   }
 }

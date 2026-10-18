@@ -8,6 +8,8 @@ import { addBridges, type PlacedRoad } from './bridges.ts';
 import { addBuildings, type PlacedBuilding } from './buildings.ts';
 import { BLOCK_PAD, BLOCK_WIN, BlockWindow, columnTops, meshBlocks } from './blocks.ts';
 import { VOL_XZ, Volume } from './volume.ts';
+import { appendMesh, buildPropMesh, placeProps } from './props.ts';
+import { packSigns, placeSigns } from './sign-place.ts';
 
 /** Fine ground for one chunk: rasterise from coarse cells + vector tiles, then mesh. */
 export function generateFineChunk(input: FineInput): FineMesh {
@@ -26,6 +28,10 @@ export interface BlockInput {
 export interface BlockMesh extends ChunkMesh {
   /** Physics raster: top in metres per 1 m column of the chunk (row-major 64x64), 0 = none. */
   tops: Uint8Array;
+  /** Shop signs anchored in this chunk (see sign-place.ts packSigns; x/z chunk-local). */
+  signs?: { data: Float32Array; names: string[] };
+  /** Triangles contributed by props (already merged into the mesh). */
+  propTris?: number;
 }
 
 const REGION_M = 512;
@@ -152,7 +158,14 @@ export function generateBlockChunk(input: BlockInput): BlockMesh {
   else scratch.clear(x0, z0);
   const win = scratch;
   const groundY = fillBlockWindow(win, input);
-  const mesh = meshBlocks(win.mats, BLOCK_WIN, BLOCK_PAD, groundY);
+  let mesh = meshBlocks(win.mats, BLOCK_WIN, BLOCK_PAD, groundY);
   const tops = columnTops(win.mats, BLOCK_WIN, BLOCK_PAD, win.foot, groundY);
-  return { ...mesh, tops };
+  // street props and shop signs: placed from world data only, emitted by the chunk holding their anchor
+  const wd = new BlockWindowData(input.win, input.gcx, input.gcz);
+  const bounds = { x0, z0, x1: x0 + CHUNK_M, z1: z0 + CHUNK_M };
+  const placements = placeProps(input.tiles, bounds, wd);
+  const props = buildPropMesh(placements, x0, z0);
+  mesh = appendMesh(mesh, props);
+  const signs = packSigns(placeSigns(input.tiles, bounds, wd.groundAt), x0, z0);
+  return { ...mesh, tops, signs, propTris: props.indices.length / 3 };
 }

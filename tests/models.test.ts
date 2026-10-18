@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MICRO, SPECIES, TREE_SPECIES, BUSH_SPECIES, VARIANTS, buildModel, type VegModel } from '../src/nature/models.ts';
+import { SPECIES, TREE_SPECIES, BUSH_SPECIES, VARIANTS, buildModel, type VegModel } from '../src/nature/models.ts';
 
 describe('buildModel', () => {
   it('builds all species', () => {
@@ -175,5 +175,140 @@ describe('buildModel', () => {
         expect(Math.abs(dot + 1)).toBeGreaterThan(0.1);
       }
     }
+  });
+});
+
+describe('finest model (lod 3, 0.2 m)', () => {
+  const ALL = [...TREE_SPECIES, ...BUSH_SPECIES];
+  const bbox = (m: VegModel): { h: number; r: number } => {
+    let h = 0, r = 0;
+    for (let i = 0; i < m.positions.length; i += 3) {
+      h = Math.max(h, m.positions[i + 1]!);
+      r = Math.max(r, Math.abs(m.positions[i]!), Math.abs(m.positions[i + 2]!));
+    }
+    return { h, r };
+  };
+
+  it('triangle bounds for every species x variant', () => {
+    for (const s of ALL) {
+      for (let v = 0; v < VARIANTS; v++) {
+        const m = buildModel(s, v, 3);
+        const tris = m.indices.length / 3;
+        const isBush = s >= SPECIES.BUSH;
+        expect(tris, `species ${s} variant ${v}`).toBeGreaterThan(isBush ? 100 : 1500);
+        expect(tris, `species ${s} variant ${v}`).toBeLessThanOrEqual(isBush ? 1500 : 6000);
+        expect(m.leaf).toBeInstanceOf(Float32Array);
+        expect(m.leaf!.length).toBe(m.positions.length / 3);
+      }
+    }
+  });
+
+  it('is deterministic', () => {
+    for (const s of [SPECIES.LINDEN, SPECIES.BUSH_LILAC]) {
+      const a = buildModel(s, 2, 3);
+      const b = buildModel(s, 2, 3);
+      expect(Array.from(a.positions)).toEqual(Array.from(b.positions));
+      expect(Array.from(a.colors)).toEqual(Array.from(b.colors));
+      expect(Array.from(a.indices)).toEqual(Array.from(b.indices));
+    }
+  });
+
+  it('sway is 0 at the trunk base and rises with height', () => {
+    for (const s of TREE_SPECIES) {
+      const m = buildModel(s, 0, 3);
+      let lo = 0, hi = 0, nLo = 0, nHi = 0;
+      for (let i = 0; i < m.sway.length; i++) {
+        const y = m.positions[i * 3 + 1]!;
+        expect(m.sway[i]).toBeGreaterThanOrEqual(0);
+        expect(m.sway[i]).toBeLessThanOrEqual(1);
+        if (y < 0.01) { expect(m.sway[i]).toBeLessThanOrEqual(0.001); }
+        if (y < m.height * 0.3) { lo += m.sway[i]!; nLo++; }
+        if (y > m.height * 0.7) { hi += m.sway[i]!; nHi++; }
+      }
+      expect(hi / nHi).toBeGreaterThan(lo / nLo);
+    }
+  });
+
+  it('has no internal faces (no two opposite coincident quads)', () => {
+    for (const s of [SPECIES.CHESTNUT, SPECIES.PINE, SPECIES.BUSH_PINK]) {
+      const m = buildModel(s, 1, 3);
+      const seen = new Set<string>();
+      const q = (n: number): string => (Math.round(n * 1000) / 1000).toFixed(3);
+      for (let i = 0; i < m.indices.length; i += 6) {
+        // quads are emitted as two triangles; use the first vertex, the normal and the plane
+        const a = m.indices[i]!;
+        const nx = m.normals[a * 3]!, ny = m.normals[a * 3 + 1]!, nz = m.normals[a * 3 + 2]!;
+        const key = (sx: number): string => `${q(m.positions[a * 3]!)},${q(m.positions[a * 3 + 1]!)},${q(m.positions[a * 3 + 2]!)}|${sx * nx},${sx * ny},${sx * nz}`;
+        // an opposite face at the same position would be a quad whose own key has the flipped normal
+        expect(seen.has(key(-1)), `species ${s}`).toBe(false);
+        seen.add(key(1));
+      }
+    }
+  });
+
+  it('crown is a dense mass with small gaps (side projection 70-97% filled)', () => {
+    const C = 0.2;
+    for (const s of TREE_SPECIES) {
+      const m = buildModel(s, 0, 3);
+      // project every quad facing +-z onto the xy plane; filled cells = leaf silhouette
+      const filled = new Set<string>();
+      for (let i = 0; i < m.indices.length; i += 6) {
+        const a = m.indices[i]!;
+        if (Math.abs(m.normals[a * 3 + 2]!) < 0.5 || m.leaf![a] === 0) continue;
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const k of [0, 1, 2, 5]) {
+          const id = m.indices[i + k]!;
+          x0 = Math.min(x0, m.positions[id * 3]!); x1 = Math.max(x1, m.positions[id * 3]!);
+          y0 = Math.min(y0, m.positions[id * 3 + 1]!); y1 = Math.max(y1, m.positions[id * 3 + 1]!);
+        }
+        for (let x = Math.floor(x0 / C + 1e-6); x < Math.round(x1 / C); x++) {
+          for (let y = Math.floor(y0 / C + 1e-6); y < Math.round(y1 / C); y++) filled.add(`${x},${y}`);
+        }
+      }
+      const b = bbox(m);
+      const yLo = m.height * 0.45, yHi = m.height * 0.8;
+      let inside = 0, hit = 0;
+      for (let x = -b.r * 0.6; x <= b.r * 0.6; x += C) for (let y = yLo; y <= yHi; y += C) {
+        inside++;
+        if (filled.has(`${Math.floor(x / C + 1e-6)},${Math.floor(y / C + 1e-6)}`)) hit++;
+      }
+      expect(hit / inside, `species ${s}`).toBeGreaterThanOrEqual(0.7);
+      expect(hit / inside, `species ${s}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('trunks are slender (<= 0.7 m across at the base)', () => {
+    for (const s of TREE_SPECIES) {
+      const m = buildModel(s, 0, 3);
+      let w = 0;
+      for (let i = 0; i < m.positions.length; i += 3) {
+        if (m.positions[i + 1]! < 0.1 && m.leaf![i / 3] === 0) w = Math.max(w, Math.abs(m.positions[i]!) * 2, Math.abs(m.positions[i + 2]!) * 2);
+      }
+      expect(w, `species ${s}`).toBeLessThanOrEqual(0.7);
+    }
+  });
+
+  it('silhouette height and radius are within 15% of the 0.5 m model', () => {
+    for (const s of ALL) {
+      for (let v = 0; v < VARIANTS; v++) {
+        const f = bbox(buildModel(s, v, 3));
+        const n = bbox(buildModel(s, v, 0));
+        // within 15%, or most of a 0.5 m voxel (the coarse model's own snapping error) on small bushes
+        expect(Math.abs(f.h - n.h), `height ${s}/${v}`).toBeLessThanOrEqual(Math.max(0.15 * n.h, 0.35));
+        expect(Math.abs(f.r - n.r), `radius ${s}/${v}`).toBeLessThanOrEqual(Math.max(0.15 * n.r, 0.35));
+      }
+    }
+  });
+
+  it('flowering bushes carry blossom-coloured voxels', () => {
+    const m = buildModel(SPECIES.BUSH_LILAC, 0, 3);
+    // blossom colour #b48ad6: blue channel clearly above green
+    let blossom = 0, green = 0;
+    for (let i = 0; i < m.colors.length; i += 3) {
+      if (m.colors[i + 2]! > m.colors[i + 1]! * 1.15) blossom++;
+      else green++;
+    }
+    expect(blossom).toBeGreaterThan(0);
+    expect(green).toBeGreaterThan(0);
   });
 });

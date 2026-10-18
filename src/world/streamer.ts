@@ -13,6 +13,7 @@ import { jitterX, jitterZ } from '../nature/placement.ts';
 import type { Manifest } from './manifest.ts';
 import { MAT } from './materials.ts';
 import { facadeShader } from './facade-shader.ts';
+import { ChunkBatch, type BatchSlot } from './chunk-batch.ts';
 import { QuadBuilder, edgeTops, type ChunkMesh, type EdgeKey, type RegionEdges, type WaterMesh } from './mesher.ts';
 import type { MeshRequest, MeshResponse } from './mesher.worker.ts';
 import {
@@ -71,10 +72,12 @@ interface Chunk {
   key: number;
   gcx: number;
   gcz: number;
-  mesh: THREE.Mesh | null;
-  water: THREE.Mesh | null;
-  /** Index count of the ground part of `mesh` (see ChunkMeshResult.groundIndexCount). */
-  groundIndexCount: number;
+  /** Ground part and structure part of the chunk mesh, as slots of the shared batch. */
+  ground: BatchSlot | null;
+  structs: BatchSlot | null;
+  /** True once a mesh has been installed (either slot may be absent when empty). */
+  meshed: boolean;
+  water: BatchSlot | null;
   /** DIR_* bits whose neighbour edge info was used for the current mesh. */
   edgeMask: number;
   busy: boolean;
@@ -115,6 +118,10 @@ export class WorldStreamer {
   private readonly groundHidden = new Set<number>();
   /** Chunk keys whose structures (walls, roofs, bridge decks) are replaced by the block tier. */
   private readonly structuresHidden = new Set<number>();
+  /** All coarse chunk meshes: one BatchedMesh, i.e. one draw call per pass. */
+  private readonly batch: ChunkBatch;
+  /** Tessellated water of all chunks (world-space positions): one more draw call. */
+  private readonly waterBatch: ChunkBatch;
   private readonly emptyQuads = new Map<number, THREE.Mesh>();
   private emptyGeometry: THREE.BufferGeometry | null = null;
 
@@ -136,7 +143,7 @@ export class WorldStreamer {
   private tick = 0;
   private loadedCount = 0;
   private meshCount = 0;
-  private triCount = 0;
+  private emptyTris = 0;
   private lastEntry: Entry | null = null;
   private sampleWater = false;
 
@@ -145,8 +152,14 @@ export class WorldStreamer {
     this.manifest = manifest;
     this.viewRadius = opts.viewRadius ?? 640;
     this.material.onBeforeCompile = facadeShader;
+    this.batch = new ChunkBatch(this.material);
+    scene.add(this.batch.mesh);
     this.ownsWaterMaterial = opts.waterMaterial === undefined;
     this.waterMaterial = opts.waterMaterial ?? new THREE.MeshBasicMaterial({ color: 0x3b78b8 });
+    this.waterBatch = new ChunkBatch(this.waterMaterial, { castShadow: false, vertices: 150_000 });
+    this.waterBatch.mesh.receiveShadow = false;
+    this.waterBatch.mesh.renderOrder = 1;
+    scene.add(this.waterBatch.mesh);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     this.chunksX = manifest.regionsX * REGION_CHUNKS;
     this.chunksZ = manifest.regionsZ * REGION_CHUNKS;
@@ -162,7 +175,8 @@ export class WorldStreamer {
   get loadedRegions(): number { return this.loadedCount; }
   get chunkCount(): number { return this.meshCount; }
   get inflightJobs(): number { return this.inflight; }
-  get triangles(): number { return this.triCount; }
+  /** Triangles of the coarse chunks that are actually drawn (hidden ground/structure parts excluded). */
+  get triangles(): number { return this.batch.triangles + this.waterBatch.triangles + this.emptyTris; }
 
   /** Call once per frame; does real work only when the camera crosses a chunk boundary or data arrived. */
   update(x: number, z: number): void {
@@ -244,15 +258,15 @@ export class WorldStreamer {
   }
 
   /**
-   * Hides (or shows) the ground part of a coarse chunk by moving the draw range past it, so the
-   * fine tier can replace it without an extra draw call. Chunk coordinates are global.
+   * Hides (or shows) the ground part of a coarse chunk (its batch instance), so the
+   * fine tier can replace it. Chunk coordinates are global.
    */
   setGroundHidden(gcx: number, gcz: number, hidden: boolean): void {
     const key = chunkKey(gcx, gcz);
     if (hidden) this.groundHidden.add(key);
     else this.groundHidden.delete(key);
     const c = this.chunks.get(key);
-    if (c !== undefined && c.mesh !== null) this.applyDrawRange(c);
+    if (c !== undefined && c.meshed) this.applyVisibility(c);
   }
 
   isGroundHidden(gcx: number, gcz: number): boolean {
@@ -261,7 +275,7 @@ export class WorldStreamer {
 
   /**
    * Hides (or shows) the structures of a coarse chunk (everything after the ground part: walls, roofs,
-   * bridge decks) by cutting the draw range to the ground part. The block tier draws them as 1 m
+   * bridge decks) by hiding its structure instance in the batch. The block tier draws them as 1 m
    * blocks instead. Remembered for chunks meshed later. Chunk coordinates are global.
    */
   setStructuresHidden(gcx: number, gcz: number, hidden: boolean): void {
@@ -269,25 +283,26 @@ export class WorldStreamer {
     if (hidden) this.structuresHidden.add(key);
     else this.structuresHidden.delete(key);
     const c = this.chunks.get(key);
-    if (c !== undefined && c.mesh !== null) this.applyDrawRange(c);
+    if (c !== undefined && c.meshed) this.applyVisibility(c);
   }
 
   isStructuresHidden(gcx: number, gcz: number): boolean {
     return this.structuresHidden.has(chunkKey(gcx, gcz));
   }
 
-  private applyDrawRange(c: Chunk): void {
-    const g = this.groundHidden.has(c.key);
-    const s = this.structuresHidden.has(c.key);
-    const start = g ? c.groundIndexCount : 0;
-    const count = s ? (g ? 0 : c.groundIndexCount) : Infinity;
-    c.mesh!.geometry.setDrawRange(start, count);
+  private applyVisibility(c: Chunk): void {
+    if (c.ground !== null) this.batch.setVisible(c.ground, !this.groundHidden.has(c.key));
+    if (c.structs !== null) this.batch.setVisible(c.structs, !this.structuresHidden.has(c.key));
   }
 
   dispose(): void {
     for (const w of this.workers) w.terminate();
     for (const c of this.chunks.values()) this.freeChunk(c);
     this.chunks.clear();
+    this.scene.remove(this.batch.mesh);
+    this.batch.dispose();
+    this.scene.remove(this.waterBatch.mesh);
+    this.waterBatch.dispose();
     for (const m of this.emptyQuads.values()) this.scene.remove(m);
     this.emptyQuads.clear();
     this.emptyGeometry?.dispose();
@@ -491,7 +506,7 @@ export class WorldStreamer {
       if (Math.hypot(dx, dz) > keep) {
         this.scene.remove(m);
         this.emptyQuads.delete(k);
-        this.triCount -= 2;
+        this.emptyTris -= 2;
       }
     }
     this.dirty = true;
@@ -511,7 +526,7 @@ export class WorldStreamer {
     m.updateMatrix();
     this.scene.add(m);
     this.emptyQuads.set(k, m);
-    this.triCount += 2;
+    this.emptyTris += 2;
   }
 
   private addPending(ref: ChunkRef): void {
@@ -563,7 +578,7 @@ export class WorldStreamer {
 
       if (chunk !== undefined) {
         if (chunk.busy) {
-          if (chunk.mesh === null) this.addPending(ref);
+          if (!chunk.meshed) this.addPending(ref);
           continue;
         }
         if ((avail & ~chunk.edgeMask) === 0) continue; // up to date
@@ -572,14 +587,14 @@ export class WorldStreamer {
         continue;
       }
       if (this.inflight >= MAX_JOBS) {
-        if (chunk === undefined || chunk.mesh === null) this.addPending(ref);
+        if (chunk === undefined || !chunk.meshed) this.addPending(ref);
         continue;
       }
       if (chunk === undefined) {
-        chunk = { key, gcx: ref.gcx, gcz: ref.gcz, mesh: null, water: null, groundIndexCount: 0, edgeMask: 0, busy: false, disposed: false };
+        chunk = { key, gcx: ref.gcx, gcz: ref.gcz, ground: null, structs: null, meshed: false, water: null, edgeMask: 0, busy: false, disposed: false };
         this.chunks.set(key, chunk);
       }
-      if (!this.dispatch(chunk, entry, avail) && chunk.mesh === null) this.addPending(ref);
+      if (!this.dispatch(chunk, entry, avail) && !chunk.meshed) this.addPending(ref);
     }
   }
 
@@ -654,7 +669,7 @@ export class WorldStreamer {
         return;
       }
       chunk.busy = false;
-      if (chunk.mesh === null && !chunk.disposed) {
+      if (!chunk.meshed && !chunk.disposed) {
         this.chunks.delete(chunk.key);
         chunk.disposed = true;
       }
@@ -680,67 +695,81 @@ export class WorldStreamer {
   private setChunkMesh(
     chunk: Chunk, mesh: ChunkMesh & { water: WaterMesh | null; groundIndexCount: number }, entry: Entry, mask: number,
   ): void {
-    const geometry = this.geometryFrom(mesh);
-    if (chunk.mesh !== null) {
-      this.triCount -= chunk.mesh.geometry.index!.count / 3;
-      chunk.mesh.geometry.dispose();
-      chunk.mesh.geometry = geometry;
-    } else {
-      const m = new THREE.Mesh(geometry, this.material);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      m.position.set(entry.rx * REGION_M, 0, entry.rz * REGION_M);
-      m.matrixAutoUpdate = false;
-      m.updateMatrix();
-      this.scene.add(m);
-      chunk.mesh = m;
+    if (chunk.ground !== null) this.batch.remove(chunk.ground);
+    if (chunk.structs !== null) this.batch.remove(chunk.structs);
+    chunk.ground = null;
+    chunk.structs = null;
+    // ground quads come first (see meshChunk): split the vertex/index arrays at the ground quad count
+    const gq = mesh.groundIndexCount / 6;
+    const totalQ = mesh.positions.length / 12;
+    const ox = entry.rx * REGION_M;
+    const oz = entry.rz * REGION_M;
+    if (gq > 0) {
+      chunk.ground = this.batch.add({
+        attrs: {
+          position: [mesh.positions.subarray(0, gq * 12), 3],
+          normal: [mesh.normals.subarray(0, gq * 12), 3],
+          color: [mesh.colors.subarray(0, gq * 12), 3],
+          aWall: [mesh.walls.subarray(0, gq * 16), 4],
+        },
+        indices: mesh.indices.subarray(0, gq * 6),
+      }, ox, oz);
+    }
+    if (totalQ > gq) {
+      const idx = mesh.indices.slice(gq * 6);
+      const shift = gq * 4;
+      for (let k = 0; k < idx.length; k++) idx[k] = idx[k]! - shift;
+      chunk.structs = this.batch.add({
+        attrs: {
+          position: [mesh.positions.subarray(gq * 12), 3],
+          normal: [mesh.normals.subarray(gq * 12), 3],
+          color: [mesh.colors.subarray(gq * 12), 3],
+          aWall: [mesh.walls.subarray(gq * 16), 4],
+        },
+        indices: idx,
+      }, ox, oz);
+    }
+    if (!chunk.meshed) {
+      chunk.meshed = true;
       this.meshCount++;
     }
-    this.triCount += mesh.indices.length / 3;
-    chunk.groundIndexCount = mesh.groundIndexCount;
-    if (this.groundHidden.has(chunk.key) || this.structuresHidden.has(chunk.key)) this.applyDrawRange(chunk);
+    this.applyVisibility(chunk);
     this.setChunkWater(chunk, mesh.water, entry);
     chunk.edgeMask = mask;
   }
 
   private setChunkWater(chunk: Chunk, water: WaterMesh | null, entry: Entry): void {
     if (chunk.water !== null) {
-      this.scene.remove(chunk.water);
-      this.triCount -= chunk.water.geometry.index!.count / 3;
-      chunk.water.geometry.dispose();
+      this.waterBatch.remove(chunk.water);
       chunk.water = null;
     }
     if (water === null) return;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(water.positions, 3));
-    g.setAttribute('shore', new THREE.BufferAttribute(water.shore, 1));
-    g.setIndex(new THREE.BufferAttribute(water.indices, 1));
-    g.computeBoundingSphere();
+    // baked to world coordinates (the water shader works in world space; no per-instance matrix needed)
+    const n = water.positions.length;
+    const pos = new Float32Array(n);
+    const ox = entry.rx * REGION_M;
+    const oz = entry.rz * REGION_M;
+    for (let i = 0; i < n; i += 3) {
+      pos[i] = water.positions[i]! + ox;
+      pos[i + 1] = water.positions[i + 1]!;
+      pos[i + 2] = water.positions[i + 2]! + oz;
+    }
     // waves lift the surface by up to ~0.5 m; keep the culling sphere conservative
-    g.boundingSphere!.radius += 1;
-    const m = new THREE.Mesh(g, this.waterMaterial);
-    m.position.set(entry.rx * REGION_M, 0, entry.rz * REGION_M);
-    m.matrixAutoUpdate = false;
-    m.updateMatrix();
-    m.renderOrder = 1;
-    this.scene.add(m);
-    chunk.water = m;
-    this.triCount += water.indices.length / 3;
+    chunk.water = this.waterBatch.add({ attrs: { position: [pos, 3], shore: [water.shore, 1] }, indices: water.indices, pad: 1 }, 0, 0);
   }
 
   private freeChunk(c: Chunk): void {
     c.disposed = true;
     if (c.water !== null) {
-      this.scene.remove(c.water);
-      this.triCount -= c.water.geometry.index!.count / 3;
-      c.water.geometry.dispose();
+      this.waterBatch.remove(c.water);
       c.water = null;
     }
-    if (c.mesh === null) return;
-    this.scene.remove(c.mesh);
-    this.triCount -= c.mesh.geometry.index!.count / 3;
-    c.mesh.geometry.dispose();
-    c.mesh = null;
+    if (!c.meshed) return;
+    if (c.ground !== null) this.batch.remove(c.ground);
+    if (c.structs !== null) this.batch.remove(c.structs);
+    c.ground = null;
+    c.structs = null;
+    c.meshed = false;
     this.meshCount--;
   }
 }

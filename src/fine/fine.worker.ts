@@ -77,6 +77,7 @@ scope.onmessage = (e) => {
         blocks.walls.buffer,
         blocks.indices.buffer,
         blocks.tops.buffer,
+        ...(blocks.signs !== undefined ? [blocks.signs.data.buffer] : []),
       ]);
       return;
     }

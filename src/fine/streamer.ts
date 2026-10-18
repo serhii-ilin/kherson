@@ -9,6 +9,7 @@ import { buildBlockInput } from './block-input.ts';
 import type { BlockMesh } from './generate.ts';
 import { buildPatch } from './patch.ts';
 import { FineWorld } from './world.ts';
+import type { SignData, SignLayer } from './signs.ts';
 
 export interface FineStreamerOptions {
   /** Chunks whose nearest point is within this many metres are generated (150 desktop, 70 phone). */
@@ -17,6 +18,8 @@ export interface FineStreamerOptions {
   blockRadius?: number;
   /** Fine workers (1 or 2). */
   workers?: number;
+  /** Shop sign renderer; signs follow the installed block chunks. */
+  signs?: SignLayer;
 }
 
 const HYSTERESIS = 64;
@@ -30,6 +33,13 @@ const EMPTY_PATCH = new Uint8Array(0);
 /** Block meshes are merged per 2x2 chunks (128 m) to keep draw calls (and shadow-pass calls) down. */
 const TILE_CHUNKS = 2;
 const TILE_FLUSHES_PER_FRAME = 2;
+/** Camera height above ground beyond which the 0.2 m and 1 m tiers are switched off (with hysteresis). */
+const HIGH_OFF = 250;
+const HIGH_ON = 210;
+/** New ground chunks and block chunks dither in over the tier underneath during this time. */
+const FADE_MS = 300;
+/** At most this many chunks fade at once (each is a temporary draw call); bulk arrivals pop in. */
+const MAX_FADING = 10;
 
 type TileState = 'idle' | 'loading' | 'loaded' | 'none' | 'failed';
 
@@ -60,6 +70,18 @@ interface FChunk {
   tops: Uint8Array | null;
   /** Block chunks: merged into a tile (structures hidden, physics registered). */
   installed: boolean;
+  /** Block chunks: shop signs until installed. */
+  signs: SignData | null;
+  /** Dither-in state while the chunk fades over the tier underneath (null when done). */
+  fade: Fade | null;
+}
+
+interface Fade {
+  start: number;
+  mat: THREE.MeshLambertMaterial;
+  uniform: { value: number };
+  /** Ground chunks fade their own mesh; block chunks a temporary mesh until they are merged into a tile. */
+  mesh: THREE.Mesh | null;
 }
 
 interface Job {
@@ -99,6 +121,7 @@ export class FineStreamer {
   readonly world: FineWorld;
   readonly radius: number;
   readonly blockRadius: number;
+  private readonly signLayer: SignLayer | null;
 
   private readonly scene: THREE.Scene;
   private readonly coarse: WorldStreamer;
@@ -140,6 +163,9 @@ export class FineStreamer {
   private blockCount = 0;
   private blockTris = 0;
   private blockInflight = 0;
+  /** Camera is so high that the fine and block tiers are off (nothing generated, nothing drawn). */
+  private high = false;
+  private readonly fading: FChunk[] = [];
 
   constructor(scene: THREE.Scene, coarse: WorldStreamer, manifest: Manifest, opts: FineStreamerOptions) {
     const cm = coarse.material;
@@ -154,6 +180,7 @@ export class FineStreamer {
     this.manifest = manifest;
     this.radius = opts.radius;
     this.blockRadius = opts.blockRadius ?? 0;
+    this.signLayer = opts.signs ?? null;
     this.world = new FineWorld(coarse);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     this.chunksX = manifest.regionsX * REGION_CHUNKS;
@@ -175,10 +202,19 @@ export class FineStreamer {
   get blockJobs(): number { return this.blockInflight; }
   get blockTriangles(): number { return this.blockTris; }
 
-  /** Call once per frame; does real work only on a chunk-boundary crossing, new data, or a retry tick. */
-  update(x: number, z: number): void {
+  /** True while the camera is above the altitude cutoff and both tiers are off. */
+  get isHigh(): boolean { return this.high; }
+
+  /**
+   * Call once per frame; does real work only on a chunk-boundary crossing, new data, a retry tick, or an
+   * altitude threshold crossing. `y` is the camera height above the ground (omit to keep the tiers on).
+   */
+  update(x: number, z: number, y = 0): void {
     this.camX = x;
     this.camZ = z;
+    if (!this.high && y > HIGH_OFF) this.setHigh(true);
+    else if (this.high && y < HIGH_ON) this.setHigh(false);
+    if (this.fading.length > 0) this.stepFades(performance.now());
     const gcx = Math.floor(x / CHUNK_M);
     const gcz = Math.floor(z / CHUNK_M);
     if (gcx !== this.lastGcx || gcz !== this.lastGcz) {
@@ -190,6 +226,73 @@ export class FineStreamer {
       this.pump();
     }
     if (this.dirtyTiles.size > 0) this.flushTiles();
+    this.signLayer?.flush();
+  }
+
+  /**
+   * Switches both tiers off (hidden, nothing generated) or back on. Off restores the coarse structures
+   * the block tier was hiding; on re-hides them and forces a rescan from the current position.
+   */
+  private setHigh(high: boolean): void {
+    this.high = high;
+    this.signLayer?.setVisible(!high);
+    for (const c of this.chunks.values()) if (c.mesh !== null) c.mesh.visible = !high;
+    for (const t of this.btiles.values()) if (t.mesh !== null) t.mesh.visible = !high;
+    for (const c of this.fading) if (c.fade?.mesh) c.fade.mesh.visible = !high;
+    for (const c of this.bchunks.values()) if (c.installed) this.coarse.setStructuresHidden(c.gcx, c.gcz, !high);
+    if (!high) {
+      this.lastGcx = -1e9; // rescan at the next update
+      this.dirty = true;
+    }
+  }
+
+  private stepFades(now: number): void {
+    for (let i = this.fading.length - 1; i >= 0; i--) {
+      const c = this.fading[i]!;
+      const f = c.fade;
+      if (f === null || c.disposed) {
+        this.fading.splice(i, 1);
+        continue;
+      }
+      const k = (now - f.start) / FADE_MS;
+      if (k < 1) {
+        f.uniform.value = k;
+        continue;
+      }
+      this.fading.splice(i, 1);
+      if (c.kind === 'ground') {
+        if (c.mesh !== null) c.mesh.material = this.material;
+        this.endFade(c);
+      } else if (c.data !== null) {
+        // fully faded in: merge into its tile (which hides the coarse structures); the temporary mesh is
+        // removed by the flush in the same step
+        const tile = this.blockTile(c);
+        tile.pending.push(c);
+        this.dirtyTiles.add(tile);
+      }
+    }
+  }
+
+  private endFade(c: FChunk): void {
+    const f = c.fade;
+    if (f === null) return;
+    if (f.mesh !== null && c.kind === 'blocks') {
+      this.scene.remove(f.mesh);
+      f.mesh.geometry.dispose();
+    }
+    f.mat.dispose();
+    c.fade = null;
+  }
+
+  private startFade(c: FChunk, mesh: THREE.Mesh, base: THREE.MeshLambertMaterial): void {
+    const mat = base.clone();
+    mat.onBeforeCompile = base.onBeforeCompile;
+    mat.customProgramCacheKey = base.customProgramCacheKey;
+    const uniform = { value: 0 };
+    mat.userData.uFade = uniform;
+    mesh.material = mat;
+    c.fade = { start: performance.now(), mat, uniform, mesh };
+    this.fading.push(c);
   }
 
   dispose(): void {
@@ -297,6 +400,7 @@ export class FineStreamer {
     this.tick++;
     const maxJobs = this.workers.length * MAX_JOBS_PER_WORKER;
     // the 0.2 m ground first (cheap, close), then the block tier
+    if (this.high) return;
     if (this.scan(this.need, this.chunks, 'ground', maxJobs)) return;
     if (this.blockRadius > 0) this.scan(this.bneed, this.bchunks, 'blocks', maxJobs);
   }
@@ -337,7 +441,7 @@ export class FineStreamer {
       const worker = this.pickWorker(needed);
       if (worker < 0) { this.waiting = true; return true; }
       const chunk: FChunk = {
-        key, gcx: ref.gcx, gcz: ref.gcz, kind, mesh: null, tris: 0, busy: true, disposed: false, data: null, tops: null, installed: false,
+        key, gcx: ref.gcx, gcz: ref.gcz, kind, mesh: null, tris: 0, busy: true, disposed: false, data: null, tops: null, installed: false, signs: null, fade: null,
       };
       map.set(key, chunk);
       this.send({ id: this.nextJobId++, chunk, worker, patch, win, tiles: needed.slice() }, false);
@@ -432,11 +536,13 @@ export class FineStreamer {
       const m = new THREE.Mesh(g, this.material);
       m.castShadow = false; // flat ground: receives shadows only
       m.receiveShadow = true;
+      m.visible = !this.high;
       m.position.set(chunk.gcx * CHUNK_M, 0, chunk.gcz * CHUNK_M);
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       this.scene.add(m);
       chunk.mesh = m;
+      if (this.fading.length < MAX_FADING) this.startFade(chunk, m, this.material);
       chunk.tris = mesh.indices.length / 3;
       this.triCount += chunk.tris;
       this.meshCount++;
@@ -446,6 +552,7 @@ export class FineStreamer {
 
   private drop(c: FChunk): void {
     c.disposed = true;
+    this.endFade(c);
     this.world.setChunk(c.gcx, c.gcz, null);
     if (c.mesh === null) return;
     this.scene.remove(c.mesh);
@@ -460,9 +567,30 @@ export class FineStreamer {
   private queueBlocks(chunk: FChunk, data: BlockMesh): void {
     chunk.data = data;
     chunk.tops = data.tops;
-    const tile = this.blockTile(chunk);
-    tile.pending.push(chunk);
-    this.dirtyTiles.add(tile);
+    chunk.signs = data.signs === undefined ? null : { ...data.signs, ox: chunk.gcx * CHUNK_M, oz: chunk.gcz * CHUNK_M };
+    // the chunk's blocks dither in over the still-drawn coarse structures; the merge into the tile (and the
+    // hiding of the coarse structures) follows once the fade is done
+    if (this.fading.length >= MAX_FADING) {
+      // bulk arrival (teleport, first load): no fade, to keep the temporary draw calls down
+      const tile = this.blockTile(chunk);
+      tile.pending.push(chunk);
+      this.dirtyTiles.add(tile);
+      return;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
+    g.setAttribute('aWall', new THREE.BufferAttribute(data.walls, 4));
+    g.setIndex(new THREE.BufferAttribute(data.indices, 1));
+    g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, this.coarse.material);
+    m.matrixAutoUpdate = false;
+    m.position.set(chunk.gcx * CHUNK_M, 0, chunk.gcz * CHUNK_M);
+    m.updateMatrix();
+    m.visible = !this.high;
+    this.scene.add(m);
+    this.startFade(chunk, m, this.coarse.material);
   }
 
   private blockTile(chunk: FChunk): BlockTile {
@@ -568,6 +696,7 @@ export class FineStreamer {
       } else {
         // the coarse chunk material (same program as the coarse chunks, no polygon offset)
         const m = new THREE.Mesh(g, this.coarse.material);
+        m.visible = !this.high;
         m.castShadow = true;
         m.receiveShadow = true;
         m.position.set(tile.tx * TILE_CHUNKS * CHUNK_M, 0, tile.tz * TILE_CHUNKS * CHUNK_M);
@@ -583,10 +712,13 @@ export class FineStreamer {
     for (const c of add) {
       c.data = null;
       c.installed = true;
+      this.signLayer?.add(c.key, c.signs);
+      c.signs = null;
       this.blockCount++;
+      this.endFade(c);
     }
     for (const c of add) {
-      this.coarse.setStructuresHidden(c.gcx, c.gcz, true);
+      this.coarse.setStructuresHidden(c.gcx, c.gcz, !this.high);
       this.world.setBlocks(c.gcx, c.gcz, c.tops);
     }
     if (tile.mesh === null && tile.parts.length === 0 && tile.pending.length === 0) this.btiles.delete(tile.key);
@@ -598,10 +730,12 @@ export class FineStreamer {
       // unhide the coarse structures first, so there is never a frame without the building
       this.coarse.setStructuresHidden(c.gcx, c.gcz, false);
       this.world.setBlocks(c.gcx, c.gcz, null);
+      this.signLayer?.remove(c.key);
       this.blockCount--;
       c.installed = false;
     }
     c.data = null;
+    this.endFade(c);
     const tile = this.btiles.get(chunkKey(Math.floor(c.gcx / TILE_CHUNKS), Math.floor(c.gcz / TILE_CHUNKS)));
     if (tile !== undefined) this.dirtyTiles.add(tile);
   }
