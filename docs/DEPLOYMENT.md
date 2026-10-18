@@ -109,7 +109,7 @@ git push
 | `fetch-osm` gets `406 Not Acceptable` | Overpass rejects requests without an identifying User-Agent | keep the `User-Agent` with a contact URL in `tools/fetch-osm.ts` |
 | `fetch-osm` reports `502` / "server is at capacity" | the public Overpass instance is overloaded | just wait; the script backs off and retries, and cached tiles are kept |
 | `fetch-osm` fails on every mirror | outage | retry later; deploys are unaffected because they use the committed snapshot |
-| CI fails at `npm test` with `Test timed out in 5000ms` | CI runners are about 3× slower than a laptop | give simulation-heavy tests an explicit timeout (`it(..., 30_000)`) |
+| CI fails at `npm test` with `Test timed out in …ms` | CI runners are about 3× slower than a laptop | the global `testTimeout` in `vite.config.ts` is 30 s; raise it for a single heavy test with `it(..., 60_000)` |
 | `ERR_UNKNOWN_FILE_EXTENSION` or a syntax error in `tools/` | Node is too old, or a non-erasable TS feature (enum, namespace, parameter property) is used | use Node 24+; keep `src/world`, `src/nature/models.ts` and `tools/` to erasable TypeScript |
 | Deploy succeeds but the page is blank, with 404s for `/assets/...` | wrong Vite `base` | set `base` to `/<repo-name>/` |
 | The deploy job fails with "Pages not enabled" / 404 | Pages source not set | run step 2 of the first-time setup |

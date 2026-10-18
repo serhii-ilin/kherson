@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   base: '/kherson/',
@@ -7,5 +7,9 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
+  },
+  test: {
+    // CI runners are ~3× slower than a laptop; voxel and flocking tests run for seconds there
+    testTimeout: 30_000,
   },
 });
