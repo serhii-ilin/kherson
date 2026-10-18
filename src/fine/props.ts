@@ -23,6 +23,7 @@ import {
 import { KERB_CM } from './ground.ts';
 import { buildProp, PROP } from './prop-models.ts';
 import type { ChunkMesh } from '../world/mesher.ts';
+import type { PropExclusion } from '../landmarks/exclusions.ts';
 
 const REGION_M = 512;
 
@@ -343,11 +344,13 @@ class Ctx {
   readonly w: PropWorld;
   readonly b: Bounds;
   readonly g: PropGround;
+  readonly exclusions: readonly PropExclusion[];
 
-  constructor(w: PropWorld, b: Bounds, g: PropGround) {
+  constructor(w: PropWorld, b: Bounds, g: PropGround, exclusions: readonly PropExclusion[]) {
     this.w = w;
     this.b = b;
     this.g = g;
+    this.exclusions = exclusions;
   }
 
   inBounds(x: number, z: number): boolean {
@@ -417,6 +420,16 @@ class Ctx {
   }
 
   add(kind: number, x: number, z: number, yaw: number, y?: number): void {
+    for (const exclusion of this.exclusions) {
+      if (!exclusion.kinds.includes(kind)) continue;
+      const polygon = exclusion.polygon;
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i]![0], zi = polygon[i]![1], xj = polygon[j]![0], zj = polygon[j]![1];
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      if (inside) return;
+    }
     this.out.push({ kind, variant: posHash(x, z, kind) % 3, x, y: y ?? this.surfaceY(x, z), z, yaw });
   }
 }
@@ -657,9 +670,11 @@ function placeFences(c: Ctx): void {
 }
 
 /** All props whose anchor lies in the half-open `bounds`, deterministic and chunk independent. */
-export function placeProps(tiles: readonly VectorTile[], bounds: Bounds, ground: PropGround): PropPlacement[] {
+export function placeProps(
+  tiles: readonly VectorTile[], bounds: Bounds, ground: PropGround, exclusions: readonly PropExclusion[] = [],
+): PropPlacement[] {
   const w = new PropWorld(tiles, bounds);
-  const c = new Ctx(w, bounds, ground);
+  const c = new Ctx(w, bounds, ground, exclusions);
   placeLamps(c);
   placeTrafficLights(c);
   placeSignPosts(c);

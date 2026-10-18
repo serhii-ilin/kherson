@@ -5,6 +5,12 @@ looked after the Lenin statue was removed and before 24 February 2022. The targe
 is the main public square in front of the Kherson Regional State Administration,
 not a generic Soviet plaza and not the later damaged state.
 
+> **Owner correction (2026-10-18):** in reality the square itself has few or no trees. Keep the
+> open forecourt treeless: no generic or hand-placed trees on it. Trees exist only beyond its edges
+> where OSM maps `natural=tree_row` / `natural=wood` (about 65-100 m from the plinth). OSM ways with
+> ids above ~1.1e9 (e.g. the grass patches 1475034043-1475034049 and pedestrian area 1475248264)
+> were drawn after 2022 and may show the post-war state; use them only with care.
+
 ## Target state
 
 Use the **2015–2020** state: the large four-storey Soviet-era administration
@@ -73,7 +79,7 @@ from the actual pedestrian forecourt and green islands:
 | Steps near the administration/side approach | 14–18 risers at 0.14–0.17 m, 3–4 m wide | OSM steps way 1166313181 is about 16 m in plan; count is estimated; low. |
 | Lamps | 5–7 m high, 25–35 m apart around the forecourt; 18–25 m in the planted square | Photo scale; low/medium. |
 | Benches | 1.8–2.2 m long, 0.45 m deep | S5 confirms benches after 2019; dimensions are standard public-furniture scale. |
-| Tree rows | 8–12 m spacing, irregular mature broadleaf canopy | OSM tree points and S1/S3; medium for rhythm, low for species. |
+| Tree rows | none on the open square; only the OSM tree rows / woods beyond its edges | Owner correction; high. |
 
 Use the following point-to-point structure:
 
@@ -134,8 +140,8 @@ The building is the visual wall that makes the location read as Freedom Square:
   pale stone/concrete edging and a ring/cluster of jets. S5 confirms exterior
   tile cladding, internal refit and modern nozzles in 2019. Basin edge
   `#AAA9A1`, water `#6E9AA0`, metal nozzles `#73756D`.
-- Add low flower beds and mature deciduous trees at the square edges, not a
-  dense forest in the centre. OSM tree points around 46.638905–46.639246,
+- Add low flower beds at the square edges; no trees on the open square (owner
+  correction), only the existing OSM tree rows and woods beyond its edges. OSM tree points around 46.638905–46.639246,
   32.615490–32.616433 are useful row anchors, but species tags are absent.
   Use generic broadleaf trees; do not assert linden, poplar or plane tree.
 
@@ -181,8 +187,8 @@ Model only the immediately visible edges at high detail:
 1. The long, pale four-storey Regional State Administration facade enclosing the
    main forecourt.
 2. The former Lenin plinth area, empty of the statue in the 2015–2020 state.
-3. Broad grey paved space with mature trees/flower beds at its edges and a
-   strong Ushakova Avenue approach.
+3. A broad, open grey paved space with no trees on it, flower beds at its
+   edges and a strong Ushakova Avenue approach.
 4. The maintained round fountain and planted Pushkin/Fontannyi Square directly
    behind/alongside the administration, matching the 2019 report.
 5. Soviet civic scale: repeated windows, restrained columns, dark lamps,

@@ -29,7 +29,7 @@ _Last updated: 2026-10-18_
 ### Next
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
-  - ⬜ Landmark detail layer built from the briefs.
+  - ✅ Landmark detail layer, first pass (see Done).
 
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
@@ -43,6 +43,9 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 |---|---|---|---|
 | 26 | P3 | Banks of water that exists only as an OSM line (e.g. Koshova by the Ostrivske bridge) still follow the 2 m grid; the shoreline smoothing needs a water polygon | trace polygons from the line buffers in the bake |
 | 27 | P3 | 1 m khrushchevka is 3,720 triangles (test bound 3,800): further facade detail needs trimming elsewhere | |
+| 28 | P3 | The Pier is not in the Places menu | add it to the bake's landmark list and re-bake `public/world` |
+| 29 | P3 | Tree rows between Freedom Square and the administration come from OSM `tree_row` ways drawn after 2022 (ids ~1.17e9); the owner says the square has few or no trees | owner to confirm whether they stood there before 2022; if not, exclude them |
+| 30 | P3 | The Frigate (First Shipbuilders) monument next to the Pier is not modelled; thin grass slivers remain at the edges of the square's paving | model the monument; clip edge pavers to the polygon |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
 ## Waiting on the owner
@@ -57,6 +60,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Landmarks, first pass: Freedom Square (OSM-derived treeless forecourt with ~1 m pavers on a mortar bed following the ground, empty stepped former-Lenin pad with blank panels, Pushkin-square fountain, lamps, benches, bins, flower beds, Ukrainian flags) and the Pier at the bottom of Ushakova (placed on the real quay edge found along the avenue axis, paved promenade, 45 m walkable deck over the water with railings, lamps with flower boxes, bollards, axial fountain). 144k / 32k triangles, 3 draw calls each; whole frame ≈ 1.2M tris / 205 calls at the square | (this commit) |
 | Bird sounds: 17 procedural Kherson species mixed by habitat (built-up → sparrows, pigeons, doves, crows; trees → tits, blackbird, chaffinch, oriole, nightingale; river → gulls, swallows, wagtails), pigeon vs collared-dove coos, caw and noisy voices; weights and sources in [BIRDS.md](BIRDS.md); ≤ 16 voices measured | `d472da6` |
 | River fish: sporadic jumps (arc, ring on the waves, droplets, a quiet plop) and dark shadows under the surface, 15–60 m ahead, daytime only; at most 6 events (3 on phones), 4 draw calls. `waveHeight()` mirrors the water shader so surface effects ride the waves | `1dbb4f5` |
 | Minimap: + / − zoom buttons (400 m … whole city), click or tap to move there, drag the player arrow to move there (keeps facing; Codex `gpt-5.6-luna`, reviewed by Opus) | `3a46378` |

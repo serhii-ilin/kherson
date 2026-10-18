@@ -23,6 +23,10 @@ import { Minimap } from './ui/minimap.ts';
 import { PlacesMenu, type Place } from './ui/places.ts';
 import { PALETTE } from './world/materials.ts';
 import { REGION, VOXEL } from './world/constants.ts';
+import { createLandmarks } from './landmarks/index.ts';
+import { LandmarkLayer } from './landmarks/layer.ts';
+import { LandmarkPhysics } from './landmarks/physics.ts';
+import { getVegetationExclusions } from './landmarks/exclusions.ts';
 
 const SKY = 0x9cc8ef;
 const SURROUNDING_RADII = [12, 30, 60, 100, 150] as const;
@@ -137,6 +141,7 @@ const waterMaterial = createWaterMaterial({
 // Called at startup and when the time button is pressed (never per frame); uniform writes only.
 /** 1 by day .. 0 at night, read by the birds and the ambience. */
 let dayFactor = 1;
+let landmarkLayer: LandmarkLayer | null = null;
 let birdSystem: BirdSystem | null = null;
 let fishSystem: FishSystem | null = null;
 function applyTime(hours: number): void {
@@ -159,6 +164,7 @@ function applyTime(hours: number): void {
   (wu.uLight!.value as THREE.Vector3).set(d.lightColor[0] * wl, d.lightColor[1] * wl, d.lightColor[2] * wl);
   (wu.uSky!.value as THREE.Color).setRGB(d.reflect[0], d.reflect[1], d.reflect[2], THREE.SRGBColorSpace);
   NIGHT_UNIFORM.value = d.lights;
+  landmarkLayer?.setNight(d.lights);
   // low sun: a larger normal offset keeps grazing-angle shadows free of acne
   sun.shadow.normalBias = 0.15 + 0.25 * (1 - Math.min(1, Math.max(0, (d.lightDir[1] - 0.17) / 0.4)));
   // re-aim the light (also when the shadow pass is off high up, or in Low) and redraw the map once
@@ -188,7 +194,12 @@ async function start(): Promise<void> {
   const manifest = (await (await fetch(`${base}world/manifest.json`)).json()) as Manifest;
   const viewRadius = isMobile ? 384 : 640;
   const streamer = new WorldStreamer(scene, manifest, { viewRadius, waterMaterial });
-  const vegetation = new Vegetation(scene, { nearRadius: isMobile ? 150 : 250, farRadius: viewRadius, fineRadius: isMobile ? 25 : 40 });
+  const vegetation = new Vegetation(scene, {
+    nearRadius: isMobile ? 150 : 250,
+    farRadius: viewRadius,
+    fineRadius: isMobile ? 25 : 40,
+    exclusions: getVegetationExclusions(manifest.bbox),
+  });
   streamer.onRegionData = (rx, rz, data) => vegetation.setRegion(rx, rz, data ? data.features : null, data?.cells);
   const q = new URLSearchParams(location.search);
   // Fine tier (0.2 m ground near the camera): High quality + baked vector tiles; ?fine=0|1 overrides.
@@ -205,8 +216,11 @@ async function start(): Promise<void> {
       signs: blocksOn ? new SignLayer(scene) : undefined,
     })
     : null;
-  /** Physics world: coarse heights plus fine kerbs where a fine chunk is loaded. */
-  const physics = fine !== null ? fine.world : streamer;
+  const basePhysics = fine !== null ? fine.world : streamer;
+  landmarkLayer = new LandmarkLayer(scene, createLandmarks(manifest.bbox), basePhysics, quality);
+  landmarkLayer.setNight(dayFactor);
+  /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
+  const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
   const input = new Input();
   input.attach(renderer.domElement);
   const player = new PlayerController(camera, input);
@@ -308,7 +322,7 @@ async function start(): Promise<void> {
     audioScene.builtUp = samples > 0 ? built / samples : 0.5;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, landmarks: landmarkLayer, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -356,6 +370,7 @@ async function start(): Promise<void> {
     }
     streamer.update(camera.position.x, camera.position.z);
     fine?.update(camera.position.x, camera.position.z, agl);
+    landmarkLayer?.update(camera.position.x, camera.position.z);
     vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
       if (!overview.done) overview.build(4);

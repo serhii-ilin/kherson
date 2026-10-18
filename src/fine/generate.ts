@@ -12,6 +12,9 @@ import { BLOCK_PAD, BLOCK_WIN, BlockWindow, columnPhysics, meshBlocks } from './
 import { VOL_XZ, Volume } from './volume.ts';
 import { appendMesh, buildPropMesh, placeProps } from './props.ts';
 import { packSigns, placeSigns } from './sign-place.ts';
+import { getLandmarkExclusions } from '../landmarks/exclusions.ts';
+
+const LANDMARK_EXCLUSIONS = getLandmarkExclusions();
 
 /** Fine ground for one chunk: rasterise from coarse cells + vector tiles, then mesh. */
 export function generateFineChunk(input: FineInput): FineMesh {
@@ -387,7 +390,7 @@ export function generateBlockChunk(input: BlockInput): BlockMesh {
   // street props and shop signs: placed from world data only, emitted by the chunk holding their anchor
   const wd = new BlockWindowData(input.win, input.gcx, input.gcz);
   const bounds = { x0, z0, x1: x0 + CHUNK_M, z1: z0 + CHUNK_M };
-  const placements = placeProps(input.tiles, bounds, wd);
+  const placements = placeProps(input.tiles, bounds, wd, LANDMARK_EXCLUSIONS);
   const props = buildPropMesh(placements, x0, z0);
   mesh = appendMesh(mesh, props);
   if (runs !== undefined) runs = concatF(runs, new Float32Array((props.positions.length / 3) * 2));

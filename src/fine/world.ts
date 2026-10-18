@@ -77,6 +77,24 @@ export class FineWorld {
     return this.blockTops.has(gcz * 4096 + gcx);
   }
 
+  /** Fine ground top without building/block structures; used by hand-authored surfaces for alignment. */
+  groundHeightAt(x: number, z: number, refY?: number): number | null {
+    const gcx = Math.floor(x / CHUNK_M);
+    const gcz = Math.floor(z / CHUNK_M);
+    const coarse = this.coarse.groundHeightAt !== undefined
+      ? this.coarse.groundHeightAt(x, z, refY)
+      : this.coarse.heightAt(x, z, refY);
+    if (coarse === null) return null;
+    const raster = this.rasters.get(gcz * 4096 + gcx);
+    if (raster === undefined) return coarse;
+    let cx = Math.floor((x - gcx * CHUNK_M) / FINE_CELL);
+    let cz = Math.floor((z - gcz * CHUNK_M) / FINE_CELL);
+    cx = cx < 0 ? 0 : cx >= FINE_N ? FINE_N - 1 : cx;
+    cz = cz < 0 ? 0 : cz >= FINE_N ? FINE_N - 1 : cz;
+    const v = raster[cz * FINE_N + cx]!;
+    return v === NO_GROUND ? coarse : Math.max(coarse, v / 100);
+  }
+
   /**
    * Top surface in metres: the coarse height, raised to the fine ground (kerbs) where a fine chunk is
    * loaded. Fine ground is never below the coarse ground, so a walker cannot fall through it; bridge

@@ -5,6 +5,7 @@ import { jitterX, jitterZ } from './placement.ts';
 import { BUSH_SPECIES, SPECIES, TREE_SPECIES, VARIANTS, buildModel, type VegModel } from './models.ts';
 import { VegModelQueue } from './veg-queue.ts';
 import type { VegResponse } from './veg.worker.ts';
+import type { ExclusionPolygon } from '../landmarks/exclusions.ts';
 
 export interface VegetationOptions {
   /** Mid models (lod 2) are used up to this distance, metres. */
@@ -17,6 +18,8 @@ export interface VegetationOptions {
   fineRadius?: number;
   /** Alpha-tested ~5 cm leaf holes on the finest models, in the colour and shadow passes; default false. */
   leafCutout?: boolean;
+  /** Narrow treeless paving/hand-item clearances; broad landmark footprints are never accepted here. */
+  exclusions?: readonly ExclusionPolygon[];
 }
 
 export interface VegetationStats {
@@ -104,6 +107,7 @@ export class Vegetation {
   private readonly uTime = { value: 0 };
   /** Every model LOD except the far boxes is built in a Web Worker (key = model * SLOTS + slot); far boxes are built synchronously. */
   private readonly queue: VegModelQueue;
+  private readonly exclusions: readonly ExclusionPolygon[];
   private camX = 0;
   private camZ = 0;
   private lastCx = -1e9;
@@ -112,6 +116,7 @@ export class Vegetation {
 
   constructor(scene: THREE.Scene, opts: VegetationOptions) {
     this.scene = scene;
+    this.exclusions = opts.exclusions ?? [];
     this.queue = new VegModelQueue(
       () => {
         const w = new Worker(new URL('./veg.worker.ts', import.meta.url), { type: 'module' });
@@ -194,7 +199,13 @@ export class Vegetation {
     if (this.regions.delete(key)) this.dirty = true;
     if (features === null || cells === undefined) return;
     let n = 0;
-    for (const f of features) if (f.type === FEATURE_TREE || f.type === FEATURE_BUSH) n++;
+    for (const f of features) {
+      if (f.type !== FEATURE_TREE && f.type !== FEATURE_BUSH) continue;
+      const x = rx * REGION_M + (f.x + 0.5 + jitterX(f.seed)) * VOXEL;
+      const z = rz * REGION_M + (f.z + 0.5 + jitterZ(f.seed)) * VOXEL;
+      if (this.inExclusion(x, z)) continue;
+      n++;
+    }
     if (n === 0) return;
     const r: RegionVeg = {
       rx, rz, count: n,
@@ -208,10 +219,11 @@ export class Vegetation {
     for (const f of features) {
       const isBush = f.type === FEATURE_BUSH;
       if (!isBush && f.type !== FEATURE_TREE) continue;
-      const ci = f.z * REGION + f.x;
       const s = f.seed;
       r.x[i] = rx * REGION_M + (f.x + 0.5 + jitterX(s)) * VOXEL;
       r.z[i] = rz * REGION_M + (f.z + 0.5 + jitterZ(s)) * VOXEL;
+      if (this.inExclusion(r.x[i]!, r.z[i]!)) continue;
+      const ci = f.z * REGION + f.x;
       r.y[i] = (cells[F_GROUND_H * plane + ci]! + cells[F_STRUCT_H * plane + ci]!) * VOXEL;
       let sc = 0.8 + (((s >> 2) & 15) / 15) * 0.45;
       if (isBush) sc *= 0.75 + 0.25 * Math.max(1, Math.min(3, f.param));
@@ -229,6 +241,18 @@ export class Vegetation {
     }
     this.regions.set(key, r);
     this.dirty = true;
+  }
+
+  private inExclusion(x: number, z: number): boolean {
+    for (const polygon of this.exclusions) {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i]![0], zi = polygon[i]![1], xj = polygon[j]![0], zj = polygon[j]![1];
+        if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    return false;
   }
 
   update(cameraX: number, cameraZ: number, timeSeconds: number): void {
