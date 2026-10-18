@@ -34,14 +34,19 @@ Measure with the dev HUD (`renderer.info`) at the spawn point (Freedom Square), 
 | Budget | Desktop | Phone |
 |---|---|---|
 | Target frame rate | 60 fps on a mid-range laptop | 30 fps |
-| Full-detail view radius | 640 m | 384 m |
-| Scene triangles | at most about 1.5M | at most about 0.6M |
-| Draw calls | at most about 300 | at most about 150 |
+| Fine-tier radius (0.2 m detail) | 150 m | 70 m |
+| Full-detail view radius (2 m voxels) | 640 m | 384 m |
+| Scene triangles | at most about 2.5M | at most about 0.9M |
+| Draw calls | at most about 400 | at most about 200 |
+| Sun shadows | on (2048 map, about 200 m) | off by default |
+| Vegetation, finest model (0.2 m) | 40 m or less, at most 6,000 triangles per tree | 25 m or less |
 | Vegetation, near model (0.5 m) | 70 m or less, at most 1,500 triangles per tree | 40 m or less |
 | Vegetation, mid model (1 m) | 250 m or less, at most 400 triangles | 150 m or less |
 | Birds | at most about 170 | at most about 90 |
 | Concurrent audio voices | at most 24 | at most 24 |
-| Baked world (`public/world/`) | at most 25 MB | same |
+| Baked world (`public/world/`) | at most 30 MB | same |
+
+A **Low** quality setting must exist so any device can fall back to the 2 m tier without shadows.
 
 Rules:
 1. **No allocation in hot paths:** no per-frame allocation in update loops (`update`, `step`, render callbacks). Preallocate and reuse.
