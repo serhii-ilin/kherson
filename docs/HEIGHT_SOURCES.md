@@ -116,6 +116,13 @@ CSV is primarily organisation/address metadata, Mapillary is imagery/map data,
 OpenAddresses is address data with source-specific licences, and Wikimapia’s
 terms/licence are not sufficiently clear for this use.
 
+## Measured samples (2026-10-18, by the reviewer)
+
+- **Overture Buildings 2026-09-23.1**, Kherson bbox 46.58-46.72 N, 32.45-32.72 E, fetched with DuckDB from the public S3 bucket: 12,924 buildings, **all with `sources[1].dataset = OpenStreetMap`**; 223 have `height`, 1,925 `num_floors` — the same values as our OSM snapshot. Filatova bbox: 557 buildings, 156 with `num_floors`. Overture adds **nothing** for Kherson.
+- **Microsoft Global ML Building Footprints** (2026-02-03 release, Ukraine quadkeys 120321310/311/313/301/303/130/132): **0 features with a height** in any of them, and the quadkey covering Kherson (120321310, 46.56-47.04 N, 32.34-33.05 E) holds only 382 footprints. Not usable.
+
+Conclusion: no open per-building height source covers Kherson today. Use the footprint/type heuristic calibrated against the city's 2021 housing-stock breakdown (above), keep explicit OSM tags authoritative, and improve OSM itself (`building:levels`) where the owner knows the buildings.
+
 ## Bake integration plan
 
 This is a plan for the bake implementation; this task intentionally adds no
