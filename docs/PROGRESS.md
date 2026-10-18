@@ -20,7 +20,7 @@ _Last updated: 2026-10-18_
 | Phase 2: vector tiles, 0.2 m ground (roads, kerbs, markings, zebras, tracks) | ✅ | `ac355fd` |
 | Phase 3: buildings and bridges as 1 m blocks | 🟡 blocks and bridges done; shop signs open | `657dc30` |
 | City limited to Kherson (OSM relation 2175078) | ✅ | `35e6147` |
-| Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | street-search commit |
+| Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
 | Phase 4: 10× near detail (0.2 m trees, props, surface detail, polish) | ⬜ | |
 | Later: time of day, lit windows at dusk | ⬜ | |
 
