@@ -94,12 +94,13 @@ The project is built with AI agents under a cost-aware division of labour:
 |---|---|---|
 | Architect and reviewer | Claude Opus | plans, specs and interfaces; reviewing every diff; verification (tests, screenshots, perf); tricky bugs; commits and deploys |
 | Implementer | Claude Sonnet | medium-complexity systems (engine, streaming, mesher, water, birds, audio, vegetation) |
-| Boilerplate | opencode free models (default `mimo-v2.6-flash-free`) | self-contained modules from precise specs (scaffolding, UI widgets, small tools) |
-| Fallback | Claude Haiku | when a free model fails, stalls, or produces broken output twice |
+| Boilerplate | Claude Haiku | self-contained modules from precise specs (scaffolding, UI widgets, small tools, model generators) |
+
+Free opencode models were used for boilerplate until 2026-10-18; after repeated stalls the owner moved all delegation to Anthropic models.
 
 Working rules:
 1. **Specs first:** every delegated task gets a self-contained spec naming the files it owns, the interfaces, conventions and acceptance commands.
-2. **No parallel conflicts:** agents working at the same time must not edit the same files. Only one `opencode run` may run at a time, because they share a local database.
+2. **No parallel conflicts:** agents working at the same time must not edit the same files.
 3. **Review before merge:** delegated output is reviewed before it is committed. Reported numbers are re-measured, and loosened tests are rejected.
 4. **Owner approval:** outward-facing actions (creating repositories, publishing, changing visibility) need the owner's approval.
 
