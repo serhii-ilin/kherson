@@ -17,7 +17,7 @@ const MAX_EVENTS = 6;
 const MOBILE_EVENTS = 3;
 const CANDIDATES = 8;
 const RING_LIFE = 1.5;
-const DROPS_PER_SPLASH = 6;
+const DROPS_PER_SPLASH = 10;
 const DROP_GRAVITY = 5;
 const FISH_HOLD = 0.12;
 /** Above the wave surface: the water is opaque, so a shadow drawn under it would never show. */
@@ -100,14 +100,14 @@ export class FishSystem {
     this.rng = opts.rng ?? Math.random;
     const deviceMax = opts.mobile ? MOBILE_EVENTS : MAX_EVENTS;
     this.max = Math.min(deviceMax, Math.max(0, Math.floor(opts.maxEvents ?? deviceMax)));
-    this.spawnT = this.range(4, 8);
+    this.spawnT = this.range(2.5, 5);
     for (let i = 0; i < this.max; i++) this.events.push(makeEvent());
     // A fixed set of records lets audio inspect the array without an update-time push.
     for (let i = 0; i < this.max * 4; i++) this.splashes.push({ x: 0, y: 0, z: 0, size: 0, t: -Infinity });
 
     const fishMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-    const ringMaterial = makeFadeMaterial(0xaebca4, 0.85);
-    const dropMaterial = makeFadeMaterial(0xe0e8df, 0.7);
+    const ringMaterial = makeFadeMaterial(0xe6efe9, 0.9);
+    const dropMaterial = makeFadeMaterial(0xffffff, 0.9);
     const shadowMaterial = makeFadeMaterial(0x1b3644, 0.45);
     const fishGeometry = buildFishGeometry();
     this.fishMesh = new THREE.InstancedMesh(fishGeometry, fishMaterial, this.max);
@@ -175,7 +175,7 @@ export class FishSystem {
     if (this.max > 0 && this.daylight > 0) {
       this.spawnT -= dt * this.daylight;
       if (this.spawnT <= 0 && this.active < this.max) {
-        this.spawnT = this.range(4, 8);
+        this.spawnT = this.range(2.5, 5);
         this.trySpawn(world, camera, timeSeconds);
       }
     }
@@ -212,8 +212,8 @@ export class FishSystem {
     let x = 0, z = 0, y = WATER_SURFACE;
     let found = false;
     for (let i = 0; i < CANDIDATES; i++) {
-      const a = camera.yaw + this.range(-Math.PI / 3, Math.PI / 3);
-      const d = this.range(15, 60);
+      const a = camera.yaw + this.range(-Math.PI / 4, Math.PI / 4);
+      const d = this.range(8, 35);
       x = camera.x - Math.sin(a) * d;
       z = camera.z - Math.cos(a) * d;
       if (!world.isWater(x, z) || !world.isWater(x + 3, z) || !world.isWater(x - 3, z) ||
@@ -234,7 +234,7 @@ export class FishSystem {
     e.x = x; e.z = z; e.y = y; e.age = 0; e.started = now;
     e.angle = this.rng() * TAU;
     if (e.kind === 0) {
-      e.length = this.range(0.3, 0.6);
+      e.length = this.range(0.4, 0.7);
       e.travel = this.range(0.5, 1.5);
       e.duration = this.range(0.6, 1.0);
       e.peak = this.range(0.4, 0.9);
@@ -311,14 +311,14 @@ export class FishSystem {
     for (let i = 0; i < DROPS_PER_SPLASH; i++) {
       const k = base + i;
       const a = this.rng() * TAU;
-      const speed = this.range(0.35, 0.9);
+      const speed = this.range(0.4, 1.1);
       this.dropActive[k] = 1;
       this.dropStart[k] = now;
       this.dropX[k] = x; this.dropY[k] = y + waveHeight(x, z, now) + 0.03; this.dropZ[k] = z;
       this.dropVx[k] = Math.cos(a) * speed;
       this.dropVz[k] = Math.sin(a) * speed;
-      this.dropVy[k] = this.range(0.75, 1.45);
-      this.dropSize[k] = this.range(0.04, 0.07);
+      this.dropVy[k] = this.range(1.2, 2.4);
+      this.dropSize[k] = this.range(0.06, 0.11);
       this.dropDuration[k] = this.range(0.3, 0.48);
     }
   }

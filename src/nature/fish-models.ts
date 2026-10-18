@@ -10,7 +10,7 @@ export function buildFishGeometry(): THREE.BufferGeometry {
   const ry = [0.015, 0.075, 0.13, 0.14, 0.085, 0.012];
   const rz = [0.012, 0.09, 0.15, 0.15, 0.085, 0.01];
   const vertices: { p: [number, number, number]; n: [number, number, number]; c: number }[][] = [];
-  const color = (v: number): number => v > 0.38 ? 0x4d5741 : v < -0.38 ? 0xd7d6bd : 0x9aa19a;
+  const color = (v: number): number => v > 0.38 ? 0x5d6a52 : v < -0.38 ? 0xeeeedd : 0xc4cbc6;
   for (let i = 0; i < xs.length; i++) {
     const row: { p: [number, number, number]; n: [number, number, number]; c: number }[] = [];
     for (let j = 0; j < seg; j++) {
