@@ -31,8 +31,6 @@ _Last updated: 2026-10-18_
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ✅ Landmark detail layer, first pass (see Done).
 
-- 🟡 Clouds in the sky: fair-weather cumulus and cirrus, drifting, lit by the time of day (Codex).
-- 🟡 Many small swift flocks in summer, low passes along streets, evening peak (Codex).
 - ⬜ Fences: OSM barriers plus Soviet concrete panel fences (PO-2) around industrial sites, e.g. the factory on Filatova Street (Codex).
 - ⬜ Storey counts for untagged buildings (Filatova: 5-storey khrushchevkas, a 9-storey brick block look too low) and a more believable khrushchevka facade (Codex).
 
@@ -65,6 +63,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Clouds: procedural cumulus + cirrus in the sky shader (0 extra draw calls), drifting NW→SE, white at noon, pink/orange at golden hour, faint at night hiding stars. Swifts: 10 small screaming parties of 4–15 (6 on phones), low passes over streets, busier 18:00–21:30; doves 70 / 30 so all birds stay within ~170 / ~90 | (this commit) |
 | Landmarks, first pass: Freedom Square (OSM-derived treeless forecourt with ~1 m pavers on a mortar bed following the ground, empty stepped former-Lenin pad with blank panels, Pushkin-square fountain, lamps, benches, bins, flower beds, Ukrainian flags) and the Pier at the bottom of Ushakova (placed on the real quay edge found along the avenue axis, paved promenade, 45 m walkable deck over the water with railings, lamps with flower boxes, bollards, axial fountain). 144k / 32k triangles, 3 draw calls each; whole frame ≈ 1.2M tris / 205 calls at the square | `34b5aec` |
 | Bird sounds: 17 procedural Kherson species mixed by habitat (built-up → sparrows, pigeons, doves, crows; trees → tits, blackbird, chaffinch, oriole, nightingale; river → gulls, swallows, wagtails), pigeon vs collared-dove coos, caw and noisy voices; weights and sources in [BIRDS.md](BIRDS.md); ≤ 16 voices measured | `d472da6` |
 | River fish: sporadic jumps (arc, ring on the waves, droplets, a quiet plop) and dark shadows under the surface, 15–60 m ahead, daytime only; at most 6 events (3 on phones), 4 draw calls. `waveHeight()` mirrors the water shader so surface effects ride the waves | `1dbb4f5` |

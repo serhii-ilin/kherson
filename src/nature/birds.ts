@@ -26,6 +26,9 @@ export interface BirdOptions {
 const TAU = Math.PI * 2;
 const GROUND_DEFAULT = 4;
 const MAX_GROUP = 20;
+const SWIFT_MIN_PER_FLOCK = 4;
+const SWIFT_MAX_PER_FLOCK = 15;
+const SWIFT_CEILING = 150;
 
 /** Lit material plus a matching depth material so shadows follow the wing flap. */
 function makeMaterial(rate: number, fold: boolean): { mat: THREE.MeshLambertMaterial; depth: THREE.MeshDepthMaterial } {
@@ -99,6 +102,7 @@ function makeGroup(): DoveGroup {
 interface Flock {
   info: SwiftFlockInfo;
   start: number;
+  altitudeBand: number;
   tx: number; tz: number; ty: number;
   retargetT: number;
   diveIn: number;
@@ -126,10 +130,16 @@ export class BirdSystem {
   private sbank: Float32Array; private sphase: Float32Array; private sflapT: Float32Array;
   private sflapOn: Uint8Array; private samp: Float32Array; private scruise: Float32Array;
   private swiftsReady = false;
+  private timeOfDay = 12;
 
   /** 1 by day .. 0 at night: swifts are daytime birds, so fewer of them are drawn as it gets dark. */
   setDaylight(day: number): void {
     this.swiftMesh.count = Math.round(this.nSwifts * Math.min(1, Math.max(0, day)));
+  }
+
+  /** Local in-game hour. Evening is the busiest time for screaming swift parties. */
+  setTimeOfDay(hours: number): void {
+    this.timeOfDay = ((hours % 24) + 24) % 24;
   }
 
   // doves
@@ -150,22 +160,42 @@ export class BirdSystem {
     this.scene = scene;
     this.rng = opts.rng ?? Math.random;
     this.mobile = !!opts.mobile;
-    const maxSwifts = opts.maxSwifts ?? (this.mobile ? 50 : 90);
-    this.maxDoves = opts.maxDoves ?? (this.mobile ? 40 : 80);
+    const maxSwifts = opts.maxSwifts ?? (this.mobile ? 70 : 140);
+    // swifts 100 + doves 70 desktop, 60 + 30 phone: the Art. 4 bird budget (~170 / ~90)
+    this.maxDoves = opts.maxDoves ?? (this.mobile ? 30 : 70);
     this.targetGroups = this.mobile ? 3 : 4;
-    const nFlocks = this.mobile ? 2 : 3;
-    const perFlockCap = Math.max(1, Math.floor(maxSwifts / nFlocks));
+    const wantedFlocks = this.mobile ? 6 : 10;
+    const nFlocks = Math.min(wantedFlocks, Math.max(1, Math.floor(maxSwifts / SWIFT_MIN_PER_FLOCK)));
+    const counts: number[] = [];
+    let remaining = Math.min(maxSwifts, nFlocks * 10);
+    for (let f = 0; f < nFlocks; f++) {
+      const minForRest = SWIFT_MIN_PER_FLOCK * (nFlocks - f - 1);
+      const maxForRest = SWIFT_MAX_PER_FLOCK * (nFlocks - f - 1);
+      const lower = Math.max(SWIFT_MIN_PER_FLOCK, remaining - maxForRest);
+      const upper = Math.min(SWIFT_MAX_PER_FLOCK, remaining - minForRest);
+      const count = f === nFlocks - 1
+        ? remaining
+        : lower + Math.floor(this.rng() * (upper - lower + 1));
+      counts.push(count);
+      remaining -= count;
+    }
 
     // swifts
-    const n = perFlockCap * nFlocks;
+    const n = counts.reduce((sum, count) => sum + count, 0);
     this.sx = new Float32Array(n); this.sy = new Float32Array(n); this.sz = new Float32Array(n);
     this.svx = new Float32Array(n); this.svy = new Float32Array(n); this.svz = new Float32Array(n);
     this.sbank = new Float32Array(n); this.sphase = new Float32Array(n); this.sflapT = new Float32Array(n);
     this.sflapOn = new Uint8Array(n); this.samp = new Float32Array(n); this.scruise = new Float32Array(n);
+    const lowFlocks = nFlocks >= 8 ? 2 : 1;
+    const highFlocks = 1;
     for (let f = 0; f < nFlocks; f++) {
-      const count = Math.min(perFlockCap, 15 + Math.floor(this.rng() * 21));
+      const count = counts[f];
+      const altitudeBand = f < lowFlocks ? 0 : f >= nFlocks - highFlocks ? 2 : 1;
       const info: SwiftFlockInfo = { x: 0, y: 30, z: 0, vx: 0, vy: 0, vz: 0, count };
-      this.flocks.push({ info, start: this.nSwifts, tx: 0, tz: 0, ty: 30, retargetT: 0, diveIn: 15 + this.rng() * 25, diveT: 0 });
+      this.flocks.push({
+        info, start: this.nSwifts, altitudeBand, tx: 0, tz: 0, ty: 30, retargetT: 0,
+        diveIn: altitudeBand === 0 ? 4 + this.rng() * 8 : 12 + this.rng() * 20, diveT: 0,
+      });
       this.swiftFlocks.push(info);
       this.nSwifts += count;
     }
@@ -241,20 +271,29 @@ export class BirdSystem {
   }
 
   // ---------------------------------------------------------------- swifts
+  private altitudeFor(fl: Flock, roof: number, lowPass = false): number {
+    if (lowPass || fl.altitudeBand === 0) return roof + this.r(10, 25);
+    if (fl.altitudeBand === 2) return Math.max(roof + 30, this.r(105, 145));
+    return roof + this.r(30, 80);
+  }
+
   private spawnFlock(fl: Flock, world: BirdWorld, player: BirdListener, minD: number, maxD: number): void {
     const ang = this.rng() * TAU;
     const d = this.r(minD, maxD);
     const cx = player.x + Math.cos(ang) * d;
     const cz = player.z + Math.sin(ang) * d;
     const h = Math.max(world.heightAt(cx, cz) ?? GROUND_DEFAULT, GROUND_DEFAULT);
-    const cy = h + this.r(15, 60);
+    const cy = this.altitudeFor(fl, h);
     const heading = this.rng() * TAU;
     const info = fl.info;
     for (let k = 0; k < info.count; k++) {
       const i = fl.start + k;
-      this.sx[i] = cx + this.r(-8, 8);
-      this.sz[i] = cz + this.r(-8, 8);
-      this.sy[i] = cy + this.r(-4, 4);
+      const px = cx + this.r(-8, 8);
+      const pz = cz + this.r(-8, 8);
+      const localRoof = Math.max(world.heightAt(px, pz) ?? h, GROUND_DEFAULT);
+      this.sx[i] = px;
+      this.sz[i] = pz;
+      this.sy[i] = Math.max(cy + this.r(-3, 3), localRoof + 10);
       const sp = this.r(14, 26);
       const hd = heading + this.r(-0.3, 0.3);
       this.svx[i] = Math.cos(hd) * sp; this.svz[i] = Math.sin(hd) * sp; this.svy[i] = 0;
@@ -273,11 +312,12 @@ export class BirdSystem {
 
   private pickTarget(fl: Flock, world: BirdWorld, player: BirdListener): void {
     const ang = this.rng() * TAU;
-    const d = this.r(60, 300);
+    const d = this.r(80, 360);
     fl.tx = player.x + Math.cos(ang) * d;
     fl.tz = player.z + Math.sin(ang) * d;
-    fl.ty = Math.max(world.heightAt(fl.tx, fl.tz) ?? GROUND_DEFAULT, GROUND_DEFAULT) + this.r(15, 60);
-    fl.retargetT = this.r(4, 10);
+    const roof = Math.max(world.heightAt(fl.tx, fl.tz) ?? GROUND_DEFAULT, GROUND_DEFAULT);
+    fl.ty = this.altitudeFor(fl, roof);
+    fl.retargetT = this.r(3, 8);
   }
 
   private updateSwifts(dt: number, world: BirdWorld, player: BirdListener): void {
@@ -305,19 +345,21 @@ export class BirdSystem {
       info.x = cx; info.y = cy; info.z = cz; info.vx = mvx; info.vy = mvy; info.vz = mvz;
 
       // targets
-      fl.diveIn -= dt;
+      const evening = this.timeOfDay >= 18 && this.timeOfDay <= 21.5 ? 1 : 0;
+      fl.diveIn -= dt * (1 + evening * 2);
       if (fl.diveT > 0) {
         fl.diveT -= dt;
         if (Math.hypot(fl.tx - cx, fl.tz - cz) < 25 || fl.diveT <= 0) { fl.diveT = 0; fl.retargetT = 0; }
       } else if (fl.diveIn <= 0) {
         // screaming-party low pass near the player
         const ang = this.rng() * TAU;
-        const d = this.r(40, 90);
+        const d = this.r(45, evening ? 110 : 90);
         fl.tx = player.x + Math.cos(ang) * d;
         fl.tz = player.z + Math.sin(ang) * d;
-        fl.ty = (world.heightAt(fl.tx, fl.tz) ?? GROUND_DEFAULT) + this.r(10, 20);
-        fl.diveT = 14;
-        fl.diveIn = this.r(15, 40);
+        const roof = Math.max(world.heightAt(fl.tx, fl.tz) ?? GROUND_DEFAULT, GROUND_DEFAULT);
+        fl.ty = this.altitudeFor(fl, roof, true);
+        fl.diveT = evening ? this.r(10, 16) : this.r(8, 14);
+        fl.diveIn = evening ? this.r(8, 22) : this.r(15, 40);
       }
       if (fl.diveT <= 0) {
         fl.retargetT -= dt;
@@ -361,7 +403,7 @@ export class BirdSystem {
         if (h2 > hmax) hmax = h2;
         const floorY = hmax + 8;
         if (y < floorY) ay += Math.min(45, 10 + (floorY - y) * 4);
-        if (y > 90) ay -= (y - 90) * 2;
+        if (y > 140) ay -= (y - 140) * 2;
         // speed keeping
         const sp = Math.hypot(vx, vy, vz) || 1;
         const k2 = (cr - sp) * 1.0 / sp;
@@ -380,7 +422,7 @@ export class BirdSystem {
         const nx = x + vx * dt, nz = z + vz * dt;
         const hc = world.heightAt(nx, nz) ?? GROUND_DEFAULT;
         if (ny < hc + 5.5) { ny = hc + 5.5; if (vy < 0) vy = 0; }
-        if (ny > 110) { ny = 110; if (vy > 0) vy = 0; }
+        if (ny > SWIFT_CEILING) { ny = SWIFT_CEILING; if (vy > 0) vy = 0; }
         sx[i] = nx; sy[i] = ny; sz[i] = nz;
         svx[i] = vx; svy[i] = vy; svz[i] = vz;
         // bank into turns

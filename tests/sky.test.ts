@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createSky } from '../src/world/sky.ts';
+import { cloudPalette, createSky } from '../src/world/sky.ts';
 
 function shaderMat(m: THREE.Material | THREE.Material[]): THREE.ShaderMaterial {
   const one = Array.isArray(m) ? m[0] : m;
@@ -56,5 +56,24 @@ describe('createSky', () => {
   it('defaults the radius to 10000', () => {
     const sky = createSky({ sunDir: sun });
     expect(sphereGeo(sky.mesh.geometry).parameters.radius).toBe(10000);
+  });
+
+  it('keeps clouds bright by day, warm at dusk and faint blue-grey at night', () => {
+    const noon = cloudPalette(0, 0);
+    const golden = cloudPalette(0, 1);
+    const night = cloudPalette(1, 0);
+    expect(noon.top[0]).toBeGreaterThan(0.9);
+    expect(golden.top[0]).toBeGreaterThan(golden.top[1]!);
+    expect(golden.top[1]).toBeGreaterThan(golden.top[2]!);
+    expect(night.top[2]).toBeGreaterThan(night.top[0]!);
+    expect(night.alpha).toBeLessThan(noon.alpha);
+  });
+
+  it('advances cloud drift without moving the dome allocation', () => {
+    const sky = createSky({ sunDir: sun, cloudOctaves: 2 });
+    const material = shaderMat(sky.material);
+    sky.update(new THREE.Vector3(1, 2, 3), 12.5);
+    expect(material.uniforms.uCloudTime!.value).toBe(12.5);
+    expect(material.uniforms.uCloudOctaves!.value).toBe(2);
   });
 });

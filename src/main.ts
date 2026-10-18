@@ -70,7 +70,7 @@ sun.position.copy(SUN_DIR).multiplyScalar(SUN_DIST);
 scene.add(sun);
 scene.add(sun.target);
 // Gradient sky dome with a sun disc; the fog takes its horizon colour so distant terrain melts into it.
-const sky = createSky({ sunDir: SUN_DIR });
+const sky = createSky({ sunDir: SUN_DIR, cloudOctaves: quality === 'high' ? 3 : 2 });
 scene.add(sky.mesh);
 scene.fog = new THREE.Fog(sky.horizonColor.clone(), 2500, 9000);
 
@@ -172,6 +172,7 @@ function applyTime(hours: number): void {
   if (shadowsOn) sun.shadow.needsUpdate = true;
   dayFactor = 1 - d.lights;
   birdSystem?.setDaylight(dayFactor);
+  birdSystem?.setTimeOfDay(hours);
   fishSystem?.setDaylight(dayFactor);
 }
 const urlTime = new URLSearchParams(location.search).get('time');
@@ -275,6 +276,7 @@ async function start(): Promise<void> {
   const birds = new BirdSystem(scene, { mobile: isMobile });
   birdSystem = birds;
   birds.setDaylight(dayFactor);
+  birds.setTimeOfDay(timeHours);
   const birdListener: BirdListener = { x: 0, y: 0, z: 0, speed: 0 };
   const fish = new FishSystem(scene, { mobile: isMobile });
   fishSystem = fish;
@@ -377,7 +379,7 @@ async function start(): Promise<void> {
       overview.setHole(camera.position.x, camera.position.z, streamer.holeRadius(camera.position.x, camera.position.z));
     }
     updateWater(waterMaterial, now / 1000, camera.position);
-    sky.update(camera.position);
+    sky.update(camera.position, now / 1000);
     const cp = camera.position;
     if (dt > 0) birdListener.speed = Math.hypot(cp.x - birdListener.x, cp.z - birdListener.z) / dt;
     birdListener.x = cp.x;
