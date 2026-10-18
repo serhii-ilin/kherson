@@ -191,3 +191,29 @@ water level, stair count, railing post spacing, lamp count/height, bench count,
 tree species, kiosk inventory and whether a separate public beach strip existed
 before 2020. Keep those values easy to revise and favor the documented 2008
 promenade over invented detail.
+
+## Photo pass (2026-10-18)
+
+The owner supplied twelve photos of the pre-war embankment. They override the
+guesses above where they disagree:
+
+- The promenade is the OSM pedestrian multipolygon 2727475 (outer way
+  203239247, ~11,000 m²), not a plaza on the avenue axis. Its river edge is
+  shared with the water polygon and includes the small cannon bastion; the
+  Frigate pedestal (way 203239246) and the fountain (way 1089978496) are its
+  holes. There is no long projecting deck: the guessed 45 m deck is dropped.
+- Railing: royal-blue curved (S-shaped) flat posts about 2 m apart with three
+  white/light-grey tube rails, on a light coping above a grey quay wall, with a
+  red-brown border band on the land side. Not dark green.
+- Lamps: black cast-iron poles with a fluted base, collars, a shepherd's-crook
+  top with a small scroll, and a bell cap over a frosted globe; about every
+  15 m along the railing and along the park edge.
+- Paving: grey-beige concrete cobbles with occasional warmer stones.
+- Long rectangular rose beds with white kerbs down the middle; wooden-slat
+  benches with black cast-iron ends facing the river.
+- The First Shipbuilders monument: a red-brown relief block toward the land, a
+  tapering pylon of grey granite courses, a dark bronze three-master on top.
+- The cannon («Гармата», node 6690931027) on the bastion tip.
+- Moored yachts (white, and one black) and a floating landing at the
+  «Центральна набережна» stop; the yellow portal cranes of the cargo port
+  along its river quay (way 340197014) behind the west end.

@@ -1,7 +1,9 @@
 import type { Quality } from '../quality.ts';
 import type { PropModel } from '../fine/prop-models.ts';
 
-export type LandmarkMeshKind = 'opaque' | 'water' | 'lamp';
+/** `paving` is opaque but drawn with a stronger depth bias than the fine ground, which is itself pulled toward the
+ * camera (polygonOffset −1/−4); without it the lawn shows through low pavers at grazing angles. */
+export type LandmarkMeshKind = 'opaque' | 'paving' | 'water' | 'lamp';
 
 export interface LandmarkMeshData {
   positions: Float32Array;

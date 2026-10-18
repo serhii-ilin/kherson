@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Quality } from '../quality.ts';
-import type { Landmark, LandmarkBuild, LandmarkBuildContext, LandmarkSurface } from './types.ts';
+import type { Landmark, LandmarkBuild, LandmarkBuildContext, LandmarkMeshKind, LandmarkSurface } from './types.ts';
 
 export interface LandmarkGround {
   heightAt(x: number, z: number, refY?: number): number | null;
@@ -120,7 +120,7 @@ export class LandmarkLayer {
     this.scene.add(group);
   }
 
-  private makeMaterial(kind: 'opaque' | 'water' | 'lamp'): THREE.MeshLambertMaterial {
+  private makeMaterial(kind: LandmarkMeshKind): THREE.MeshLambertMaterial {
     const material = new THREE.MeshLambertMaterial({ vertexColors: true });
     if (kind === 'water') {
       material.transparent = true;
@@ -132,6 +132,11 @@ export class LandmarkLayer {
       material.emissiveIntensity = this.night * 1.6;
       this.lampMaterials.push(material);
     } else {
+      if (kind === 'paving') {
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = -2;
+        material.polygonOffsetUnits = -8;
+      }
       this.opaqueMaterials.push(material);
     }
     return material;

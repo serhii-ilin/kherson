@@ -4,7 +4,7 @@ import { DEFAULT_BBOX, fromLatLon, toLatLon } from '../src/landmarks/geo';
 import { createFreedomSquare, resolveFreedomSquareLayout } from '../src/landmarks/freedom-square';
 import { OSM_LANDMARK_DATA } from '../src/landmarks/data';
 import { pointInPolygon, polygonArea } from '../src/landmarks/types';
-import { createPier, resolvePierLayout } from '../src/landmarks/pier';
+import { createPier, resolveEmbankmentLayout } from '../src/landmarks/pier';
 import { createLandmarks } from '../src/landmarks';
 import { LandmarkLayer } from '../src/landmarks/layer';
 import { LandmarkPhysics } from '../src/landmarks/physics';
@@ -14,16 +14,20 @@ import { ROAD, ROAD_LIT, ROAD_SIDEWALK, type VectorTile } from '../src/world/vec
 
 const freedomContext = { groundAt: (x: number, z: number) => 4 + x * 0.0002 + z * 0.0001, quality: 'high' as const };
 
+/** Fake river: water on the outer side of the mapped quay line, flat ground at 3 m elsewhere. */
 function pierWorld() {
-  const start = fromLatLon(DEFAULT_BBOX, 46.6283698, 32.6209196);
-  const shorelineZ = start.z + 36;
-  return {
-    shorelineZ,
-    heightAt: () => 3,
-    groundAt: () => 3,
-    isWater: (_x: number, z: number) => z >= shorelineZ,
-    quality: 'high' as const,
+  const layout = resolveEmbankmentLayout(DEFAULT_BBOX);
+  const isWater = (x: number, z: number) => {
+    let best = Infinity, side = 1;
+    for (const seg of layout.shore) {
+      const dx = x - seg.frame.x, dz = z - seg.frame.z;
+      const a = dx * seg.frame.ux + dz * seg.frame.uz, c = dx * seg.frame.vx + dz * seg.frame.vz;
+      const d = Math.hypot(a - Math.max(0, Math.min(seg.length, a)), c);
+      if (d < best) { best = d; side = c; }
+    }
+    return best < 80 && side < 0;
   };
+  return { layout, heightAt: () => 3, groundAt: () => 3, isWater, quality: 'high' as const };
 }
 
 describe('landmark geometry', () => {
@@ -62,7 +66,7 @@ describe('landmark geometry', () => {
       const built = landmark.build(context);
       expect(built.triangleCount).toBeLessThanOrEqual(150_000);
       expect(built.materialCount).toBeLessThanOrEqual(4);
-      expect(built.triangleCount).toBeGreaterThan(10_000);
+      if (landmark.id !== 'port-cranes') expect(built.triangleCount).toBeGreaterThan(10_000);
       let count = 0;
       for (const mesh of built.meshes) {
         count += mesh.positions.length;
@@ -149,28 +153,33 @@ describe('landmark exclusions and physics', () => {
     expect(placements.filter((p) => polygon.kinds.some((kind) => kind === p.kind))).toEqual([]);
   });
 
-  it('derives the pier deck from a fake shoreline and keeps every deck sample over water', () => {
+  it('lays the embankment on the mapped promenade with the railing on the quay line', () => {
     const world = pierWorld();
-    const layout = resolvePierLayout(world, DEFAULT_BBOX);
-    expect(layout).not.toBeNull();
-    expect(Math.abs(layout!.root[1] - world.shorelineZ)).toBeLessThanOrEqual(1);
-    for (let a = 0; a <= layout!.deckLength; a += 1) {
-      const x = layout!.basis.x + layout!.basis.ux * a;
-      const z = layout!.basis.z + layout!.basis.uz * a;
-      expect(world.isWater(x, z)).toBe(true);
-    }
+    const built = createPier(DEFAULT_BBOX).build(world);
+    const total = world.layout.shore.reduce((s, seg) => s + seg.length, 0);
+    expect(total).toBeGreaterThan(300);
+    const holes = world.layout.holes.reduce((s, h) => s + polygonArea(h), 0);
+    expect(built.report!.pavedAreaM2 / (polygonArea(world.layout.polygon) - holes)).toBeGreaterThan(0.93);
+    expect(built.report!.lamps).toBeGreaterThanOrEqual(30);
+    expect(built.report!.benches).toBeGreaterThanOrEqual(12);
   });
 
-  it('makes the built pier deck walkable and non-water, without changing outside physics', () => {
+  it('makes the promenade walkable and the railing solid, without changing outside physics', () => {
     const world = pierWorld();
     const layer = new LandmarkLayer(new THREE.Scene(), [createPier(DEFAULT_BBOX)], world, 'high');
-    layer.update(fromLatLon(DEFAULT_BBOX, 46.6283698, 32.6209196).x, fromLatLon(DEFAULT_BBOX, 46.6283698, 32.6209196).z);
-    const layout = resolvePierLayout(world, DEFAULT_BBOX)!;
-    const deck = [layout.basis.x + layout.basis.ux * (layout.deckLength * 0.5), layout.basis.z + layout.basis.uz * (layout.deckLength * 0.5)] as const;
+    const anchor = createPier(DEFAULT_BBOX).anchor;
+    layer.update(anchor.x, anchor.z);
     const physics = new LandmarkPhysics(world, layer);
-    expect(physics.heightAt(deck[0], deck[1])).toBeCloseTo(3.88, 6);
-    expect(physics.isWater(deck[0], deck[1])).toBe(false);
-    expect(physics.heightAt(0, world.shorelineZ + 1000)).toBe(3);
-    expect(physics.isWater(0, world.shorelineZ + 1000)).toBe(true);
+    const seg = world.layout.shore.reduce((a, b) => (b.length > a.length ? b : a));
+    const p = (a: number, c: number) => [seg.frame.x + seg.frame.ux * a + seg.frame.vx * c, seg.frame.z + seg.frame.uz * a + seg.frame.vz * c] as const;
+    const walk = p(seg.length / 2 + 1, 5);
+    expect(physics.heightAt(walk[0], walk[1])).toBeCloseTo(3.1, 6);
+    expect(physics.isWater(walk[0], walk[1])).toBe(false);
+    const rail = p(seg.length / 2 + 1, 0.1);
+    expect(physics.blockedAt(rail[0], rail[1], 3.1)).toBe(true);
+    expect(physics.blockedAt(walk[0], walk[1], 3.1)).toBe(false);
+    expect(physics.heightAt(0, 0)).toBe(3);
+    const river = p(seg.length / 2, -60);
+    expect(physics.isWater(river[0], river[1])).toBe(true);
   });
 });
