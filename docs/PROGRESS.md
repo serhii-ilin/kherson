@@ -30,6 +30,7 @@ _Last updated: 2026-10-18_
 - ⬜ Minimap: zoom in / zoom out buttons (no way to change its scale now).
 - ⬜ Minimap: click (tap) a point to move the player there.
 - ⬜ Minimap: drag the player marker to a new spot to move the player there.
+- ⬜ River fish: fish seen now and then in the river water.
 
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
