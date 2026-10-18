@@ -109,13 +109,12 @@ Working rules:
 These are known gaps against this constitution. Fix them before adding new features where possible:
 
 - Choose a code licence (Article 8.3).
-- Measure frame rates on a mid-range phone (HQ and LQ) and record them here (Article 4).
-
 ### Measured frame rates
 
 | Date | Device | Quality | Result |
 |---|---|---|---|
 | 2026-10-18 | MacBook Air, 16 GB (owner) | LQ and HQ | steady 60 fps (display cap) |
+| 2026-10-18 | owner's phone | LQ and HQ | 60–90 fps |
 
 ## Amendments
 
