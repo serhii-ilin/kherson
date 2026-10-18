@@ -9,6 +9,7 @@ import { createSky } from './world/sky.ts';
 import { createWaterMaterial, updateWater } from './nature/water.ts';
 import { Vegetation } from './nature/vegetation.ts';
 import { BirdSystem, type BirdListener } from './nature/birds.ts';
+import { FishSystem } from './nature/fish.ts';
 import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
@@ -136,6 +137,7 @@ const waterMaterial = createWaterMaterial({
 /** 1 by day .. 0 at night, read by the birds and the ambience. */
 let dayFactor = 1;
 let birdSystem: BirdSystem | null = null;
+let fishSystem: FishSystem | null = null;
 function applyTime(hours: number): void {
   const d = daylightAt(hours);
   SUN_DIR.set(d.lightDir[0], d.lightDir[1], d.lightDir[2]);
@@ -163,6 +165,7 @@ function applyTime(hours: number): void {
   if (shadowsOn) sun.shadow.needsUpdate = true;
   dayFactor = 1 - d.lights;
   birdSystem?.setDaylight(dayFactor);
+  fishSystem?.setDaylight(dayFactor);
 }
 const urlTime = new URLSearchParams(location.search).get('time');
 let timeHours = resolveTime(urlTime, readStoredTime());
@@ -258,6 +261,10 @@ async function start(): Promise<void> {
   birdSystem = birds;
   birds.setDaylight(dayFactor);
   const birdListener: BirdListener = { x: 0, y: 0, z: 0, speed: 0 };
+  const fish = new FishSystem(scene, { mobile: isMobile });
+  fishSystem = fish;
+  fish.setDaylight(dayFactor);
+  const fishCamera = { x: 0, y: 0, z: 0, yaw: 0 };
 
   const ambience = new Ambience();
   createMuteButton(document.body, ambience);
@@ -271,6 +278,7 @@ async function start(): Promise<void> {
     waterDistance: Infinity,
     swiftFlocks: birds.swiftFlocks,
     doveGroups: birds.doveGroups,
+    splashes: fish.splashes,
     daylight: 1,
   };
   let surroundingsAt = 0;
@@ -287,7 +295,7 @@ async function start(): Promise<void> {
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, ambience, vegetation, renderer, scene, camera, minimap } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -348,6 +356,11 @@ async function start(): Promise<void> {
     birdListener.y = cp.y;
     birdListener.z = cp.z;
     birds.update(dt, now / 1000, streamer, birdListener);
+    fishCamera.x = cp.x;
+    fishCamera.y = cp.y;
+    fishCamera.z = cp.z;
+    fishCamera.yaw = player.yaw;
+    fish.update(dt, now / 1000, streamer, fishCamera);
     const l = audioScene.listener;
     l.x = cp.x;
     l.y = cp.y;

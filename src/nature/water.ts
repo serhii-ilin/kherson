@@ -22,6 +22,19 @@ function waveGlsl(): string {
   return src;
 }
 
+/** CPU copy of the shader's vertical wave offset (open water), for things that sit on the surface. */
+export function waveHeight(x: number, z: number, timeSeconds: number): number {
+  let dy = 0;
+  for (const w of WAVE_PARAMS) dy += w.amp * Math.sin(w.k * (w.dx * x + w.dz * z) - w.omega * timeSeconds);
+  return dy;
+}
+
+const WAVE_PARAMS = WAVES.map((w) => {
+  const a = BASE_ANGLE + (w.spread * Math.PI) / 180;
+  const k = (2 * Math.PI) / w.len;
+  return { dx: Math.cos(a), dz: Math.sin(a), k, omega: Math.sqrt(9.81 * k), amp: w.amp };
+});
+
 const VERTEX = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_vertex>

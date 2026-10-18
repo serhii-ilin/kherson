@@ -9,6 +9,7 @@ export interface AudioScene {
   waterDistance: number;
   swiftFlocks: ReadonlyArray<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; count: number }>;
   doveGroups: ReadonlyArray<{ x: number; y: number; z: number; count: number; flying: boolean }>;
+  splashes?: ReadonlyArray<{ x: number; y: number; z: number; size: number; t: number }>;
   /** 1 by day .. 0 at night: songbirds and swifts fall silent (default 1). */
   daylight?: number;
 }
@@ -54,6 +55,18 @@ export function windGain(altitude: number): number {
 
 export function waterGain(distance: number): number {
   return 0.12 * (1 - clamp((distance - 15) / 105, 0, 1));
+}
+
+export interface PlopParams { duration: number; frequency: number; gain: number; noiseGain: number }
+
+/** Pure parameters for the small, quiet fish splash sound. */
+export function plopParameters(rng: Rng): PlopParams {
+  return {
+    duration: range(rng, 0.15, 0.3),
+    frequency: range(rng, 180, 280),
+    gain: range(rng, 0.16, 0.28),
+    noiseGain: range(rng, 0.18, 0.34),
+  };
 }
 
 /** Random delay in [min, max] seconds. */
@@ -192,6 +205,7 @@ export class Ambience {
   private birdBus: GainNode | null = null;
   private swiftBus: GainNode | null = null;
   private doveBus: GainNode | null = null;
+  private splashBus: GainNode | null = null;
   private windGainNode: GainNode | null = null;
   private waterGainNode: GainNode | null = null;
   private noise: AudioBuffer | null = null;
@@ -203,6 +217,9 @@ export class Ambience {
   private rng: Rng = Math.random;
   private near: number[] = [];
   private nearD: number[] = [];
+  private splashPanners: PannerNode[] = [];
+  private nextSplashPanner = 0;
+  private lastSplashT = -Infinity;
 
   constructor() {
     try {
@@ -248,6 +265,7 @@ export class Ambience {
     this.birds.length = 0;
     this.swiftSlots.length = 0;
     this.doveSlots.length = 0;
+    this.splashPanners.length = 0;
     if (ctx) void ctx.close().catch(() => {});
   }
 
@@ -270,6 +288,7 @@ export class Ambience {
       this.updateSwifts(ctx, now, scene);
     }
     this.updateDoves(ctx, now, scene);
+    this.updateSplashes(ctx, now, scene);
   }
 
   // ------------------------------------------------------------ setup
@@ -299,6 +318,7 @@ export class Ambience {
     this.birdBus = bus(0.5);
     this.swiftBus = bus(0.5);
     this.doveBus = bus(0.6);
+    this.splashBus = bus(0.28);
     this.buildWind(ctx, master);
     this.buildWater(ctx, master);
 
@@ -325,6 +345,11 @@ export class Ambience {
       const panner = makePanner(ctx, 5, 1);
       panner.connect(this.doveBus);
       this.doveSlots.push({ panner, nextCoo: 0, nextClap: 0 });
+    }
+    for (let i = 0; i < 4; i++) {
+      const panner = makePanner(ctx, 18, 1.1);
+      panner.connect(this.splashBus);
+      this.splashPanners.push(panner);
     }
   }
 
@@ -654,6 +679,56 @@ export class Ambience {
         slot.nextCoo = now + nextInterval(rng, 4, 12);
       }
     }
+  }
+
+  private updateSplashes(ctx: AudioContext, now: number, scene: AudioScene): void {
+    const splashes = scene.splashes;
+    if (splashes === undefined) return;
+    const L = scene.listener;
+    let newest = this.lastSplashT;
+    for (let i = 0; i < splashes.length; i++) {
+      const s = splashes[i]!;
+      if (!(s.t > this.lastSplashT)) continue;
+      if (s.t > newest) newest = s.t;
+      const d = Math.hypot(s.x - L.x, s.y - L.y, s.z - L.z);
+      if (d <= 80 && this.voices < MAX_VOICES) {
+        const panner = this.splashPanners[this.nextSplashPanner]!;
+        this.nextSplashPanner = (this.nextSplashPanner + 1) % this.splashPanners.length;
+        setPos(panner, s.x, s.y, s.z);
+        this.playPlop(ctx, panner, now, s.size);
+      }
+    }
+    this.lastSplashT = newest;
+  }
+
+  private playPlop(ctx: AudioContext, dest: AudioNode, at: number, size: number): void {
+    const p = plopParameters(this.rng);
+    const stop = at + p.duration + 0.03;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = range(this.rng, 800, 1600);
+    bp.Q.value = 0.8;
+    const ng = ctx.createGain();
+    const peak = p.noiseGain * clamp(size / 0.35, 0.55, 1.35);
+    ng.gain.setValueAtTime(0.0001, at);
+    ng.gain.linearRampToValueAtTime(peak, at + 0.006);
+    ng.gain.exponentialRampToValueAtTime(0.0001, at + p.duration);
+    src.connect(bp).connect(ng).connect(dest);
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(p.frequency, at);
+    osc.frequency.exponentialRampToValueAtTime(p.frequency * 0.52, at + p.duration * 0.8);
+    const tone = ctx.createGain();
+    tone.gain.setValueAtTime(0.0001, at);
+    tone.gain.linearRampToValueAtTime(p.gain, at + 0.008);
+    tone.gain.exponentialRampToValueAtTime(0.0001, at + p.duration);
+    osc.connect(tone).connect(dest);
+    src.onended = () => ng.disconnect();
+    src.start(at, this.rng() * (NOISE_SECONDS - 1), p.duration + 0.03);
+    this.track(osc, tone, at, stop);
   }
 
   /** "coo-roo-coo": three sine syllables with vibrato, lowpassed, second one lower and shorter. */
