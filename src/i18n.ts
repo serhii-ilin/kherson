@@ -18,6 +18,7 @@ const STRINGS = {
     places: '📍 Місця',
     search: 'Пошук місць і вулиць…',
     formerly: 'раніше',
+    attribution: 'Дані мапи © учасники OpenStreetMap',
     north: 'Пн',
     failed: 'Не вдалося запустити',
     switchTo: 'Switch to English',
@@ -39,6 +40,7 @@ const STRINGS = {
     places: '📍 Places',
     search: 'Search places and streets…',
     formerly: 'formerly',
+    attribution: 'Map data © OpenStreetMap contributors',
     north: 'N',
     failed: 'Failed to start',
     switchTo: 'Перемкнути на українську',
@@ -188,4 +190,20 @@ export function createQualityButton(parent: HTMLElement): HTMLButtonElement {
   render();
   parent.appendChild(btn);
   return btn;
+}
+
+/** The ODbL credit for the map data (Constitution 8.1), linked to the OSM copyright page. */
+export function createAttribution(parent: HTMLElement): HTMLAnchorElement {
+  const a = document.createElement('a');
+  a.className = 'vk-attribution';
+  a.href = 'https://www.openstreetmap.org/copyright';
+  a.target = '_blank';
+  a.rel = 'noopener';
+  const render = (): void => {
+    a.textContent = t('attribution');
+  };
+  render();
+  onLangChange(render);
+  parent.appendChild(a);
+  return a;
 }

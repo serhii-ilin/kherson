@@ -12,7 +12,7 @@ import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
-import { applyDocument, createLangSwitcher, createQualityButton, t } from './i18n.ts';
+import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, t } from './i18n.ts';
 import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
@@ -97,6 +97,7 @@ const hud = document.getElementById('hud')!;
 applyDocument();
 createLangSwitcher(document.body);
 createQualityButton(document.body);
+createAttribution(document.body);
 const base = import.meta.env.BASE_URL;
 
 async function start(): Promise<void> {

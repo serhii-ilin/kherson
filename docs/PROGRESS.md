@@ -45,7 +45,6 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | # | P | Issue | Notes / proposed fix |
 |---|---|---|---|
-| 1 | P1 | No in-app "© OpenStreetMap contributors" credit (ODbL, Constitution 8.1) | small corner link in the UI, both languages |
 | 2 | P1 | Draw calls over budget at altitude: 409 at 900 m, 576 at 1,600 m (limit 400) | disable 0.2 m ground and 1 m block tiers above ~300 m |
 | 3 | P1 | Draw calls tight at street level: 377/400 worst measured | merge meshes before adding props or signs |
 | 4 | P2 | 1 m / 2 m seam on buildings straddling the 250 m block-tier edge | fade, or extend a building's tier by ownership |
@@ -76,6 +75,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| #1 In-app "© OpenStreetMap contributors" credit, both languages, desktop and phone | attribution commit |
 | Fly mode fell through the ground → fly collision | before `bcac053` |
 | Speckled shop windows (unsnapped wall plane in hashes) | `6dbd080` |
 | `PCFSoftShadowMap` removed in three r186 → `PCFShadowMap`; exposure 1.2 → 1.0 | `6dbd080` |
