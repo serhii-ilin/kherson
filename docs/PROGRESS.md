@@ -36,25 +36,10 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | # | P | Issue | Notes / proposed fix |
 |---|---|---|---|
-| 4 | P2 | 1 m / 2 m seam on buildings straddling the 250 m block-tier edge | now fades in instead of popping; a real fix assigns each building whole to one tier |
-| 5 | P2 | 0.2 m ground AO near walls uses the 2 m building outline (halo up to 1 m off) | use the 1 m block column raster |
-| 6 | P2 | Street trees and bushes placed on the 2 m grid may sit on fine asphalt or inside 1 m building edges | re-check placement against vector roads and 1 m footprints; unverified |
-| 7 | P2 | Water edges still 2 m staircases with brown soil steps | fine-tier shoreline from water polygons |
-| 8 | P2 | No lane markings on bridge decks | paint deck tops in the fine ground pass |
-| 9 | P2 | Long land approaches of bridges may sag between ≤ 64 m road pieces | only the Ostrivske bridge checked; smooth profile across pieces |
-| 10 | P2 | Left bank reads as plain flat grass after the city cut | floodplain look: reeds, willows, wetland colours |
-| 11 | P2 | Walking on bridges uses the 2 m deck height; railings aren't solid | use the 1 m deck and rail columns in FineWorld |
-| 12 | P3 | Coarse (2 m) facade tint varies per 24 m wall segment, not per building | needs a building id or palette in the coarse data |
-| 13 | P3 | Coarse painted windows can be cut at wall-run ends | shader doesn't know run boundaries |
-| 16 | P3 | Areas straddling the city boundary: painted in full in vector tiles, clipped in the coarse tier | clip concave polygons exactly |
 | 17 | P3 | Few pines: OSM forests lack `leaf_type` | owner decision below |
 | 18 | P2 | Coarse world uses `THREE.BatchedMesh`; browsers without `WEBGL_multi_draw` (possibly older Safari) fall back to one draw per chunk | check on Safari/iOS; keep per-chunk meshes as a fallback if needed |
 | 19 | P3 | Above 300 m the sun-shadow map freezes (a fixed 200 m patch); it is redrawn when the time changes | acceptable at that height |
-| 20 | P3 | Traffic lights face along the nearest road, not the OSM `dir` | use `dir` when present |
-| 21 | P3 | About 10% of shops have no building within 25 m, so no sign; long names are already truncated in OSM | free-standing sign posts for those |
-| 22 | P3 | 0.5 m and mid tree models are still built on the main thread (≈2 ms each, up to 9 ms cold) | move to the veg worker if hitches show |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
-| 25 | P3 | Phones narrower than ~380 px may crowd the top button row (time, quality, sound, language, places) | collapse into a menu if reported |
 | 23 | P3 | 1 m khrushchevka is 3,962 triangles against the 4,000 test bound: little headroom for more facade detail | trim elsewhere before adding detail |
 
 ## Waiting on the owner
@@ -70,6 +55,15 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| #4 Whole-building block-tier assignment across the 250 m edge; #12 per-building coarse tint; #13 facade run boundaries | `f0e8018` |
+| #5 Fine AO uses the 1 m footprint raster; #7 polygon-based 0.2 m shoreline and sandy banks | `f0e8018` |
+| #6 Vegetation positions are checked against vector roads/buildings; bake nudged 22,742 and dropped 2,853 placements | `f0e8018` |
+| #8 Bridge-deck lane markings; #9 continuous multi-piece bridge profiles | `f0e8018` |
+| #10 Floodplain reeds, wetland and meadow treatment on the left bank | `f0e8018` |
+| #11 1 m bridge deck/rail physics, including walking under decks | `f0e8018` |
+| #16 Concave/multi-ring vector-area clipping at the city boundary | `f0e8018` |
+| #20 OSM traffic-light direction; #21 free-standing shop signs; #22 worker-prioritized vegetation LOD builds | `f0e8018` |
+| #25 Narrow-phone settings menu layout | `f0e8018` |
 | #2 Draw calls at altitude 409/576 → 135/99: 0.2 m and 1 m tiers off above 250 m, shadows frozen above 300 m | `418796d` |
 | #3 Street-level draw calls 342–377 → 214–243: coarse chunks and water in `BatchedMesh` | `418796d` |
 | #14 Recess shading for 1 m block window reveals, balcony undersides and glass | `418796d` |
