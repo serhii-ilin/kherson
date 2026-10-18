@@ -230,6 +230,16 @@ async function start(): Promise<void> {
     worldH: manifest.regionsZ * worldSpan,
     size: isMobile ? 120 : 180,
   });
+  const teleport = (x: number, z: number): void => {
+    if (player.mode === 'fly') {
+      player.setFlyPose(x, Math.max(player.y, 80), z, player.yaw, player.pitch);
+    } else {
+      const yaw = player.yaw;
+      player.spawn(x, z);
+      player.yaw = yaw;
+    }
+  };
+  minimap.onTeleport = teleport;
 
   fetch(`${base}world/places.json`)
     .then((r) => r.json() as Promise<Place[]>)
@@ -239,8 +249,7 @@ async function start(): Promise<void> {
           // a street: stand on it at street level, looking along it
           player.spawn(p.x, p.z);
           player.yaw = p.yaw * deg;
-        } else if (player.mode === 'fly') player.setFlyPose(p.x, Math.max(player.y, 80), p.z, player.yaw, player.pitch);
-        else player.spawn(p.x, p.z);
+        } else teleport(p.x, p.z);
       });
     })
     .catch((err) => console.warn('places unavailable', err));
@@ -278,7 +287,7 @@ async function start(): Promise<void> {
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, ambience, vegetation, renderer, scene, camera } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, ambience, vegetation, renderer, scene, camera, minimap } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)

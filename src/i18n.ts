@@ -29,6 +29,8 @@ const STRINGS = {
     qualityHigh: 'Якість: висока (натисніть, щоб знизити)',
     qualityLow: 'Якість: низька (натисніть, щоб підвищити)',
     timeOfDay: 'Час доби (натисніть, щоб змінити)',
+    zoomIn: 'Наблизити',
+    zoomOut: 'Віддалити',
   },
   en: {
     title: 'Voxel Kherson',
@@ -53,6 +55,8 @@ const STRINGS = {
     qualityHigh: 'Quality: high (click to lower)',
     qualityLow: 'Quality: low (click to raise)',
     timeOfDay: 'Time of day (click to change)',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
   },
 } as const;
 

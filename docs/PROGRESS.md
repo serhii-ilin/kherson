@@ -27,9 +27,6 @@ _Last updated: 2026-10-18_
 ## Open tasks
 
 ### Next
-- ⬜ Minimap: zoom in / zoom out buttons (no way to change its scale now).
-- ⬜ Minimap: click (tap) a point to move the player there.
-- ⬜ Minimap: drag the player marker to a new spot to move the player there.
 - ⬜ River fish: fish seen now and then in the river water.
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
 - ⬜ Realistic bird sounds: sparrows, swifts, pigeons and other birds recorded in Kherson, mixed in proportion to how often each species is seen there.
@@ -60,6 +57,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Minimap: + / − zoom buttons (400 m … whole city), click or tap to move there, drag the player arrow to move there (keeps facing; Codex `gpt-5.6-luna`, reviewed by Opus) | (this commit) |
 | Codex-round review: coarse ground backing sinks only where the 0.2 m bank dips below it or meets water (keeps crack cover on streets); tall drops into the river drawn as an embankment wall | `118acad` |
 | #17 Pines on sandy forest ground (23 → 1,300) | `f0e8018` |
 | #18 `BatchedMesh` without `WEBGL_multi_draw` verified: three falls back to one draw per chunk (same as before batching); `?nomultidraw=1` dev flag | `f0e8018` |

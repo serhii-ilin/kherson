@@ -15,13 +15,51 @@ export interface MinimapBackground {
 
 const DEFAULT_SIZE = 180;
 const DEFAULT_VIEW_M = 1500;
-const ZOOM_STEPS_M = [800, 1500, 4000];
+export const ZOOM_STEPS_M = [400, 800, 1500, 4000] as const;
 const MOVE_EPS_M = 2;
 const YAW_EPS = 0.02;
+const CLICK_EPS_PX = 4;
+const MARKER_RADIUS_PX = 14;
 
-/** Bottom-right overview minimap with a player arrow; click cycles the zoom level. */
+/** Convert CSS-pixel coordinates on the minimap to world coordinates. */
+export function canvasToWorld(px: number, py: number, size: number, viewMetres: number, playerX: number, playerZ: number): { x: number; z: number } {
+  const metresPerPixel = viewMetres / size;
+  return {
+    x: playerX + (px - size / 2) * metresPerPixel,
+    z: playerZ + (py - size / 2) * metresPerPixel,
+  };
+}
+
+/** Clamp a world coordinate to the rectangular map bounds. */
+export function clampWorld(x: number, z: number, worldW: number, worldH: number): { x: number; z: number } {
+  return {
+    x: Math.max(0, Math.min(worldW, x)),
+    z: Math.max(0, Math.min(worldH, z)),
+  };
+}
+
+/** Move one zoom step: dir 1 zooms in and dir -1 zooms out. */
+export function nextZoom(steps: readonly number[], current: number, dir: 1 | -1): number {
+  if (steps.length === 0) return current;
+  let index = steps.indexOf(current);
+  if (index < 0) {
+    index = 0;
+    let distance = Math.abs((steps[0] ?? current) - current);
+    for (let i = 1; i < steps.length; i++) {
+      const candidateDistance = Math.abs(steps[i]! - current);
+      if (candidateDistance < distance) {
+        index = i;
+        distance = candidateDistance;
+      }
+    }
+  }
+  return steps[Math.max(0, Math.min(steps.length - 1, index - dir))]!;
+}
+
+/** Bottom-right overview minimap with a player arrow and teleport controls. */
 export class Minimap {
   viewMetres = DEFAULT_VIEW_M;
+  onTeleport: ((x: number, z: number) => void) | null = null;
   readonly canvas: HTMLCanvasElement;
 
   private readonly ctx: CanvasRenderingContext2D;
@@ -29,23 +67,33 @@ export class Minimap {
   private readonly worldW: number;
   private readonly worldH: number;
   private readonly dpr: number;
+  private readonly zoomSteps: number[] = [...ZOOM_STEPS_M];
+  private readonly zoomInButton: HTMLButtonElement;
+  private readonly zoomOutButton: HTMLButtonElement;
   private bg: HTMLCanvasElement | null = null;
   private bgW = 0;
   private bgH = 0;
   private lastX = Number.NaN;
   private lastZ = Number.NaN;
   private lastYaw = Number.NaN;
+  /** Set when the zoom, background or language changes; the last player pose stays valid for clicks. */
+  private dirty = true;
   private lastView = Number.NaN;
+  private dragging = false;
+  private pointerId = -1;
+  private pointerStartX = 0;
+  private pointerStartY = 0;
+  private dragX = 0;
+  private dragY = 0;
 
   constructor(parent: HTMLElement, opts: MinimapOptions) {
     this.worldW = opts.worldW;
     this.worldH = opts.worldH;
     this.size = opts.size ?? DEFAULT_SIZE;
-    onLangChange(() => {
-      this.lastX = Number.NaN; // redraw the north label
-    });
     this.dpr = Math.max(1, window.devicePixelRatio || 1);
 
+    const wrap = document.createElement('div');
+    wrap.className = 'vk-minimap-wrap';
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'vk-minimap';
     this.canvas.width = Math.round(this.size * this.dpr);
@@ -55,8 +103,17 @@ export class Minimap {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('2d context unavailable');
     this.ctx = ctx;
-    this.canvas.addEventListener('click', () => this.cycleZoom());
-    parent.appendChild(this.canvas);
+
+    this.zoomInButton = this.createZoomButton('vk-minimap-zoom-in', '+', 1);
+    this.zoomOutButton = this.createZoomButton('vk-minimap-zoom-out', '−', -1);
+    wrap.append(this.canvas, this.zoomInButton, this.zoomOutButton);
+    parent.appendChild(wrap);
+    this.bindPointerEvents();
+    onLangChange(() => {
+      this.dirty = true; // redraw the north label
+      this.renderZoomButtons();
+    });
+    this.renderZoomButtons();
   }
 
   /** Paint the full-city background from the overview grid plus a material palette. */
@@ -84,17 +141,26 @@ export class Minimap {
     this.bg = c;
     this.bgW = w;
     this.bgH = h;
-    this.lastX = Number.NaN; // force redraw
+    const wholeCity = Math.max(this.worldW, this.worldH);
+    if (!this.zoomSteps.includes(wholeCity)) {
+      this.zoomSteps.push(wholeCity);
+      this.zoomSteps.sort((a, b) => a - b);
+    }
+    this.dirty = true; // force redraw
+    this.renderZoomButtons();
   }
 
   setZoom(viewMetres: number): void {
     this.viewMetres = viewMetres;
-    this.lastX = Number.NaN;
+    this.dirty = true;
+    this.renderZoomButtons();
   }
 
   update(x: number, z: number, yaw: number): void {
     if (
-      Number.isFinite(this.lastX)
+      !this.dirty
+      && !this.dragging
+      && Number.isFinite(this.lastX)
       && Math.abs(x - this.lastX) <= MOVE_EPS_M
       && Math.abs(z - this.lastZ) <= MOVE_EPS_M
       && Math.abs(yaw - this.lastYaw) <= YAW_EPS
@@ -102,6 +168,7 @@ export class Minimap {
     ) {
       return;
     }
+    this.dirty = false;
     this.lastX = x;
     this.lastZ = z;
     this.lastYaw = yaw;
@@ -109,12 +176,99 @@ export class Minimap {
     this.draw(x, z, yaw);
   }
 
-  private cycleZoom(): void {
-    const whole = Math.max(this.worldW, this.worldH);
-    const steps = this.bg ? [...ZOOM_STEPS_M, whole] : ZOOM_STEPS_M;
-    const i = steps.indexOf(this.viewMetres);
-    this.viewMetres = steps[(i + 1) % steps.length] ?? DEFAULT_VIEW_M;
-    this.lastX = Number.NaN;
+  private createZoomButton(className: string, text: string, dir: 1 | -1): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `vk-minimap-zoom ${className}`;
+    button.textContent = text;
+    button.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!button.disabled) {
+        this.viewMetres = nextZoom(this.zoomSteps, this.viewMetres, dir);
+        this.dirty = true;
+        this.renderZoomButtons();
+      }
+    });
+    return button;
+  }
+
+  private renderZoomButtons(): void {
+    const inText = t('zoomIn');
+    const outText = t('zoomOut');
+    this.zoomInButton.title = inText;
+    this.zoomInButton.setAttribute('aria-label', inText);
+    this.zoomOutButton.title = outText;
+    this.zoomOutButton.setAttribute('aria-label', outText);
+    this.zoomInButton.disabled = nextZoom(this.zoomSteps, this.viewMetres, 1) === this.viewMetres;
+    this.zoomOutButton.disabled = nextZoom(this.zoomSteps, this.viewMetres, -1) === this.viewMetres;
+  }
+
+  private bindPointerEvents(): void {
+    this.canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.pointerId !== -1) return;
+      const p = this.canvasPoint(e);
+      this.pointerId = e.pointerId;
+      this.pointerStartX = p.x;
+      this.pointerStartY = p.y;
+      this.dragX = p.x;
+      this.dragY = p.y;
+      this.dragging = Math.hypot(p.x - this.size / 2, p.y - this.size / 2) <= MARKER_RADIUS_PX;
+      this.canvas.setPointerCapture(e.pointerId);
+    });
+    this.canvas.addEventListener('pointermove', (e) => {
+      e.stopPropagation();
+      if (e.pointerId !== this.pointerId) return;
+      const p = this.canvasPoint(e);
+      this.dragX = p.x;
+      this.dragY = p.y;
+      if (this.dragging && Number.isFinite(this.lastX)) this.draw(this.lastX, this.lastZ, this.lastYaw);
+    });
+    this.canvas.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.pointerId !== this.pointerId) return;
+      const p = this.canvasPoint(e);
+      const moved = Math.hypot(p.x - this.pointerStartX, p.y - this.pointerStartY);
+      const shouldTeleport = this.dragging || moved < CLICK_EPS_PX;
+      if (shouldTeleport && Number.isFinite(this.lastX)) {
+        const world = canvasToWorld(p.x, p.y, this.size, this.viewMetres, this.lastX, this.lastZ);
+        const target = clampWorld(world.x, world.z, this.worldW, this.worldH);
+        this.onTeleport?.(target.x, target.z);
+      }
+      this.endPointer(e.pointerId);
+    });
+    this.canvas.addEventListener('pointercancel', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.pointerId === this.pointerId) this.endPointer(e.pointerId);
+    });
+    this.canvas.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  }
+
+  private canvasPoint(e: PointerEvent): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? this.size / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.size / rect.height : 1;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  }
+
+  private endPointer(pointerId: number): void {
+    if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
+    this.pointerId = -1;
+    this.dragging = false;
   }
 
   private draw(x: number, z: number, yaw: number): void {
@@ -146,9 +300,25 @@ export class Minimap {
       }
     }
 
-    // player arrow: yaw 0 faces north (up), positive yaw turns left → screen rotation -yaw
+    if (this.dragging) {
+      this.drawArrow(s / 2, s / 2, yaw, 0.35);
+      this.drawArrow(this.dragX, this.dragY, yaw, 1);
+    } else {
+      this.drawArrow(s / 2, s / 2, yaw, 1);
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(t('north'), s / 2, 4);
+  }
+
+  private drawArrow(x: number, y: number, yaw: number, alpha: number): void {
+    const ctx = this.ctx;
     ctx.save();
-    ctx.translate(s / 2, s / 2);
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
     ctx.rotate(-yaw);
     ctx.beginPath();
     ctx.moveTo(0, -7);
@@ -162,11 +332,5 @@ export class Minimap {
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
     ctx.restore();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(t('north'), s / 2, 4);
   }
 }

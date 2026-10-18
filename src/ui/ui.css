@@ -120,19 +120,52 @@
   font-size: 11px;
 }
 
-.vk-minimap {
+.vk-minimap-wrap {
   position: fixed;
   right: 12px;
   bottom: 12px;
   z-index: 15;
   width: 180px;
   height: 180px;
+}
+.vk-minimap {
+  display: block;
+  width: 180px;
+  height: 180px;
   border: 1px solid #ffffff4d;
   border-radius: 12px;
   background: #121a22;
+  cursor: crosshair;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.vk-minimap-zoom {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #ffffff66;
+  border-radius: 5px;
+  background: #111c;
+  color: #fff;
+  font: 20px/24px system-ui, sans-serif;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+.vk-minimap-zoom:hover,
+.vk-minimap-zoom:focus-visible {
+  background: #333e;
+}
+.vk-minimap-zoom:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.vk-minimap-zoom-out {
+  top: 34px;
 }
 
 /* ODbL map-data credit: always visible, small, bottom-left on desktop. */
@@ -161,9 +194,20 @@
     font-size: 10px;
     white-space: nowrap;
   }
-  .vk-minimap {
+  .vk-minimap-wrap {
     top: 64px;
     bottom: auto;
+    width: 120px;
+    height: 120px;
+  }
+  .vk-minimap-zoom {
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
+    line-height: 36px;
+  }
+  .vk-minimap-zoom-out {
+    top: 44px;
   }
   #hud {
     top: 56px;
@@ -276,7 +320,7 @@
   .vk-time-text {
     display: inline;
   }
-  body.vk-menu-open .vk-minimap {
+  body.vk-menu-open .vk-minimap-wrap {
     visibility: hidden;
   }
   /* the HUD text ends 8 px left of the minimap (122 px wide at 320 px) */
