@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HISTORIC_WALLS, HOUSE_WALLS, MAT } from '../src/world/materials';
-import { buildingSpec, nearestVariant } from '../tools/bake/building-style';
+import { buildingSpec, estimateStoreys, nearestVariant } from '../tools/bake/building-style';
 
 describe('buildingSpec facade styles', () => {
   it('is deterministic', () => {
@@ -46,6 +46,23 @@ describe('buildingSpec facade styles', () => {
     expect(buildingSpec(1, { building: 'warehouse' }, 0).wall).toBe(MAT.WALL_INDUSTRIAL);
     expect(buildingSpec(1, { building: 'retail' }, 9000).wall).toBe(MAT.WALL_MODERN);
     expect(buildingSpec(1, { building: 'school' }, 9000).wall).toBe(MAT.WALL_PUBLIC);
+  });
+
+  it('calibrates untagged residential footprints and never overrides explicit tags', () => {
+    const slab = [[0, 0], [30, 0], [30, 6], [0, 6]] as const; // 60 x 12 m, 720 m²
+    const tower = [[0, 0], [10, 0], [10, 10], [0, 10]] as const; // 20 x 20 m
+    expect(estimateStoreys({ building: 'yes' }, 4000, 720, { ring: slab, residential: true })).toBe(5);
+    expect(estimateStoreys({ building: 'yes' }, 4000, 400, { ring: tower, residential: true })).toBe(9);
+    expect(estimateStoreys({ building: 'yes' }, 4000, 100, { ring: slab, residential: true })).toBe(2);
+    const tagged = buildingSpec(88, { building: 'yes', 'building:levels': '9' }, 4000, 720, { ring: slab, residential: true });
+    expect(tagged.levels).toBe(9);
+    expect(tagged.hm).toBe(28);
+    expect(tagged.heightHeuristic).toBe(false);
+  });
+
+  it('uses brick only for an explicit building:material tag', () => {
+    expect(buildingSpec(1, { building: 'apartments', 'building:levels': '5', 'building:material': 'brick' }, 5000).wall).toBe(MAT.WALL_BRICK);
+    expect(buildingSpec(1, { building: 'apartments', 'building:levels': '5', colour: 'red' }, 5000).wall).not.toBe(MAT.WALL_BRICK);
   });
 
   it('building:colour picks the nearest palette variant', () => {

@@ -19,6 +19,7 @@ function makeTile(): VectorTile {
         heightCm: 12000,
         minHeightCm: 300,
         levels: 12,
+        heightHeuristic: 1,
         wall: 5,
         roof: 7,
         roofShape: ROOF.HIPPED,
@@ -61,7 +62,7 @@ function makeTile(): VectorTile {
       },
     ],
     lines: [
-      { pts: new Int32Array([0, 10, 0, 500]), kind: LINE.FENCE },
+      { pts: new Int32Array([0, 10, 0, 500]), kind: LINE.FENCE, heightCm: 220 },
       { pts: new Int32Array([700, 0, 750, 250]), kind: LINE.RAIL },
     ],
     points: [

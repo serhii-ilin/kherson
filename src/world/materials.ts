@@ -50,6 +50,8 @@ export const MAT = {
   WALL_HOUSE_PINK: 36,
   WALL_HOUSE_MINT: 37,
   WALL_HOUSE_BLUE: 38,
+  /** Explicit OSM brick facade; never selected from colour alone. */
+  WALL_BRICK: 39,
   ROOF_RED: 40,
   ROOF_GREY: 41,
   ROOF_DARK: 42,
@@ -113,6 +115,7 @@ const COLORS: Record<number, number> = {
   [MAT.WALL_HOUSE_PINK]: 0xe2b3ab,
   [MAT.WALL_HOUSE_MINT]: 0xb4d9bc,
   [MAT.WALL_HOUSE_BLUE]: 0xb4cde6,
+  [MAT.WALL_BRICK]: 0xa86f5b,
   [MAT.ROOF_RED]: 0xb5472f,
   [MAT.ROOF_GREY]: 0x808589,
   [MAT.ROOF_DARK]: 0x45484d,

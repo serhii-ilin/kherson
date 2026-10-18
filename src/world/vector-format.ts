@@ -16,14 +16,14 @@
  *   roads:     varint count, then per road: u8 kind, u8 flags, varint widthCm, u8 lanes, s8 layer,
  *              varint (name + 1), polyline
  *   areas:     varint count, then per area: u8 mat, u8 prio, varint ringCount, rings
- *   lines:     varint count, then per line: u8 kind, polyline
+ *   lines:     varint count, then per line: u8 kind, varint heightCm (0 = unknown), polyline
  *   points:    varint count, then per point: u8 kind, u8 dir, zigzag-varint x, zigzag-varint z, varint (name + 1)
  * A ring or polyline is: varint pointCount, then the first point as zigzag varints (x, z) and each
  * following point as zigzag-varint deltas from the previous one. Rings are not closed (no repeated
  * first point); ring 0 is the outer ring, the rest are holes.
  */
 
-export const VECTOR_VERSION = 1;
+export const VECTOR_VERSION = 2;
 
 /** `VRoad.kind`: OSM highway class. */
 export const ROAD = {
@@ -100,6 +100,8 @@ export interface VBuilding {
   minHeightCm: number;
   /** 0 when unknown. */
   levels: number;
+  /** 1 when the bake filled height/storeys from a footprint heuristic, 0 for explicit/unknown. */
+  heightHeuristic?: number;
   /** MAT wall id (style, see src/world/materials.ts). */
   wall: number;
   /** MAT roof id. */
@@ -134,6 +136,8 @@ export interface VArea {
 export interface VLine {
   pts: Int32Array;
   kind: number;
+  /** Barrier height in centimetres; omitted/zero means use the renderer's kind default. */
+  heightCm?: number;
 }
 
 export interface VPoint {
@@ -363,6 +367,7 @@ export function encodeVectorTile(tile: VectorTile): Uint8Array {
     w.u8(b.wall);
     w.u8(b.roof);
     w.u8(b.roofShape);
+    w.u8(b.heightHeuristic ?? 0);
     w.varint(b.name + 1);
     w.varint(b.rings.length);
     for (const ring of b.rings) writePolyline(w, ring);
@@ -390,6 +395,7 @@ export function encodeVectorTile(tile: VectorTile): Uint8Array {
   w.varint(tile.lines.length);
   for (const line of tile.lines) {
     w.u8(line.kind);
+    w.varint(line.heightCm ?? 0);
     writePolyline(w, line.pts);
   }
 
@@ -434,9 +440,10 @@ export function decodeVectorTile(input: ArrayBuffer | Uint8Array): VectorTile {
     const wall = r.u8();
     const roof = r.u8();
     const roofShape = r.u8();
+    const heightHeuristic = r.u8();
     const name = r.varint() - 1;
     const rings = readRings(r, r.varint());
-    buildings.push({ id, rings, heightCm, minHeightCm, levels, wall, roof, roofShape, name });
+    buildings.push({ id, rings, heightCm, minHeightCm, levels, ...(heightHeuristic ? { heightHeuristic } : {}), wall, roof, roofShape, name });
   }
 
   const roads: VRoad[] = [];
@@ -465,8 +472,9 @@ export function decodeVectorTile(input: ArrayBuffer | Uint8Array): VectorTile {
   const lineCount = r.varint();
   for (let i = 0; i < lineCount; i++) {
     const kind = r.u8();
+    const heightCm = r.varint();
     const pts = readPolyline(r);
-    lines.push({ pts, kind });
+    lines.push({ pts, kind, ...(heightCm > 0 ? { heightCm } : {}) });
   }
 
   const points: VPoint[] = [];

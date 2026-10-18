@@ -138,7 +138,15 @@ describe('props', () => {
     const p = placeProps([t], B(0, 0, 200, 100), ground);
     expect(p.filter((q) => q.kind === PROP.BENCH).length).toBeGreaterThanOrEqual(4);
     expect(p.filter((q) => q.kind === PROP.BIN).length).toBeGreaterThanOrEqual(1);
-    expect(p.filter((q) => q.kind === PROP.FENCE).length).toBe(10);
+    expect(p.filter((q) => q.kind === PROP.FENCE).length).toBe(8);
+  });
+
+  it('renders barrier walls with their tagged height', () => {
+    const t = tile();
+    t.lines.push({ pts: cm([[0, 120], [20, 120]]), kind: LINE.WALL, heightCm: 145 });
+    const p = placeProps([t], B(0, 100, 30, 140), ground).filter((q) => q.kind === PROP.WALL);
+    expect(p.length).toBeGreaterThan(0);
+    expect(new Set(p.map((q) => q.height))).toEqual(new Set([1.45]));
   });
 });
 

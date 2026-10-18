@@ -101,8 +101,8 @@ float fLine( float v, float period, float lw, float px ) {
 vec3 fMicro( vec3 c, float id, vec2 p, float hy, float px, float seed, float gf ) {
   float k = gf;
   if ( k <= 0.0 ) return c;
-  bool brick = id > 24.5 && id < 25.5;
-  if ( id > 29.5 && id < 34.5 ) brick = c.r > c.g * 1.12 && c.r > c.b * 1.3;
+  // Brick is an explicit OSM material style (WALL_BRICK = 39); colour is never used to guess it.
+  bool brick = id > 38.5 && id < 39.5;
   if ( brick ) {
     float ch = 0.075;
     float row = floor( p.y / ch );
@@ -116,6 +116,13 @@ vec3 fMicro( vec3 c, float id, vec2 p, float hy, float px, float seed, float gf 
     float f = k * fFade( px, 0.04, 0.16 );
     c *= 1.0 + f * 0.10 * ( bt - 0.5 );
     c = mix( c, c * 0.80 + 0.03, f * ( 1.0 - inB ) * 0.8 );
+  } else if ( id > 24.5 && id < 25.5 ) {
+    // Khrushchevka white/grey panel joints: horizontal courses at each storey and 3 m panel bays.
+    vec2 pq = vec2( p.x + seed * 2.0, p.y );
+    float seam = max( fLine( pq.x, 3.0, 0.035, px ), fLine( pq.y, 2.8, 0.035, px ) );
+    float f = k * fFade( px, 0.12, 0.7 );
+    c *= 1.0 - 0.14 * f * seam;
+    c *= 1.0 + 0.035 * f * ( gHash( floor( vec2( pq.x / 3.0, pq.y / 2.8 ) ) + seed ) - 0.5 );
   } else if ( id > 25.5 && id < 26.5 ) {
     // panel seams: 3.0 x 1.4 m panels, dark joints, faint per-panel tone
     vec2 pq = vec2( p.x + seed * 3.0, p.y - 0.0 );
@@ -147,7 +154,7 @@ vec3 fMicro( vec3 c, float id, vec2 p, float hy, float px, float seed, float gf 
 // family, applied to the whole building. Brick and historic walls shift in warmth as well as value;
 // panel, public and industrial walls mostly in value; houses and pastel variants in warmth.
 vec3 gTintMul( float m, float t ) {
-  bool brick = ( m > 24.5 && m < 25.5 ) || ( m > 29.5 && m < 34.5 );
+  bool brick = m > 38.5 && m < 39.5;
   bool grey = ( m > 21.5 && m < 24.5 ) || ( m > 25.5 && m < 29.5 );
   if ( brick ) {
     if ( t < 0.5 ) return vec3( 1.0 );
@@ -180,6 +187,7 @@ vec4 fStyle( float m ) {
   if ( m < 28.5 ) return vec4( 3.6, 3.0, 1.00, 0.55 );            // modern: glass bands
   if ( m < 29.5 ) return vec4( 3.0, 3.0, 0.00, 0.00 );            // garage
   if ( m < 34.5 ) return vec4( 3.8, 3.6, 0.38, 0.66 );            // historic: tall windows
+  if ( m < 39.5 ) return vec4( 2.8, 3.0, 0.40, 0.44 );            // explicit silicate/red brick apartments
   return vec4( 3.0, 3.0, 0.42, 0.42 );                             // pastel house variants
 }`,
     )
@@ -358,7 +366,8 @@ vec4 fStyle( float m ) {
       bool historic = styleId > 29.5 && styleId < 34.5;
       bool modern = styleId > 27.5 && styleId < 28.5;
       bool panel = styleId > 25.5 && styleId < 26.5;
-      bool apart = ( styleId > 20.5 && styleId < 21.5 ) || ( styleId > 24.5 && styleId < 26.5 );
+      bool brick = styleId > 38.5 && styleId < 39.5;
+      bool apart = ( styleId > 20.5 && styleId < 21.5 ) || ( styleId > 24.5 && styleId < 26.5 ) || brick;
       bool pub = styleId > 23.5 && styleId < 24.5;
       // floors stretch slightly so that whole floors fit between plinth and top
       float nFloors = max( 1.0, floor( totalH / st.x + 0.5 ) );

@@ -122,6 +122,17 @@ function main_(osm: OsmData): { areas: Area[]; lines: Line[]; barriers: Line[] }
   return { areas, lines, barriers };
 }
 
+function pointInRings(rings: readonly Pt[][], x: number, z: number): boolean {
+  let inside = false;
+  for (const r of rings) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const a = r[i]!, b = r[j]!;
+      if ((a[1] > z) !== (b[1] > z) && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+  }
+  return inside;
+}
+
 /** Join way segments (node id lists) into closed rings by matching endpoints. */
 function joinRings(segs: number[][]): number[][] {
   const rings: number[][] = [];
@@ -338,6 +349,8 @@ async function main(): Promise<void> {
   const places = collectPlaces(osm, areas, lines, mask);
   stage(`places: ${places.length}`);
   const centre = findCentre(places, areas);
+  const residentialAreas = areas.filter((a) => a.tags.landuse === "residential");
+  const residentialAt = (x: number, z: number): boolean => residentialAreas.some((a) => pointInRings(a.rings, x, z));
   const styleCounts = new Map<string, number>();
   for (const a of areas) {
     const t = a.tags;
@@ -353,7 +366,8 @@ async function main(): Promise<void> {
       const p = r0[i]!, q = r0[(i + 1) % r0.length]!;
       area2 += p[0] * q[1] - q[0] * p[1];
     }
-    const spec = buildingSpec(a.id, t, dist, (Math.abs(area2) / 2) * VOXEL * VOXEL);
+    const areaM2 = (Math.abs(area2) / 2) * VOXEL * VOXEL;
+    const spec = buildingSpec(a.id, t, dist, areaM2, { ring: r0, residential: residentialAt(bx / r0.length, bz / r0.length) });
     styleCounts.set(spec.style, (styleCounts.get(spec.style) ?? 0) + 1);
     // contract 1 (region format v2): per-building tint 0..3 in the high 2 bits of the wall byte
     const structByte = packStruct(spec.wall, hash(a.id, 0x7177) >>> 30);

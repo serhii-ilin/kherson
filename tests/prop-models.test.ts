@@ -94,13 +94,20 @@ describe('prop models', () => {
     }
   });
 
-  it('FENCE length 2.0–2.1 m', () => {
+  it('FENCE panel length is 2.5 m', () => {
     for (let variant = 0; variant < 3; variant++) {
       const prop = buildProp(PROP.FENCE, variant);
       const length = prop.max[0] - prop.min[0];
-      expect(length).toBeGreaterThanOrEqual(2.0);
-      expect(length).toBeLessThanOrEqual(2.1);
+      expect(length).toBeGreaterThanOrEqual(2.5);
+      expect(length).toBeLessThanOrEqual(2.6);
     }
+  });
+
+  it('WALL is a solid, one-metre-class concrete block', () => {
+    const wall = buildProp(PROP.WALL, 0, 1.4);
+    expect(wall.max[1]).toBeCloseTo(1.4, 6);
+    expect(wall.max[0] - wall.min[0]).toBeCloseTo(2.5, 6);
+    expect(wall.indices.length / 3).toBeLessThanOrEqual(20);
   });
 
   it('all normals are unit length and axis aligned', () => {

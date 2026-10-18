@@ -16,6 +16,7 @@ import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./classes.ts";
 import type { Tags } from "./osm.ts";
 import { fillPolygon, type Pt } from "./rasterize.ts";
 import { MAT } from "../../src/world/materials.ts";
+import { generateIndustrialPerimeters } from "./fences.ts";
 
 export interface VArea_ {
   id: number;
@@ -232,6 +233,17 @@ const flat = (pts: readonly Cm[], ox: number, oz: number): Int32Array => {
   return a;
 };
 
+function pointInRings(rings: readonly Pt[][], x: number, z: number): boolean {
+  let inside = false;
+  for (const r of rings) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const a = r[i]!, b = r[j]!;
+      if ((a[1] > z) !== (b[1] > z) && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+  }
+  return inside;
+}
+
 /** Road width in cm from tags (see task: width tag, lanes, class defaults). */
 export function roadWidthCm(t: Tags, hw: string): number {
   const w = parseNum(t.width);
@@ -263,6 +275,8 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
   };
   const owner = (x: number, z: number): TileAcc | null => acc(Math.floor(x / REGION_CM), Math.floor(z / REGION_CM));
   const byId = <T extends { id: number }>(l: readonly T[]): T[] => l.map((v, i) => [v, i] as const).sort((a, b) => a[0].id - b[0].id || a[1] - b[1]).map((e) => e[0]);
+  const residentialAreas = input.areas.filter((a) => a.tags.landuse === "residential");
+  const residentialAt = (x: number, z: number): boolean => residentialAreas.some((a) => pointInRings(a.rings, x, z));
 
   // ---- buildings
   for (const a of byId(input.areas)) {
@@ -283,7 +297,8 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
       const p = r0pts[i]!, q = r0pts[(i + 1) % r0pts.length]!;
       area2 += p[0] * q[1] - q[0] * p[1];
     }
-    const spec = buildingSpec(a.id, t, dist, (Math.abs(area2) / 2) * VOXEL * VOXEL);
+    const areaM2 = (Math.abs(area2) / 2) * VOXEL * VOXEL;
+    const spec = buildingSpec(a.id, t, dist, areaM2, { ring: r0pts, residential: residentialAt(bx, bz) });
     const [ax, az] = toCm([bx, bz]);
     const tile = owner(ax, az);
     if (!tile) continue;
@@ -301,7 +316,8 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
       rings,
       heightCm,
       minHeightCm: Math.min(Math.round(minM * 100), heightCm),
-      levels: levels === null ? 0 : Math.max(0, Math.min(255, Math.round(levels))),
+      levels: levels === null ? Math.max(0, Math.min(255, spec.levels)) : Math.max(0, Math.min(255, Math.round(levels))),
+      ...(spec.heightHeuristic ? { heightHeuristic: 1 } : {}),
       wall: spec.wall,
       roof: spec.roof,
       roofShape: ROOF_SHAPE[t["roof:shape"] ?? ""] ?? ROOF.FLAT,
@@ -385,8 +401,9 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
     }
   }
 
-  // ---- barrier lines
-  for (const l of byId(input.barriers)) {
+  // ---- barrier lines (explicit OSM first, then deterministic industrial perimeter heuristic)
+  const perimeter = generateIndustrialPerimeters(input.areas, input.lines);
+  for (const l of byId([...input.barriers, ...perimeter])) {
     const t = l.tags;
     if (has(t.tunnel)) continue;
     const b = t.barrier;
@@ -394,8 +411,10 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
     if (!kind) continue;
     const pts = dedupe(l.pts.map(toCm));
     if (pts.length < 2) continue;
+    const taggedHeight = parseNum(t.height);
+    const heightCm = Math.round((taggedHeight ?? (kind === LINE.FENCE ? 2.2 : kind === LINE.WALL ? 1 : 1.2)) * 100);
     addPieces(pts, (tile, piece, ox, oz) => {
-      tile.lines.push({ pts: flat(piece, ox, oz), kind });
+      tile.lines.push({ pts: flat(piece, ox, oz), kind, heightCm });
       stats.lines++;
     });
   }

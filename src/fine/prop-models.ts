@@ -1,6 +1,6 @@
 import { MAT, materialColor } from '../world/materials.ts';
 
-export const PROP = { LAMP: 1, TRAFFIC_LIGHT: 2, BUS_SHELTER: 3, BENCH: 4, BIN: 5, BOLLARD: 6, FENCE: 7, SIGN_POST: 8 } as const;
+export const PROP = { LAMP: 1, TRAFFIC_LIGHT: 2, BUS_SHELTER: 3, BENCH: 4, BIN: 5, BOLLARD: 6, FENCE: 7, SIGN_POST: 8, WALL: 9 } as const;
 
 /** Same vertex layout as the world's chunk meshes, so props can be merged into them. */
 export interface PropModel {
@@ -113,7 +113,7 @@ class MeshBuilder {
   }
 }
 
-export function buildProp(kind: number, variant: number): PropModel {
+export function buildProp(kind: number, variant: number, height?: number): PropModel {
   const v = Math.max(0, Math.min(2, variant));
 
   if (kind === PROP.LAMP) {
@@ -129,7 +129,9 @@ export function buildProp(kind: number, variant: number): PropModel {
   } else if (kind === PROP.BOLLARD) {
     return buildBollard(v);
   } else if (kind === PROP.FENCE) {
-    return buildFence(v);
+    return buildFence(v, height ?? 2.2);
+  } else if (kind === PROP.WALL) {
+    return buildWall(height ?? 1);
   } else if (kind === PROP.SIGN_POST) {
     return buildSignPost();
   }
@@ -343,35 +345,45 @@ function buildBollard(variant: number): PropModel {
   return b.build();
 }
 
-function buildFence(variant: number): PropModel {
+function addDiamond(b: MeshBuilder, cx: number, cy: number, halfW: number, halfH: number, z: number, mat: number): void {
+  const t = 0.09;
+  const outer = [[cx, cy + halfH], [cx - halfW, cy], [cx, cy - halfH], [cx + halfW, cy]] as const;
+  const inner = [[cx, cy + halfH - t], [cx - halfW + t, cy], [cx, cy - halfH + t], [cx + halfW - t, cy]] as const;
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    b.addQuad(outer[i]![0], outer[i]![1], z, outer[j]![0], outer[j]![1], z,
+      inner[j]![0], inner[j]![1], z, inner[i]![0], inner[i]![1], z, 0, 0, 1, mat, 0.9);
+  }
+}
+
+function buildFence(variant: number, height: number): PropModel {
   const b = new MeshBuilder();
 
-  const fenceLen = 2.0;
-  const fenceH = 1.2;
-  const postW = 0.06;
-  const railThick = 0.04;
-  const picketW = 0.02;
-  const picketH = 1.1;
+  const fenceLen = 2.5;
+  const fenceH = Math.max(1.5, Math.min(3, height));
+  const postW = 0.16;
+  const panelD = 0.12;
+  const panelX = fenceLen / 2 - postW - 0.03;
+  const panelY = 0.12;
+  const panelTop = fenceH - 0.08;
+  b.addBox(-panelX, panelY, -panelD / 2, panelX, panelTop, panelD / 2, MAT.CONCRETE);
+  b.addBox(-fenceLen / 2, 0, -postW / 2, -fenceLen / 2 + postW, fenceH + 0.08, postW / 2, MAT.CONCRETE);
+  b.addBox(fenceLen / 2 - postW, 0, -postW / 2, fenceLen / 2, fenceH + 0.08, postW / 2, MAT.CONCRETE);
+  // Raised PO-2/P-6V-style rhombi on the street-facing side. Two small diamonds keep the
+  // model under the fine-tier prop budget while reading as a panel fence up close.
+  const reliefZ = panelD / 2 + 0.012;
+  const y = panelY + (panelTop - panelY) * 0.54;
+  const x = variant === 0 ? 0 : (variant === 1 ? -0.08 : 0.08);
+  addDiamond(b, x - 0.58, y, 0.42, 0.48, reliefZ, MAT.CONCRETE);
+  addDiamond(b, x + 0.58, y, 0.42, 0.48, reliefZ, MAT.CONCRETE);
 
-  // Two posts at x = ±1.0
-  const postX1 = -fenceLen / 2 + postW / 2;
-  const postX2 = fenceLen / 2 - postW / 2;
-  b.addBox(postX1 - postW / 2, 0, -postW / 2, postX1 + postW / 2, fenceH, postW / 2, MAT.METAL);
-  b.addBox(postX2 - postW / 2, 0, -postW / 2, postX2 + postW / 2, fenceH, postW / 2, MAT.METAL);
+  return b.build();
+}
 
-  // Top rail
-  b.addBox(-fenceLen / 2, fenceH - railThick, -railThick / 2, fenceLen / 2, fenceH, railThick / 2, MAT.METAL);
-
-  // Bottom rail
-  b.addBox(-fenceLen / 2, railThick / 2, -railThick / 2, fenceLen / 2, railThick / 2 + railThick, railThick / 2, MAT.METAL);
-
-  // 9 vertical pickets evenly spaced
-  const spacing = fenceLen / 10;
-  for (let i = 1; i < 10; i++) {
-    const x = -fenceLen / 2 + i * spacing;
-    b.addBox(x - picketW / 2, 0.05, -picketW / 2, x + picketW / 2, 0.05 + picketH, picketW / 2, MAT.METAL);
-  }
-
+function buildWall(height: number): PropModel {
+  const b = new MeshBuilder();
+  const h = Math.max(0.6, Math.min(3, height));
+  b.addBox(-1.25, 0, -0.18, 1.25, h, 0.18, MAT.CONCRETE);
   return b.build();
 }
 

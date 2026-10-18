@@ -35,6 +35,8 @@ export interface PropPlacement {
   y: number;
   z: number;
   yaw: number;
+  /** Barrier height in metres for fence/wall models. */
+  height?: number;
 }
 
 export interface PropGround {
@@ -61,7 +63,7 @@ export const LAMP_KERB_OFFSET = 0.5;
 /** OSM lamps within this distance of a vehicle road are snapped next to its kerb (m). */
 export const LAMP_SNAP = 5;
 const BENCH_SPACING = 25;
-const FENCE_LEN = 2;
+const FENCE_LEN = 2.5;
 /** Everything within this many metres of the bounds is considered for obstacles and neighbours. */
 const MARGIN = 40;
 const LAMP_DEDUPE = 8;
@@ -121,6 +123,7 @@ interface WLine {
   pts: Float64Array;
   n: number;
   kind: number;
+  heightCm: number;
   bx0: number;
   bz0: number;
   bx1: number;
@@ -225,11 +228,12 @@ export class PropWorld {
         this.areas.push({ rings, mat: a.mat, bx0: x0, bz0: z0, bx1: x1, bz1: z1 });
       }
       for (const l of t.lines) {
-        if (l.kind !== LINE.FENCE || l.pts.length < 4) continue;
+        if ((l.kind !== LINE.FENCE && l.kind !== LINE.WALL && l.kind !== LINE.HEDGE) || l.pts.length < 4) continue;
         const pts = toWorld(l.pts, ox, oz);
         const [x0, z0, x1, z1] = bbox(pts);
         if (!hits(bounds, 4, x0, z0, x1, z1)) continue;
-        this.lines.push({ pts, n: pts.length >> 1, kind: l.kind, bx0: x0, bz0: z0, bx1: x1, bz1: z1 });
+        const defaultHeight = l.kind === LINE.FENCE ? 2.2 : l.kind === LINE.WALL ? 1 : 1.2;
+        this.lines.push({ pts, n: pts.length >> 1, kind: l.kind, heightCm: l.heightCm ?? defaultHeight * 100, bx0: x0, bz0: z0, bx1: x1, bz1: z1 });
       }
       for (const p of t.points) {
         const x = ox + p.x / 100, z = oz + p.z / 100;
@@ -419,7 +423,7 @@ class Ctx {
     return best === null ? null : { r: best, hit: bh };
   }
 
-  add(kind: number, x: number, z: number, yaw: number, y?: number): void {
+  add(kind: number, x: number, z: number, yaw: number, y?: number, height?: number): void {
     for (const exclusion of this.exclusions) {
       if (!exclusion.kinds.includes(kind)) continue;
       const polygon = exclusion.polygon;
@@ -430,7 +434,7 @@ class Ctx {
       }
       if (inside) return;
     }
-    this.out.push({ kind, variant: posHash(x, z, kind) % 3, x, y: y ?? this.surfaceY(x, z), z, yaw });
+    this.out.push({ kind, variant: posHash(x, z, kind) % 3, x, y: y ?? this.surfaceY(x, z), z, yaw, ...(height !== undefined ? { height } : {}) });
   }
 }
 
@@ -664,7 +668,8 @@ function placeFences(c: Ctx): void {
       atArc(l.pts, l.n, cum, Math.min(s, len), hit);
       const x = hit.px, z = hit.pz;
       if (!c.inBounds(x, z) || c.blocked(x, z) || c.buildingDist(x, z) < 0.1) continue;
-      c.add(PROP.FENCE, x, z, Math.atan2(-hit.tz, hit.tx), c.g.groundAt(x, z));
+      const kind = l.kind === LINE.WALL ? PROP.WALL : PROP.FENCE;
+      c.add(kind, x, z, Math.atan2(-hit.tz, hit.tx), c.g.groundAt(x, z), l.heightCm / 100);
     }
   }
 }
@@ -686,15 +691,15 @@ export function placeProps(
 
 // ---------------------------------------------------------------- meshing
 
-const modelCache = new Map<number, ReturnType<typeof buildProp>>();
+const modelCache = new Map<string, ReturnType<typeof buildProp>>();
 
 /** Transformed copy of every placement as one mesh in chunk-local coordinates (origin ox, oz). */
 export function buildPropMesh(placements: readonly PropPlacement[], ox: number, oz: number): ChunkMesh {
   let nv = 0, ni = 0;
   const models = placements.map((p) => {
-    const key = p.kind * 4 + p.variant;
+    const key = `${p.kind}:${p.variant}:${Math.round((p.height ?? 0) * 100)}`;
     let m = modelCache.get(key);
-    if (m === undefined) { m = buildProp(p.kind, p.variant); modelCache.set(key, m); }
+    if (m === undefined) { m = buildProp(p.kind, p.variant, p.height); modelCache.set(key, m); }
     nv += m.positions.length / 3;
     ni += m.indices.length;
     return m;

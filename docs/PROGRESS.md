@@ -31,8 +31,6 @@ _Last updated: 2026-10-18_
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ✅ Landmark detail layer, first pass (see Done).
 
-- ⬜ Fences: OSM barriers plus Soviet concrete panel fences (PO-2) around industrial sites, e.g. the factory on Filatova Street (Codex).
-- ⬜ Storey counts for untagged buildings (Filatova: 5-storey khrushchevkas, a 9-storey brick block look too low) and a more believable khrushchevka facade (Codex).
 
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
@@ -49,6 +47,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 28 | P3 | The Pier is not in the Places menu | add it to the bake's landmark list and re-bake `public/world` |
 | 29 | P3 | Tree rows between Freedom Square and the administration come from OSM `tree_row` ways drawn after 2022 (ids ~1.17e9); the owner says the square has few or no trees | owner to confirm whether they stood there before 2022; if not, exclude them |
 | 30 | P3 | The Frigate (First Shipbuilders) monument next to the Pier is not modelled; thin grass slivers remain at the edges of the square's paving | model the monument; clip edge pavers to the polygon |
+| 31 | P3 | Storeys are still guessed for ~70% of buildings (no open per-building height source covers Kherson, see [HEIGHT_SOURCES.md](HEIGHT_SOURCES.md)); short blocks (< 35 m) stay 3 storeys | add building:levels in OSM for known blocks; re-bake |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
 ## Waiting on the owner
@@ -63,6 +62,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Fences and storeys: OSM barrier=fence/wall baked and drawn; 2.2 m Soviet concrete panel fences (PO-2) around industrial land with gaps at crossing roads; storeys for untagged buildings from the footprint (khrushchevka slabs → 5, point towers → 9, small houses 1–2), calibrated against the city's 2021 housing stock (`npm run height-report`); brick facade for building:material=brick; khrushchevka facade with panel seams, stair windows, balcony stacks. Filatova: 5-storey 51 → 91, 9-storey 9 → 18. Baked world 20 MB | (this commit) |
 | Freedom Square fixed after the owner's screenshot (crooked, half paved): the frame is derived from the perimeter roads (−22°), pavers, bands, kerbs and furniture are laid in that frame with straight clipped edges over the whole square between the roads (10.9k m²), the plinth pad sits on and turns with its OSM polygon, pavers always above the ground, neutral greys; 37k triangles, 3 draw calls | `151daa1` |
 | Clouds: procedural cumulus + cirrus in the sky shader (0 extra draw calls), drifting NW→SE, white at noon, pink/orange at golden hour, faint at night hiding stars. Swifts: 10 small screaming parties of 4–15 (6 on phones), low passes over streets, busier 18:00–21:30; doves 70 / 30 so all birds stay within ~170 / ~90 | `de4f554` |
 | Landmarks, first pass: Freedom Square (OSM-derived treeless forecourt with ~1 m pavers on a mortar bed following the ground, empty stepped former-Lenin pad with blank panels, Pushkin-square fountain, lamps, benches, bins, flower beds, Ukrainian flags) and the Pier at the bottom of Ushakova (placed on the real quay edge found along the avenue axis, paved promenade, 45 m walkable deck over the water with railings, lamps with flower boxes, bollards, axial fountain). 144k / 32k triangles, 3 draw calls each; whole frame ≈ 1.2M tris / 205 calls at the square | `34b5aec` |

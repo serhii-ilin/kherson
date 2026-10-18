@@ -82,6 +82,10 @@ export interface Style {
   balconies: number;
   shops: boolean;
   entrances: boolean;
+  /** Narrow stair-window column above each apartment entrance. */
+  stairWindows: boolean;
+  /** Small basement vents on the dark plinth band. */
+  basementVents: boolean;
   garage: boolean;
   pitched: boolean;
   church: boolean;
@@ -91,7 +95,7 @@ export interface Style {
 function mk(o: Partial<Style> & Pick<Style, 'floorH' | 'bay' | 'winW' | 'winH'>): Style {
   return {
     winOff: 1, plinth: MAT.CONCRETE, cornice: false, sills: true, balconies: 0, shops: false,
-    entrances: false, garage: false, pitched: false, church: false, ribbon: false, ...o,
+    entrances: false, stairWindows: false, basementVents: false, garage: false, pitched: false, church: false, ribbon: false, ...o,
   };
 }
 
@@ -106,11 +110,12 @@ const STYLES = new Map<number, Style>([
   [MAT.WALL_INDUSTRIAL, mk({ floorH: 5, bay: 4, winW: 2, winH: 1, winOff: 3, sills: false })],
   [MAT.WALL_CHURCH, mk({ floorH: 0, bay: 5, winW: 1, winH: 3, winOff: 3, plinth: MAT.TRIM, church: true })],
   [MAT.WALL_PUBLIC, mk({ floorH: 4, bay: 4, winW: 2, winH: 2, cornice: true, shops: true })],
-  [MAT.WALL_KHRUSH, mk({ floorH: 3, bay: 3, winW: 1, winH: 2, sills: false, balconies: 8, entrances: true })],
+  [MAT.WALL_KHRUSH, mk({ floorH: 3, bay: 3, winW: 1, winH: 2, sills: false, balconies: 8, entrances: true, stairWindows: true, basementVents: true })],
   [MAT.WALL_PANEL, mk({ floorH: 3, bay: 3, winW: 1, winH: 2, sills: false, balconies: 8, entrances: true })],
   [MAT.WALL_STALIN, mk({ floorH: 4, bay: 4, winW: 2, winH: 3, cornice: true, shops: true, entrances: true, balconies: 7 })],
   [MAT.WALL_MODERN, mk({ floorH: 4, bay: 4, winW: 3, winH: 2, sills: false, shops: true, ribbon: true })],
   [MAT.WALL_GARAGE, mk({ floorH: 3, bay: 4, winW: 0, winH: 0, sills: false, garage: true })],
+  [MAT.WALL_BRICK, mk({ floorH: 3, bay: 3, winW: 1, winH: 2, sills: false, balconies: 8, entrances: true, stairWindows: true, basementVents: true })],
 ]);
 const HISTORIC = mk({ floorH: 4, bay: 3, winW: 1, winH: 3, plinth: MAT.TRIM, cornice: true, shops: true });
 for (let m = MAT.WALL_HISTORIC; m <= MAT.WALL_HISTORIC_CREAM; m++) STYLES.set(m, HISTORIC);
@@ -715,6 +720,10 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
       const pp = mod(u, st.bay);
       const winOff = Math.floor((st.bay - st.winW) / 2);
       const isWinCol = st.winW > 0 && pp >= winOff && pp < winOff + st.winW;
+      const stairBay = st.stairWindows && mod(bayI + p.entOff, 6) === 0;
+      // Stair windows sit in a narrow, slightly offset column above each entrance rather than
+      // repeating across every apartment bay.
+      const stairCol = pp === winOff;
       const hb = hash(p.id, bayI, uAlongX ? 1 : 2);
 
       if (st.garage) {
@@ -756,17 +765,22 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
           }
           continue;
         }
-        if ((fl & ROW_WIN) !== 0 && isWinCol && !(entr && gfloor)) {
+        const stair = stairBay && !gfloor;
+        const windowCol = stair ? stairCol : isWinCol;
+        if (st.basementVents && gfloor && y === p.baseY && pp === 0 && mod(bayI, 3) === 0) {
+          w.set(gx, y, gz, 0);
+          w.set(ix, y, iz, MAT.METAL);
+        } else if ((fl & ROW_WIN) !== 0 && windowCol && !(entr && gfloor)) {
           if (!(st.ribbon && pp === st.bay - 1)) {
             w.set(gx, y, gz, 0);
             w.set(ix, y, iz, MAT.GLASS);
           }
-        } else if ((fl & ROW_SILL) !== 0 && isWinCol) {
+        } else if ((fl & ROW_SILL) !== 0 && windowCol) {
           w.set(gx, y, gz, MAT.TRIM);
         }
         if ((fl & ROW_SLAB) !== 0 && st.balconies > 0 && hb % st.balconies === 0 && nOut === 1) {
           w.setAir(gx + dx, y, gz + dz, MAT.CONCRETE);
-          w.setAir(gx + dx, y + 1, gz + dz, MAT.METAL);
+          w.setAir(gx + dx, y + 1, gz + dz, (hb >>> 8) % 4 === 0 ? MAT.GLASS : MAT.METAL);
         }
       }
     }

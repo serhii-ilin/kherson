@@ -127,6 +127,30 @@ describe('bake vector tiles', () => {
     expect(t.lines.map((l) => l.kind)).toEqual([LINE.FENCE]);
   });
 
+  it('bakes explicit barrier heights and industrial perimeter gates', () => {
+    const input = base();
+    input.areas.push({ id: 20, tags: { landuse: 'industrial' }, rings: [[[0, 0], [20, 0], [20, 20], [0, 20]]] });
+    input.areas.push({ id: 21, tags: { building: 'warehouse' }, rings: [[[0, 0], [2, 0], [2, 2], [0, 2]]] });
+    input.lines.push({ id: 22, tags: { highway: 'service', width: '4' }, pts: [[10, -5], [10, 25]] });
+    input.barriers.push({ id: 23, tags: { barrier: 'wall', height: '1.4' }, pts: [[30, 0], [30, 10]] });
+    input.barriers.push({ id: 24, tags: { barrier: 'fence', height: '2.7' }, pts: [[32, 0], [32, 10]] });
+    const lines = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.lines);
+    expect(lines.some((l) => l.kind === LINE.WALL && l.heightCm === 140)).toBe(true);
+    expect(lines.some((l) => l.kind === LINE.FENCE && l.heightCm === 270)).toBe(true);
+    const perimeter = lines.filter((l) => l.kind === LINE.FENCE && l.heightCm === 220);
+    expect(perimeter.length).toBeGreaterThan(0);
+    expect(perimeter.some((l) => {
+      const x = (l.pts[0]! + l.pts[2]!) / 2 / 200;
+      const z = (l.pts[1]! + l.pts[3]!) / 2 / 200;
+      return Math.abs(x - 10) < 3;
+    })).toBe(false); // service-road gate
+    expect(perimeter.some((l) => {
+      const x = (l.pts[0]! + l.pts[2]!) / 2 / 200;
+      const z = (l.pts[1]! + l.pts[3]!) / 2 / 200;
+      return x < 3 && z < 1;
+    })).toBe(false); // no panel through the warehouse
+  });
+
   it('is deterministic and round-trips through the codec', () => {
     const make = (): VectorInput => {
       const input = base();
