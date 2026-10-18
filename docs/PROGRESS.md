@@ -75,7 +75,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
-| #1 In-app "© OpenStreetMap contributors" credit, both languages, desktop and phone | attribution commit |
+| #1 In-app "© OpenStreetMap contributors" credit, both languages, desktop and phone | `b4a3d12` |
 | Fly mode fell through the ground → fly collision | before `bcac053` |
 | Speckled shop windows (unsnapped wall plane in hashes) | `6dbd080` |
 | `PCFSoftShadowMap` removed in three r186 → `PCFShadowMap`; exposure 1.2 → 1.0 | `6dbd080` |
