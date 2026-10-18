@@ -18,10 +18,10 @@ _Last updated: 2026-10-18_
 | Step 0: realism plan, Article 4 budget amendment | ✅ | `0e2902c`, `6b82737` |
 | Phase 1: light (AO, shadows, ACES, sky), facade styles and shader, HQ/LQ toggle | ✅ | `6dbd080` |
 | Phase 2: vector tiles, 0.2 m ground (roads, kerbs, markings, zebras, tracks) | ✅ | `ac355fd` |
-| Phase 3: buildings and bridges as 1 m blocks, shop signs | ✅ | `657dc30`, PH4 |
+| Phase 3: buildings and bridges as 1 m blocks, shop signs | ✅ | `657dc30`, `418796d` |
 | City limited to Kherson (OSM relation 2175078) | ✅ | `35e6147` |
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
-| Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (real-device fps pending) | PH4 |
+| Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (real-device fps pending) | `418796d` |
 | Later: time of day, lit windows at dusk | ⬜ | |
 
 ## Open tasks
@@ -68,12 +68,12 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
-| #2 Draw calls at altitude 409/576 → 135/99: 0.2 m and 1 m tiers off above 250 m, shadows frozen above 300 m | PH4 |
-| #3 Street-level draw calls 342–377 → 214–243: coarse chunks and water in `BatchedMesh` | PH4 |
-| #14 Recess shading for 1 m block window reveals, balcony undersides and glass | PH4 |
-| #15 HUD coarse triangle counter counts only drawn geometry | PH4 |
-| 0.2 m tree regression (sparse pads, bead poplars, thick trunks, striped cut-out) → dense shells, slender trunks, cut-out off | PH4 |
-| Asphalt cracks read as long drawn curves → faint and only within 12 m | PH4 |
+| #2 Draw calls at altitude 409/576 → 135/99: 0.2 m and 1 m tiers off above 250 m, shadows frozen above 300 m | `418796d` |
+| #3 Street-level draw calls 342–377 → 214–243: coarse chunks and water in `BatchedMesh` | `418796d` |
+| #14 Recess shading for 1 m block window reveals, balcony undersides and glass | `418796d` |
+| #15 HUD coarse triangle counter counts only drawn geometry | `418796d` |
+| 0.2 m tree regression (sparse pads, bead poplars, thick trunks, striped cut-out) → dense shells, slender trunks, cut-out off | `418796d` |
+| Asphalt cracks read as long drawn curves → faint and only within 12 m | `418796d` |
 | #1 In-app "© OpenStreetMap contributors" credit, both languages, desktop and phone | `b4a3d12` |
 | Fly mode fell through the ground → fly collision | before `bcac053` |
 | Speckled shop windows (unsnapped wall plane in hashes) | `6dbd080` |
