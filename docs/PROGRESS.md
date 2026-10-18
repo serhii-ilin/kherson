@@ -31,7 +31,7 @@ _Last updated: 2026-10-18_
 - ⬜ Minimap: click (tap) a point to move the player there.
 - ⬜ Minimap: drag the player marker to a new spot to move the player there.
 - ⬜ River fish: fish seen now and then in the river water.
-- ⬜ High-realism landmark spots (first: the Pier / embankment, «Пірс-Набережна»): close reconstruction from photos and panoramas of 2000–2020, with more detail than the rest of the city.
+- ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
 
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
