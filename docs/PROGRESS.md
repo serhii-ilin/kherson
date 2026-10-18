@@ -31,6 +31,11 @@ _Last updated: 2026-10-18_
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ✅ Landmark detail layer, first pass (see Done).
 
+- 🟡 Clouds in the sky: fair-weather cumulus and cirrus, drifting, lit by the time of day (Codex).
+- 🟡 Many small swift flocks in summer, low passes along streets, evening peak (Codex).
+- ⬜ Fences: OSM barriers plus Soviet concrete panel fences (PO-2) around industrial sites, e.g. the factory on Filatova Street (Codex).
+- ⬜ Storey counts for untagged buildings (Filatova: 5-storey khrushchevkas, a 9-storey brick block look too low) and a more believable khrushchevka facade (Codex).
+
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
 - ⬜ Light pools under street lamps at night (needs per-lamp data in the shader).
