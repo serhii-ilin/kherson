@@ -25,6 +25,7 @@ import { PALETTE } from './world/materials.ts';
 import { REGION, VOXEL } from './world/constants.ts';
 
 const SKY = 0x9cc8ef;
+const SURROUNDING_RADII = [12, 30, 60, 100, 150] as const;
 const isMobile = TouchControls.isTouchDevice() || /Mobi|Android/i.test(navigator.userAgent);
 
 const quality = getQuality();
@@ -276,6 +277,7 @@ async function start(): Promise<void> {
     groundY: 4,
     treeDensity: 0,
     waterDistance: Infinity,
+    builtUp: 0.5,
     swiftFlocks: birds.swiftFlocks,
     doveGroups: birds.doveGroups,
     splashes: fish.splashes,
@@ -285,14 +287,25 @@ async function start(): Promise<void> {
   // Real tree density from the instanced vegetation, nearest water from a coarse ring sample.
   const sampleSurroundings = (x: number, z: number): void => {
     let water = Infinity;
-    for (const r of [12, 30, 60, 100, 150]) {
+    let built = 0;
+    let samples = 0;
+    for (const r of SURROUNDING_RADII) {
       for (let k = 0; k < 12; k++) {
         const a = (k / 12) * Math.PI * 2;
-        if (streamer.groundMatAt(x + Math.cos(a) * r, z + Math.sin(a) * r) === MAT.WATER) water = Math.min(water, r);
+        const sx = x + Math.cos(a) * r;
+        const sz = z + Math.sin(a) * r;
+        const mat = streamer.groundMatAt(sx, sz);
+        if (mat === MAT.WATER) water = Math.min(water, r);
+        const top = streamer.heightAt(sx, sz);
+        const terrain = streamer.groundHeightAt(sx, sz);
+        if (mat !== null && mat >= MAT.WALL_HOUSE && mat <= MAT.LAMP) built++;
+        else if (top !== null && terrain !== null && top - terrain > 2) built++;
+        samples++;
       }
     }
     audioScene.treeDensity = vegetation.treeDensity(x, z);
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
+    audioScene.builtUp = samples > 0 ? built / samples : 0.5;
   };
 
   if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
@@ -372,6 +385,7 @@ async function start(): Promise<void> {
       sampleSurroundings(cp.x, cp.z);
     }
     audioScene.daylight = dayFactor;
+    audioScene.timeOfDay = timeHours;
     ambience.update(dt, audioScene);
     renderer.render(scene, camera);
     rendered++;

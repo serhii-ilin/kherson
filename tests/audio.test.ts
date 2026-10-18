@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BIRD_STYLES, dopplerFactor, forwardFromYaw, generatePhrase, nextInterval, radialVelocity,
-  songbirdGain, swiftInterval, waterGain, windGain,
+  BIRD_STYLES, SPECIES, birdActivity, dopplerFactor, forwardFromYaw, generatePhrase,
+  generateSpeciesPhrase, nextInterval, pickSpecies, radialVelocity, songbirdGain,
+  speciesWeights, swiftInterval, waterGain, windGain,
 } from '../src/nature/audio.ts';
 
 function prng(seed: number): () => number {
@@ -97,6 +98,68 @@ describe('audio helpers', () => {
         sigs.add(notes.map((n) => Math.round(n.freqs[0])).join(','));
       }
       expect(sigs.size).toBeGreaterThan(10);
+    }
+  });
+
+  it('normalises habitat weights and changes the dominant chorus', () => {
+    const contexts = [
+      { treeDensity: 0, builtUp: 1, waterDistance: Infinity, daylight: 1 },
+      { treeDensity: 1, builtUp: 0, waterDistance: Infinity, daylight: 1 },
+      { treeDensity: 0.3, builtUp: 0.2, waterDistance: 0, daylight: 1 },
+      { treeDensity: 0.3, builtUp: 0.2, waterDistance: 250, daylight: 1 },
+    ];
+    for (const context of contexts) {
+      const weights = speciesWeights(context);
+      expect(Object.keys(weights)).toHaveLength(SPECIES.length);
+      expect(Object.values(weights).every((v) => v >= 0)).toBe(true);
+      expect(Object.values(weights).reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+    }
+    const built = speciesWeights(contexts[0]!);
+    expect(built.houseSparrow).toBeGreaterThan(built.greatTit);
+    expect(built.houseSparrow).toBeGreaterThan(built.rockPigeon);
+    expect(built.rockPigeon).toBeGreaterThan(built.chaffinch);
+    const park = speciesWeights(contexts[1]!);
+    expect(park.greatTit + park.blackbird + park.chaffinch).toBeGreaterThan(park.houseSparrow + park.rockPigeon);
+    expect(speciesWeights(contexts[2]!).gull).toBeGreaterThan(0);
+    expect(speciesWeights(contexts[3]!).gull).toBeCloseTo(0);
+    expect(birdActivity({ ...contexts[0]!, daylight: 0 })).toBe(0);
+  });
+
+  it('seeded species selection follows the supplied distribution', () => {
+    const weights = speciesWeights({ treeDensity: 0.35, builtUp: 0.6, waterDistance: 40, daylight: 1 });
+    const counts: Record<string, number> = {};
+    const rng = prng(123);
+    const draws = 5000;
+    for (let i = 0; i < draws; i++) {
+      const species = pickSpecies(weights, rng);
+      counts[species] = (counts[species] ?? 0) + 1;
+    }
+    for (const species of SPECIES) {
+      const expected = weights[species] * draws;
+      expect(counts[species] ?? 0).toBeGreaterThan(expected - Math.max(18, expected * 0.12));
+      expect(counts[species] ?? 0).toBeLessThan(expected + Math.max(18, expected * 0.12));
+    }
+  });
+
+  it('every species has finite, positive procedural notes in its call range', () => {
+    const rng = prng(99);
+    for (const species of SPECIES) {
+      const notes = generateSpeciesPhrase(species, rng);
+      expect(notes.length).toBeGreaterThan(0);
+      for (const n of notes) {
+        expect(Number.isFinite(n.t)).toBe(true);
+        expect(Number.isFinite(n.dur)).toBe(true);
+        expect(n.dur).toBeGreaterThan(0);
+        expect(n.freqs.length).toBeGreaterThanOrEqual(2);
+        for (const f of n.freqs) {
+          expect(Number.isFinite(f)).toBe(true);
+          expect(f).toBeGreaterThan(0);
+          if (species === 'hoodedCrow' || species === 'rook') expect(f).toBeLessThan(3000);
+          if (species === 'houseSparrow' || species === 'treeSparrow') expect(f).toBeGreaterThanOrEqual(2000);
+          if (species === 'houseSparrow' || species === 'treeSparrow') expect(f).toBeLessThanOrEqual(6000);
+          if (species === 'gull') expect(f).toBeLessThanOrEqual(3000);
+        }
+      }
     }
   });
 });

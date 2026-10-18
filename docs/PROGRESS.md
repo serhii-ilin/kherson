@@ -30,7 +30,6 @@ _Last updated: 2026-10-18_
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ⬜ Landmark detail layer built from the briefs.
-- ⬜ Realistic bird sounds: sparrows, swifts, pigeons and other birds recorded in Kherson, mixed in proportion to how often each species is seen there.
 
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
@@ -52,12 +51,13 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 - ⛔ **Code licence**: none chosen yet (all rights reserved).
 - ⛔ **Phone default**: phones start in LQ, so they don't see the 0.2 m ground and 1 m blocks unless switched to HQ. The owner's phone runs HQ at 60–90 fps; switch the phone default to HQ?
 - ⛔ **Landmarks removed by the city cut**: bring back the Antonivskyi bridge and/or the Karantynnyi island entry?
-- ⛔ **Ambient sound**: owner's listening feedback.
+- ⛔ **Ambient sound**: owner's listening feedback, now including the 17 synthesised Kherson species (sparrows, pigeons, collared doves, crows, gulls by the river…, see [BIRDS.md](BIRDS.md)).
 
 ## Done (recent fixes)
 
 | Fix | Commit |
 |---|---|
+| Bird sounds: 17 procedural Kherson species mixed by habitat (built-up → sparrows, pigeons, doves, crows; trees → tits, blackbird, chaffinch, oriole, nightingale; river → gulls, swallows, wagtails), pigeon vs collared-dove coos, caw and noisy voices; weights and sources in [BIRDS.md](BIRDS.md); ≤ 16 voices measured | (this commit) |
 | River fish: sporadic jumps (arc, ring on the waves, droplets, a quiet plop) and dark shadows under the surface, 15–60 m ahead, daytime only; at most 6 events (3 on phones), 4 draw calls. `waveHeight()` mirrors the water shader so surface effects ride the waves | `1dbb4f5` |
 | Minimap: + / − zoom buttons (400 m … whole city), click or tap to move there, drag the player arrow to move there (keeps facing; Codex `gpt-5.6-luna`, reviewed by Opus) | `3a46378` |
 | Codex-round review: coarse ground backing sinks only where the 0.2 m bank dips below it or meets water (keeps crack cover on streets); tall drops into the river drawn as an embankment wall | `118acad` |

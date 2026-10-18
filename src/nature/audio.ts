@@ -12,6 +12,10 @@ export interface AudioScene {
   splashes?: ReadonlyArray<{ x: number; y: number; z: number; size: number; t: number }>;
   /** 1 by day .. 0 at night: songbirds and swifts fall silent (default 1). */
   daylight?: number;
+  /** Fraction of the surroundings occupied by buildings, 0..1. */
+  builtUp?: number;
+  /** Local in-game hour, when available; used for the evening swift lift. */
+  timeOfDay?: number;
 }
 
 type Rng = () => number;
@@ -83,6 +87,95 @@ export function swiftInterval(rng: Rng, distance: number): number {
 export type BirdStyle = 'chaffinch' | 'greattit' | 'blackbird' | 'sparrow';
 export const BIRD_STYLES: readonly BirdStyle[] = ['chaffinch', 'greattit', 'blackbird', 'sparrow'];
 
+/** Procedural species represented by the ambience mix. Names are deliberately stable API keys. */
+export type Species =
+  | 'houseSparrow' | 'treeSparrow' | 'starling' | 'hoodedCrow' | 'rook' | 'magpie'
+  | 'greatTit' | 'blackbird' | 'chaffinch' | 'barnSwallow' | 'goldenOriole' | 'nightingale'
+  | 'whiteWagtail' | 'rockPigeon' | 'collaredDove' | 'gull' | 'swift';
+
+export const SPECIES: readonly Species[] = [
+  'houseSparrow', 'treeSparrow', 'starling', 'hoodedCrow', 'rook', 'magpie',
+  'greatTit', 'blackbird', 'chaffinch', 'barnSwallow', 'goldenOriole', 'nightingale',
+  'whiteWagtail', 'rockPigeon', 'collaredDove', 'gull', 'swift',
+];
+
+export interface BirdContext {
+  treeDensity?: number;
+  waterDistance: number;
+  builtUp?: number;
+  daylight?: number;
+  timeOfDay?: number;
+}
+
+/** Raw relative weights: habitat multipliers are applied by speciesWeights(). */
+const BASE_SPECIES_WEIGHT: Record<Species, number> = {
+  houseSparrow: 22, treeSparrow: 9, starling: 10, hoodedCrow: 4, rook: 3, magpie: 5,
+  greatTit: 9, blackbird: 9, chaffinch: 8, barnSwallow: 4, goldenOriole: 3, nightingale: 3,
+  whiteWagtail: 2, rockPigeon: 15, collaredDove: 10, gull: 2, swift: 3,
+};
+
+const clampWeight = (v: number): number => Math.max(0, v);
+
+/** Bird activity multiplier: at night the species distribution remains testable, but voices stop. */
+export function birdActivity(context: BirdContext): number {
+  const day = clamp(context.daylight ?? 1, 0, 1);
+  if (day <= 0.03) return 0;
+  const hour = context.timeOfDay;
+  const evening = hour === undefined ? 0 : (hour >= 18 && hour <= 22 ? 0.15 : 0);
+  return clamp(day * (1 + evening), 0, 1);
+}
+
+/** Normalised species mix for the listener's current habitat. */
+export function speciesWeights(context: BirdContext): Record<Species, number> {
+  const built = clamp(context.builtUp ?? 0.5, 0, 1);
+  const trees = clamp(context.treeDensity ?? 0, 0, 1);
+  const water = context.waterDistance === Infinity
+    ? 0
+    : 1 - clamp((context.waterDistance - 10) / 140, 0, 1);
+  const w = {} as Record<Species, number>;
+  for (const species of SPECIES) w[species] = BASE_SPECIES_WEIGHT[species];
+
+  w.houseSparrow = clampWeight(w.houseSparrow * (0.35 + 1.65 * built));
+  w.treeSparrow = clampWeight(w.treeSparrow * (0.35 + 1.45 * built));
+  w.rockPigeon = clampWeight(w.rockPigeon * (0.35 + 1.75 * built));
+  w.collaredDove = clampWeight(w.collaredDove * (0.35 + 1.45 * built));
+  w.hoodedCrow = clampWeight(w.hoodedCrow * (0.45 + 1.35 * built));
+  w.rook = clampWeight(w.rook * (0.4 + 1.2 * built));
+  w.starling = clampWeight(w.starling * (0.6 + 0.85 * built + 0.6 * trees));
+  w.magpie = clampWeight(w.magpie * (0.55 + 0.95 * trees + 0.25 * built));
+  w.greatTit = clampWeight(w.greatTit * (0.35 + 1.75 * trees));
+  w.blackbird = clampWeight(w.blackbird * (0.4 + 1.7 * trees));
+  w.chaffinch = clampWeight(w.chaffinch * (0.4 + 1.65 * trees));
+  w.goldenOriole = clampWeight(w.goldenOriole * (0.2 + 1.9 * trees));
+  w.nightingale = clampWeight(w.nightingale * (0.25 + 1.8 * trees));
+  w.barnSwallow = clampWeight(w.barnSwallow * (0.4 + 1.5 * water));
+  w.whiteWagtail = clampWeight(w.whiteWagtail * (0.25 + 1.7 * water));
+  w.gull = clampWeight(w.gull * water);
+  w.swift = clampWeight(w.swift * (0.35 + 0.65 * water + 0.2 * built));
+
+  let total = 0;
+  for (const species of SPECIES) total += w[species];
+  if (total <= 0) {
+    w.houseSparrow = 1;
+    return w;
+  }
+  for (const species of SPECIES) w[species] /= total;
+  return w;
+}
+
+/** Weighted choice with no dependency on Math.random, so callers can seed it in tests. */
+export function pickSpecies(weights: Record<Species, number>, rng: Rng): Species {
+  let total = 0;
+  for (const species of SPECIES) total += Math.max(0, weights[species] ?? 0);
+  if (!(total > 0)) return 'houseSparrow';
+  let target = rng() * total;
+  for (const species of SPECIES) {
+    target -= Math.max(0, weights[species] ?? 0);
+    if (target < 0) return species;
+  }
+  return SPECIES[SPECIES.length - 1];
+}
+
 export interface NoteSpec {
   t: number; // offset from phrase start, s
   dur: number; // s
@@ -93,6 +186,12 @@ export interface NoteSpec {
   fmDepth: number; // Hz
   harm: number; // level of the 2nd harmonic (0..0.5)
   type: 'sine' | 'triangle';
+  /** Alternate source path for calls whose identity is mostly noise or a low caw. */
+  voice?: 'tone' | 'noisy' | 'caw';
+  /** Approximate formant for a caw/noisy voice, Hz. */
+  formant?: number;
+  /** 0..1 noise contribution for a noisy voice. */
+  noise?: number;
 }
 
 /**
@@ -169,6 +268,179 @@ export function generatePhrase(style: BirdStyle, rng: Rng, pitch: number, tempo:
   return notes;
 }
 
+function note(
+  t: number, dur: number, freqs: number[], peak: number, voice: NoteSpec['voice'] = 'tone',
+  formant?: number, noise?: number,
+): NoteSpec {
+  return {
+    t, dur, freqs, peak, attack: Math.min(0.012, dur * 0.18), fmRate: 0, fmDepth: 0,
+    harm: voice === 'caw' ? 0.18 : 0.08, type: voice === 'caw' ? 'triangle' : 'sine',
+    voice, formant, noise,
+  };
+}
+
+function vary(rng: Rng, f: number, lo: number, hi: number): number {
+  return clamp(f * range(rng, lo, hi), 80, 9000);
+}
+
+function speciesFrequencyBounds(species: Species): [number, number] {
+  if (species === 'houseSparrow') return [2000, 6000];
+  if (species === 'treeSparrow') return [2800, 6000];
+  if (species === 'hoodedCrow' || species === 'rook') return [250, 2800];
+  if (species === 'magpie') return [1200, 4000];
+  if (species === 'gull') return [900, 3000];
+  if (species === 'barnSwallow') return [2500, 7500];
+  if (species === 'goldenOriole') return [700, 3500];
+  if (species === 'nightingale') return [1000, 7000];
+  if (species === 'whiteWagtail') return [2000, 6500];
+  if (species === 'rockPigeon') return [220, 1000];
+  if (species === 'collaredDove') return [250, 1200];
+  if (species === 'swift') return [2500, 7000];
+  return [700, 8000];
+}
+
+function finishSpeciesPhrase(species: Species, notes: NoteSpec[]): NoteSpec[] {
+  const [lo, hi] = speciesFrequencyBounds(species);
+  return notes.map((n) => ({
+    ...n,
+    freqs: n.freqs.map((f) => clamp(f, lo, hi)),
+    dur: clamp(n.dur, 0.02, 0.6),
+  }));
+}
+
+/**
+ * Species-specific call phrase. The values are deliberately broad spectro-temporal
+ * sketches rather than recordings: the WebAudio renderer adds the individual variation.
+ */
+export function generateSpeciesPhrase(species: Species, rng: Rng, pitch = 1, tempo = 1): NoteSpec[] {
+  if (species === 'houseSparrow') {
+    return finishSpeciesPhrase(species, generatePhrase('sparrow', rng, pitch, tempo).map((n) => ({ ...n, voice: 'noisy' as const, noise: 0.55 })));
+  }
+  if (species === 'greatTit') return finishSpeciesPhrase(species, generatePhrase('greattit', rng, pitch, tempo));
+  if (species === 'blackbird') return finishSpeciesPhrase(species, generatePhrase('blackbird', rng, pitch, tempo));
+  if (species === 'chaffinch') return finishSpeciesPhrase(species, generatePhrase('chaffinch', rng, pitch, tempo));
+
+  const out: NoteSpec[] = [];
+  let t = 0;
+  if (species === 'treeSparrow') {
+    const n = 4 + Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 3600, 5100) * pitch;
+      const d = range(rng, 0.035, 0.065) / tempo;
+      out.push(note(t, d, [vary(rng, f, 0.94, 1.04), vary(rng, f, 0.98, 1.1)], range(rng, 0.34, 0.52), 'noisy', 4200, 0.3));
+      t += d + range(rng, 0.045, 0.14) / tempo;
+    }
+  } else if (species === 'starling') {
+    const n = 5 + Math.floor(rng() * 6);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, i % 3 === 0 ? 1200 : 2600, i % 3 === 0 ? 4200 : 7600) * pitch;
+      const d = range(rng, 0.035, 0.16) / tempo;
+      const kind = rng() < 0.42 ? 'noisy' : 'tone';
+      out.push(note(t, d, [vary(rng, f, 0.82, 1.15), vary(rng, f, 0.92, 1.22), vary(rng, f, 0.78, 1.08)], range(rng, 0.32, 0.58), kind, range(rng, 1600, 3600), kind === 'noisy' ? 0.45 : 0.08));
+      t += d + range(rng, 0.025, 0.12) / tempo;
+    }
+  } else if (species === 'hoodedCrow' || species === 'rook') {
+    const n = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, species === 'rook' ? 430 : 360, species === 'rook' ? 720 : 650) * pitch;
+      const d = range(rng, 0.3, 0.5) / tempo;
+      out.push(note(t, d, [f, f * range(rng, 0.92, 1.08), f * range(rng, 0.78, 0.96)], range(rng, 0.24, 0.42), 'caw', range(rng, 1200, 1900), 0.32));
+      t += d + range(rng, 0.12, 0.32) / tempo;
+    }
+  } else if (species === 'magpie') {
+    const n = 4 + Math.floor(rng() * 6);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 1500, 3000) * pitch;
+      const d = range(rng, 0.025, 0.065) / tempo;
+      out.push(note(t, d, [f, f * range(rng, 0.9, 1.16)], range(rng, 0.25, 0.44), 'noisy', range(rng, 1800, 3200), 0.72));
+      t += d + range(rng, 0.035, 0.1) / tempo;
+    }
+  } else if (species === 'gull') {
+    const n = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 1350, 2300) * pitch;
+      const d = range(rng, 0.16, 0.36) / tempo;
+      out.push(note(t, d, [f, f * range(rng, 0.72, 0.95), f * range(rng, 0.84, 1.08)], range(rng, 0.18, 0.34), 'noisy', range(rng, 1900, 2800), 0.6));
+      t += d + range(rng, 0.06, 0.2) / tempo;
+    }
+  } else if (species === 'barnSwallow') {
+    const n = 7 + Math.floor(rng() * 6);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 3800, 6200) * pitch;
+      const d = range(rng, 0.025, 0.07) / tempo;
+      out.push(note(t, d, [f, f * range(rng, 0.85, 1.2), f * range(rng, 0.92, 1.08)], range(rng, 0.18, 0.32), 'noisy', 5000, 0.5));
+      t += d + range(rng, 0.015, 0.06) / tempo;
+    }
+  } else if (species === 'goldenOriole') {
+    const n = 3 + Math.floor(rng() * 3);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 1200, 2100) * pitch;
+      const d = range(rng, 0.18, 0.32) / tempo;
+      out.push(note(t, d, [f * 1.15, f, f * 0.78], range(rng, 0.3, 0.52), 'tone', 1500, 0.05));
+      t += d + range(rng, 0.1, 0.25) / tempo;
+    }
+  } else if (species === 'nightingale') {
+    const n = 5 + Math.floor(rng() * 5);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 1900, 4300) * pitch;
+      const d = range(rng, 0.07, 0.2) / tempo;
+      out.push(note(t, d, [f, f * range(rng, 0.9, 1.18), f * range(rng, 0.84, 1.08)], range(rng, 0.26, 0.5), 'tone', 2600, 0.08));
+      t += d + range(rng, 0.04, 0.16) / tempo;
+    }
+  } else if (species === 'whiteWagtail') {
+    const n = 4 + Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 2800, 5000) * pitch;
+      const d = range(rng, 0.045, 0.09) / tempo;
+      out.push(note(t, d, [f, f * range(rng, 0.92, 1.14)], range(rng, 0.2, 0.36), 'noisy', 4200, 0.35));
+      t += d + range(rng, 0.07, 0.16) / tempo;
+    }
+  } else if (species === 'rockPigeon') {
+    const base = range(rng, 300, 390) * pitch;
+    const fs = [base, base * range(rng, 0.82, 0.95), base * range(rng, 0.98, 1.08)];
+    for (let i = 0; i < 3; i++) {
+      const d = (i === 1 ? range(rng, 0.2, 0.3) : range(rng, 0.14, 0.22)) / tempo;
+      out.push(note(t, d, [fs[i], fs[i] * range(rng, 0.96, 1.04)], range(rng, 0.22, 0.38), 'tone', 700, 0.04));
+      t += d + range(rng, 0.03, 0.08) / tempo;
+    }
+  } else if (species === 'collaredDove') {
+    const base = range(rng, 360, 470) * pitch;
+    const fs = [base, base * range(rng, 1.04, 1.18), base * range(rng, 0.9, 0.98)];
+    const ds = [0.16, range(rng, 0.28, 0.42), 0.18];
+    for (let i = 0; i < 3; i++) {
+      const d = ds[i]! / tempo;
+      out.push(note(t, d, [fs[i], fs[i] * range(rng, 0.96, 1.04)], i === 1 ? 0.42 : 0.23, 'tone', 800, 0.03));
+      t += d + range(rng, 0.04, 0.1) / tempo;
+    }
+  } else {
+    // Swift party screams: rapid, high, slightly noisy FM contours.
+    const n = 3 + Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const f = range(rng, 3000, 5600) * pitch;
+      const d = range(rng, 0.12, 0.28) / tempo;
+      const nSpec = note(t, d, [f, f * range(rng, 0.78, 1.1), f * range(rng, 0.88, 1.16)], range(rng, 0.22, 0.38), 'noisy', range(rng, 3800, 6200), 0.28);
+      nSpec.fmRate = range(rng, 35, 75);
+      nSpec.fmDepth = range(rng, 120, 420);
+      out.push(nSpec);
+      t += d + range(rng, 0.02, 0.08) / tempo;
+    }
+  }
+  return finishSpeciesPhrase(species, out);
+}
+
+function speciesLevel(species: Species): number {
+  if (species === 'hoodedCrow' || species === 'rook') return 0.48;
+  if (species === 'gull') return 0.42;
+  if (species === 'magpie') return 0.62;
+  if (species === 'swift') return 0.7;
+  return 0.85;
+}
+
+function pickDoveSpecies(weights: Record<'rockPigeon' | 'collaredDove', number>, rng: Rng): 'rockPigeon' | 'collaredDove' {
+  const total = Math.max(0, weights.rockPigeon) + Math.max(0, weights.collaredDove);
+  return total <= 0 || rng() * total < Math.max(0, weights.rockPigeon) ? 'rockPigeon' : 'collaredDove';
+}
+
 // ---------------------------------------------------------------- audio engine
 
 const STORAGE_KEY = 'vk-muted';
@@ -179,7 +451,7 @@ const MAX_DOVE_SLOTS = 3;
 const NOISE_SECONDS = 4;
 
 interface Songbird {
-  style: BirdStyle;
+  species: Species;
   pitch: number;
   tempo: number;
   level: number;
@@ -196,6 +468,7 @@ interface DoveSlot {
   panner: PannerNode;
   nextCoo: number;
   nextClap: number;
+  species: 'rockPigeon' | 'collaredDove';
 }
 
 export class Ambience {
@@ -220,6 +493,7 @@ export class Ambience {
   private splashPanners: PannerNode[] = [];
   private nextSplashPanner = 0;
   private lastSplashT = -Infinity;
+  private readonly defaultBirdMix = speciesWeights({ treeDensity: 0.35, waterDistance: Infinity, builtUp: 0.6 });
 
   constructor() {
     try {
@@ -279,7 +553,11 @@ export class Ambience {
     const altitude = L.y - scene.groundY;
 
     const day = scene.daylight ?? 1;
-    this.birdBus!.gain.setTargetAtTime(songbirdGain(scene.treeDensity, altitude) * day, now, 0.8);
+    const activity = birdActivity(scene);
+    this.birdBus!.gain.setTargetAtTime(songbirdGain(scene.treeDensity, altitude) * activity, now, 0.8);
+    const evening = scene.timeOfDay !== undefined && scene.timeOfDay >= 18 && scene.timeOfDay <= 22 ? 1.12 : 1;
+    this.swiftBus!.gain.setTargetAtTime(0.5 * activity * evening, now, 0.8);
+    this.doveBus!.gain.setTargetAtTime(0.6 * activity, now, 0.8);
     this.windGainNode!.gain.setTargetAtTime(windGain(altitude), now, 0.8);
     this.waterGainNode!.gain.setTargetAtTime(waterGain(scene.waterDistance), now, 0.8);
 
@@ -287,7 +565,7 @@ export class Ambience {
       this.updateSongbirds(ctx, now, scene, altitude);
       this.updateSwifts(ctx, now, scene);
     }
-    this.updateDoves(ctx, now, scene);
+    if (day > 0.03) this.updateDoves(ctx, now, scene);
     this.updateSplashes(ctx, now, scene);
   }
 
@@ -327,7 +605,7 @@ export class Ambience {
       const panner = makePanner(ctx, 8, 1);
       panner.connect(this.birdBus);
       this.birds.push({
-        style: BIRD_STYLES[Math.floor(this.rng() * BIRD_STYLES.length)],
+        species: pickSpecies(this.defaultBirdMix, this.rng),
         pitch: range(this.rng, 0.9, 1.1),
         tempo: range(this.rng, 0.8, 1.25),
         level: range(this.rng, 0.55, 1),
@@ -344,7 +622,7 @@ export class Ambience {
     for (let i = 0; i < MAX_DOVE_SLOTS; i++) {
       const panner = makePanner(ctx, 5, 1);
       panner.connect(this.doveBus);
-      this.doveSlots.push({ panner, nextCoo: 0, nextClap: 0 });
+      this.doveSlots.push({ panner, nextCoo: 0, nextClap: 0, species: 'rockPigeon' });
     }
     for (let i = 0; i < 4; i++) {
       const panner = makePanner(ctx, 18, 1.1);
@@ -443,20 +721,22 @@ export class Ambience {
 
   private updateListener(ctx: AudioContext, L: AudioScene['listener']): void {
     const l = ctx.listener;
-    const f = forwardFromYaw(L.yaw);
+    // Keep the hot path allocation-free; forwardFromYaw remains the pure public helper.
+    const fx = -Math.sin(L.yaw);
+    const fz = -Math.cos(L.yaw);
     if (l.positionX) {
       l.positionX.value = L.x;
       l.positionY.value = L.y;
       l.positionZ.value = L.z;
-      l.forwardX.value = f.x;
-      l.forwardY.value = f.y;
-      l.forwardZ.value = f.z;
+      l.forwardX.value = fx;
+      l.forwardY.value = 0;
+      l.forwardZ.value = fz;
       l.upX.value = 0;
       l.upY.value = 1;
       l.upZ.value = 0;
     } else {
       l.setPosition(L.x, L.y, L.z);
-      l.setOrientation(f.x, f.y, f.z, 0, 1, 0);
+      l.setOrientation(fx, 0, fz, 0, 1, 0);
     }
   }
 
@@ -476,7 +756,10 @@ export class Ambience {
         setPos(p, L.x + Math.cos(a) * r, scene.groundY + range(rng, 3, 12), L.z + Math.sin(a) * r);
       }
       if (now + LOOKAHEAD < b.nextAt) continue;
-      const notes = generatePhrase(b.style, rng, b.pitch * range(rng, 0.97, 1.03), b.tempo * range(rng, 0.92, 1.08));
+      // A slot chooses again only after its previous phrase and pause are over, so a walk
+      // from houses to a park changes the chorus without allocating in every update frame.
+      b.species = pickSpecies(speciesWeights(scene), rng);
+      const notes = generateSpeciesPhrase(b.species, rng, b.pitch * range(rng, 0.97, 1.03), b.tempo * range(rng, 0.92, 1.08));
       if (this.voices + notes.length > MAX_VOICES) {
         b.nextAt = now + 0.5;
         continue;
@@ -484,11 +767,17 @@ export class Ambience {
       const t0 = Math.max(now, b.nextAt);
       let end = 0;
       for (const n of notes) {
-        this.playNote(ctx, b.panner, t0 + n.t, n, b.level);
+        this.playSpeciesNote(ctx, b.panner, t0 + n.t, n, b.level * speciesLevel(b.species));
         end = Math.max(end, n.t + n.dur);
       }
       b.nextAt = t0 + end + nextInterval(rng, 2, 9);
     }
+  }
+
+  private playSpeciesNote(ctx: AudioContext, dest: AudioNode, at: number, n: NoteSpec, level: number): void {
+    if (n.voice === 'caw') this.playCawNote(ctx, dest, at, n, level);
+    else if (n.voice === 'noisy') this.playNoisyNote(ctx, dest, at, n, level);
+    else this.playNote(ctx, dest, at, n, level);
   }
 
   private playNote(ctx: AudioContext, dest: AudioNode, at: number, n: NoteSpec, level: number): void {
@@ -532,6 +821,90 @@ export class Ambience {
     }
     g.connect(dest);
     this.track(osc, g, at, stop);
+  }
+
+  /** A tone plus a short filtered-noise layer for sparrows, starlings, gulls and swallows. */
+  private playNoisyNote(ctx: AudioContext, dest: AudioNode, at: number, n: NoteSpec, level: number): void {
+    const rng = this.rng;
+    const pts = n.freqs;
+    const stop = at + n.dur + 0.025;
+    const osc = ctx.createOscillator();
+    osc.type = n.type;
+    osc.frequency.setValueAtTime(pts[0]!, at);
+    for (let i = 1; i < pts.length; i++) osc.frequency.exponentialRampToValueAtTime(pts[i]!, at + (n.dur * i) / (pts.length - 1));
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = n.formant === undefined ? 2 : 3;
+    bp.frequency.value = n.formant ?? pts[0]!;
+    const env = ctx.createGain();
+    const peak = n.peak * level;
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.linearRampToValueAtTime(peak, at + n.attack);
+    env.gain.exponentialRampToValueAtTime(peak * range(rng, 0.4, 0.78), at + n.dur * 0.5);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + n.dur);
+    osc.connect(bp).connect(env);
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const nbp = ctx.createBiquadFilter();
+    nbp.type = 'bandpass';
+    nbp.Q.value = 1.5;
+    nbp.frequency.value = n.formant ?? pts[0]!;
+    const ng = ctx.createGain();
+    ng.gain.value = n.noise ?? 0.35;
+    src.connect(nbp).connect(ng).connect(env);
+    if (n.fmRate > 0) {
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = n.fmRate;
+      const mod = ctx.createGain();
+      mod.gain.value = n.fmDepth;
+      lfo.connect(mod).connect(osc.frequency);
+      lfo.start(at);
+      lfo.stop(stop);
+    }
+    env.connect(dest);
+    src.start(at, rng() * (NOISE_SECONDS - 1), n.dur + 0.03);
+    this.track(osc, env, at, stop);
+  }
+
+  /** Low, harmonic-rich crow/rook call with a separate upper formant and breath layer. */
+  private playCawNote(ctx: AudioContext, dest: AudioNode, at: number, n: NoteSpec, level: number): void {
+    const rng = this.rng;
+    const pts = n.freqs;
+    const stop = at + n.dur + 0.03;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(pts[0]!, at);
+    for (let i = 1; i < pts.length; i++) osc.frequency.exponentialRampToValueAtTime(pts[i]!, at + (n.dur * i) / (pts.length - 1));
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 2600;
+    low.Q.value = 1.2;
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.frequency.value = n.formant ?? 1500;
+    formant.Q.value = 3.2;
+    const env = ctx.createGain();
+    const peak = n.peak * level;
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.linearRampToValueAtTime(peak, at + Math.min(0.035, n.dur * 0.15));
+    env.gain.setValueAtTime(peak * 0.82, at + n.dur * 0.55);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + n.dur);
+    osc.connect(low).connect(env);
+    osc.connect(formant).connect(env);
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const nbp = ctx.createBiquadFilter();
+    nbp.type = 'bandpass';
+    nbp.frequency.value = (n.formant ?? 1500) * range(rng, 0.9, 1.15);
+    nbp.Q.value = 2;
+    const ng = ctx.createGain();
+    ng.gain.value = n.noise ?? 0.3;
+    src.connect(nbp).connect(ng).connect(env);
+    env.connect(dest);
+    src.start(at, rng() * (NOISE_SECONDS - 1), n.dur + 0.04);
+    this.track(osc, env, at, stop);
   }
 
   private track(osc: OscillatorNode, tail: AudioNode, at: number, stop: number): void {
@@ -675,7 +1048,13 @@ export class Ambience {
           continue;
         }
         if (this.voices + 3 > MAX_VOICES) continue;
-        this.playCoo(ctx, slot.panner, now);
+        const mix = speciesWeights(scene);
+        const doveWeights: Record<'rockPigeon' | 'collaredDove', number> = {
+          rockPigeon: mix.rockPigeon,
+          collaredDove: mix.collaredDove,
+        };
+        slot.species = pickDoveSpecies(doveWeights, rng);
+        this.playCoo(ctx, slot.panner, now, slot.species);
         slot.nextCoo = now + nextInterval(rng, 4, 12);
       }
     }
@@ -731,20 +1110,26 @@ export class Ambience {
     this.track(osc, tone, at, stop);
   }
 
-  /** "coo-roo-coo": three sine syllables with vibrato, lowpassed, second one lower and shorter. */
-  private playCoo(ctx: AudioContext, dest: AudioNode, at: number): void {
+  /** Pigeon: soft rolling oo-roo-coo; collared dove: ku-KOOO-ku with a stressed middle. */
+  private playCoo(ctx: AudioContext, dest: AudioNode, at: number, species: 'rockPigeon' | 'collaredDove'): void {
     const rng = this.rng;
-    const base = range(rng, 350, 460);
+    const base = species === 'rockPigeon' ? range(rng, 300, 390) : range(rng, 360, 470);
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = 1200;
     lp.Q.value = 0.7;
     lp.connect(dest);
-    const sy: Array<{ d: number; f: number[]; gap: number }> = [
-      { d: range(rng, 0.14, 0.2), f: [0.94, 1.02, 1.0], gap: range(rng, 0.04, 0.09) },
-      { d: range(rng, 0.11, 0.16), f: [0.9, 0.97, 0.93], gap: range(rng, 0.04, 0.08) },
-      { d: range(rng, 0.32, 0.5), f: [1.0, 1.12, 0.82], gap: 0 },
-    ];
+    const sy = species === 'rockPigeon'
+      ? [
+        { d: range(rng, 0.14, 0.2), f: [0.94, 1.02, 1.0], gap: range(rng, 0.04, 0.09) },
+        { d: range(rng, 0.2, 0.3), f: [0.84, 0.92, 0.88], gap: range(rng, 0.04, 0.08) },
+        { d: range(rng, 0.28, 0.46), f: [1.0, 1.08, 0.84], gap: 0 },
+      ]
+      : [
+        { d: range(rng, 0.13, 0.18), f: [0.9, 0.98, 0.94], gap: range(rng, 0.04, 0.08) },
+        { d: range(rng, 0.28, 0.42), f: [1.04, 1.16, 1.08], gap: range(rng, 0.04, 0.08) },
+        { d: range(rng, 0.14, 0.2), f: [0.92, 0.98, 0.86], gap: 0 },
+      ];
     let t = at + 0.01;
     const vibRate = range(rng, 5, 7.5);
     for (let i = 0; i < sy.length; i++) {
