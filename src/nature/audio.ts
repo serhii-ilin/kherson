@@ -9,6 +9,8 @@ export interface AudioScene {
   waterDistance: number;
   swiftFlocks: ReadonlyArray<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; count: number }>;
   doveGroups: ReadonlyArray<{ x: number; y: number; z: number; count: number; flying: boolean }>;
+  /** 1 by day .. 0 at night: songbirds and swifts fall silent (default 1). */
+  daylight?: number;
 }
 
 type Rng = () => number;
@@ -258,12 +260,15 @@ export class Ambience {
     this.updateListener(ctx, L);
     const altitude = L.y - scene.groundY;
 
-    this.birdBus!.gain.setTargetAtTime(songbirdGain(scene.treeDensity, altitude), now, 0.8);
+    const day = scene.daylight ?? 1;
+    this.birdBus!.gain.setTargetAtTime(songbirdGain(scene.treeDensity, altitude) * day, now, 0.8);
     this.windGainNode!.gain.setTargetAtTime(windGain(altitude), now, 0.8);
     this.waterGainNode!.gain.setTargetAtTime(waterGain(scene.waterDistance), now, 0.8);
 
-    this.updateSongbirds(ctx, now, scene, altitude);
-    this.updateSwifts(ctx, now, scene);
+    if (day > 0.1) {
+      this.updateSongbirds(ctx, now, scene, altitude);
+      this.updateSwifts(ctx, now, scene);
+    }
     this.updateDoves(ctx, now, scene);
   }
 

@@ -13,7 +13,9 @@ import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
-import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, t } from './i18n.ts';
+import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, createTimeButton, t } from './i18n.ts';
+import { daylightAt, readStoredTime, resolveTime, writeStoredTime } from './world/daylight.ts';
+import { NIGHT_UNIFORM } from './world/facade-shader.ts';
 import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
@@ -43,9 +45,11 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 12000);
-scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 1.0));
-const sun = new THREE.DirectionalLight(0xfff0d0, 1.8);
-const SUN_DIR = new THREE.Vector3(-300, 500, 300).normalize(); // from the south-west
+const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 1.0);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.8); // the sun by day, a weak moon at night (see applyTime)
+/** Direction towards the dominant light; mutated in place when the time changes. */
+const SUN_DIR = new THREE.Vector3(-300, 500, 300).normalize();
 const SUN_DIST = 400;
 sun.position.copy(SUN_DIR).multiplyScalar(SUN_DIST);
 scene.add(sun);
@@ -53,7 +57,7 @@ scene.add(sun.target);
 // Gradient sky dome with a sun disc; the fog takes its horizon colour so distant terrain melts into it.
 const sky = createSky({ sunDir: SUN_DIR });
 scene.add(sky.mesh);
-scene.fog = new THREE.Fog(sky.horizonColor, 2500, 9000);
+scene.fog = new THREE.Fog(sky.horizonColor.clone(), 2500, 9000);
 
 // Sun shadows: a ~200 m orthographic box that follows the camera, snapped to shadow texels.
 const SHADOW_HALF = 100;
@@ -78,10 +82,21 @@ if (shadowsOn) {
   sun.shadow.normalBias = 0.15;
 }
 // light-space basis, preallocated
-const lightFwd = SUN_DIR.clone().negate();
-const lightRight = new THREE.Vector3().crossVectors(lightFwd, new THREE.Vector3(0, 1, 0)).normalize();
-const lightUp = new THREE.Vector3().crossVectors(lightRight, lightFwd).normalize();
+const lightFwd = new THREE.Vector3();
+const lightRight = new THREE.Vector3();
+const lightUp = new THREE.Vector3();
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+function updateLightBasis(): void {
+  lightFwd.copy(SUN_DIR).negate();
+  lightRight.crossVectors(lightFwd, WORLD_UP).normalize();
+  lightUp.crossVectors(lightRight, lightFwd).normalize();
+}
+updateLightBasis();
+let frustumX = 0;
+let frustumZ = 0;
 function updateShadowFrustum(cx: number, cy: number, cz: number): void {
+  frustumX = cx;
+  frustumZ = cz;
   const r = Math.round((cx * lightRight.x + cy * lightRight.y + cz * lightRight.z) / SHADOW_TEXEL) * SHADOW_TEXEL;
   const u = Math.round((cx * lightUp.x + cy * lightUp.y + cz * lightUp.z) / SHADOW_TEXEL) * SHADOW_TEXEL;
   const f = cx * lightFwd.x + cy * lightFwd.y + cz * lightFwd.z;
@@ -98,10 +113,52 @@ const waterMaterial = createWaterMaterial({
   fog: true,
 });
 
+// ---- time of day: one function copies a palette into lights, sky, fog, water and the shader uniform.
+// Called at startup and when the time button is pressed (never per frame); uniform writes only.
+/** 1 by day .. 0 at night, read by the birds and the ambience. */
+let dayFactor = 1;
+let birdSystem: BirdSystem | null = null;
+function applyTime(hours: number): void {
+  const d = daylightAt(hours);
+  SUN_DIR.set(d.lightDir[0], d.lightDir[1], d.lightDir[2]);
+  updateLightBasis();
+  sun.color.setRGB(d.lightColor[0], d.lightColor[1], d.lightColor[2], THREE.SRGBColorSpace);
+  sun.intensity = d.lightIntensity;
+  hemi.color.setRGB(d.hemiSky[0], d.hemiSky[1], d.hemiSky[2], THREE.SRGBColorSpace);
+  hemi.groundColor.setRGB(d.hemiGround[0], d.hemiGround[1], d.hemiGround[2], THREE.SRGBColorSpace);
+  hemi.intensity = d.hemiIntensity;
+  renderer.toneMappingExposure = d.exposure;
+  sky.setDaylight(d);
+  const fog = scene.fog as THREE.Fog;
+  fog.color.setRGB(d.fog[0], d.fog[1], d.fog[2], THREE.SRGBColorSpace);
+  (scene.background as THREE.Color).copy(fog.color);
+  const wu = waterMaterial.uniforms;
+  (wu.uSunDir!.value as THREE.Vector3).copy(SUN_DIR);
+  const wl = (d.lightIntensity / 1.8) * (1 + 1.2 * d.night);
+  (wu.uLight!.value as THREE.Vector3).set(d.lightColor[0] * wl, d.lightColor[1] * wl, d.lightColor[2] * wl);
+  (wu.uSky!.value as THREE.Color).setRGB(d.reflect[0], d.reflect[1], d.reflect[2], THREE.SRGBColorSpace);
+  NIGHT_UNIFORM.value = d.lights;
+  // low sun: a larger normal offset keeps grazing-angle shadows free of acne
+  sun.shadow.normalBias = 0.15 + 0.25 * (1 - Math.min(1, Math.max(0, (d.lightDir[1] - 0.17) / 0.4)));
+  // re-aim the light (also when the shadow pass is frozen high up, or off in Low) and redraw the map once
+  updateShadowFrustum(frustumX, 0, frustumZ);
+  if (shadowsOn) sun.shadow.needsUpdate = true;
+  dayFactor = 1 - d.lights;
+  birdSystem?.setDaylight(dayFactor);
+}
+const urlTime = new URLSearchParams(location.search).get('time');
+let timeHours = resolveTime(urlTime, readStoredTime());
+applyTime(timeHours);
+
 const hud = document.getElementById('hud')!;
 applyDocument();
 createLangSwitcher(document.body);
 createQualityButton(document.body);
+createTimeButton(document.body, timeHours, (h) => {
+  timeHours = h;
+  writeStoredTime(h);
+  applyTime(h);
+});
 createAttribution(document.body);
 const base = import.meta.env.BASE_URL;
 
@@ -171,6 +228,8 @@ async function start(): Promise<void> {
     .catch((err) => console.warn('places unavailable', err));
 
   const birds = new BirdSystem(scene, { mobile: isMobile });
+  birdSystem = birds;
+  birds.setDaylight(dayFactor);
   const birdListener: BirdListener = { x: 0, y: 0, z: 0, speed: 0 };
 
   const ambience = new Ambience();
@@ -185,6 +244,7 @@ async function start(): Promise<void> {
     waterDistance: Infinity,
     swiftFlocks: birds.swiftFlocks,
     doveGroups: birds.doveGroups,
+    daylight: 1,
   };
   let surroundingsAt = 0;
   // Real tree density from the instanced vegetation, nearest water from a coarse ring sample.
@@ -266,6 +326,7 @@ async function start(): Promise<void> {
       surroundingsAt = now;
       sampleSurroundings(cp.x, cp.z);
     }
+    audioScene.daylight = dayFactor;
     ambience.update(dt, audioScene);
     renderer.render(scene, camera);
     rendered++;

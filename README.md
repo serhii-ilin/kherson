@@ -25,6 +25,7 @@ The interface is Ukrainian by default, with English available.
   - **Bushes:** about 200k, including flowering lilac and pink bushes.
   - **Water:** tessellated with a wave shader, shore foam and sky reflection.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
+- **Time of day**: morning, noon, golden evening and a moonlit night with stars, lit windows and glowing street lamps (button next to the language switch, or `?time=HH:MM`).
 - **Ambient sound**, synthesised in real time with WebAudio (no audio files): songbirds, screaming swift fly-bys with Doppler shift, cooing doves, wind and water. There is a mute toggle.
 - **UI**:
   - Places search and teleport, in Cyrillic or Latin: 161 landmarks and 686 streets. Former street names work too (e.g. «Ушакова» finds проспект Незалежності), and a street result puts you on the street, looking along it.
@@ -53,6 +54,8 @@ The interface is Ukrainian by default, with English available.
 | `yaw`, `pitch` | view direction in degrees (`yaw` 0 = north, positive turns left) |
 | `mode=fly` | start in fly mode |
 | `lang=uk` / `lang=en` | interface language |
+| `time=HH:MM` | time of day (e.g. `22:30` for night) |
+| `quality=high` / `quality=low` | rendering quality |
 
 Example: `?mode=fly&x=10900&z=9900&y=180&yaw=135&pitch=-22`
 

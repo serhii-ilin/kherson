@@ -18,6 +18,13 @@ interface ShaderSource {
 const NO_FADE = { value: 1 };
 
 /**
+ * Shared "lights on" amount (0 by day .. 1 at night), driven by the time of day: lit windows, shop fronts
+ * and street-lamp lenses glow in proportion to it. One object for every material, so a time change is a
+ * uniform write and never a recompile.
+ */
+export const NIGHT_UNIFORM = { value: 0 };
+
+/**
  * Material hook. A material may carry `userData.uFade = { value }` (0..1): the fragment shader then
  * screen-door dithers the surface in (ordered interleaved-gradient noise, no blending), used to
  * cross-fade a new detail tier over the one underneath it.
@@ -25,6 +32,7 @@ const NO_FADE = { value: 1 };
 export function facadeShader(this: { userData?: Record<string, unknown> } | void, shader: ShaderSource & { uniforms: Record<string, { value: unknown }> }): void {
   const fade = (this && this.userData?.uFade) as { value: number } | undefined;
   shader.uniforms.uFade = fade ?? NO_FADE;
+  shader.uniforms.uNight = NIGHT_UNIFORM;
   shader.vertexShader = shader.vertexShader
     .replace(
       '#include <common>',
@@ -53,6 +61,16 @@ varying vec3 vGWorld;
 varying vec3 vGN;
 varying vec4 vWall;
 uniform float uFade;
+uniform float uNight;
+// light added after lighting (see emissivemap_fragment below): lit windows and lamp lenses
+vec3 gGlow = vec3( 0.0 );
+// warm tungsten, pale warm, neutral white, a few cool TV-blue rooms
+vec3 gWinCol( float h ) {
+  if ( h < 0.5 ) return vec3( 1.0, 0.58, 0.24 );
+  if ( h < 0.8 ) return vec3( 1.0, 0.76, 0.42 );
+  if ( h < 0.92 ) return vec3( 0.98, 0.94, 0.82 );
+  return vec3( 0.55, 0.72, 1.0 );
+}
 float gHash( vec2 p ) {
   p = fract( p * vec2( 0.1031, 0.1030 ) );
   p += dot( p, p.yx + 33.33 );
@@ -138,12 +156,14 @@ vec4 fStyle( float m ) {
   return vec4( 3.0, 3.0, 0.42, 0.42 );                             // pastel house variants
 }`,
     )
+    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += gGlow;')
     .replace(
       '#include <color_fragment>',
       `#include <color_fragment>
   if ( uFade < 1.0 && fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) >= uFade ) discard;
   float gDist = length( vViewPosition );
   float gFade = 1.0 - smoothstep( 120.0, 400.0, gDist );
+  gGlow = vec3( 0.0 );
   if ( vGN.y > 0.5 ) {
     // ---- ground and roofs
     float gn = ( gVNoise( vGWorld.xz / 8.0 ) * 0.6 + gVNoise( vGWorld.xz / 32.0 ) * 0.4 ) * 2.0 - 1.0;
@@ -220,6 +240,10 @@ vec4 fStyle( float m ) {
       diffuseColor.rgb *= 1.0 - 0.09 * fine * line;
       diffuseColor.rgb *= 1.0 + 0.04 * fine * ( gHash( floor( pg ) ) - 0.5 );
     }
+  } else if ( vWall.x > 50.5 && vWall.x < 51.5 ) {
+    // ---- street-lamp lens (prop face looking down)
+    diffuseColor.rgb = vec3( 0.96, 0.92, 0.80 );
+    gGlow = vec3( 1.0, 0.78, 0.42 ) * 3.0 * uNight;
   } else if ( vWall.y > 0.0 && abs( vGN.y ) < 0.5 ) {
     // ---- walls
     float styleId = vWall.x;
@@ -258,8 +282,13 @@ vec4 fStyle( float m ) {
         vec3 glassHigh = vec3( 0.46, 0.58, 0.70 ) * gv;
         vec3 glass = mix( glassLow, glassHigh, fyb * fyb * ( 3.0 - 2.0 * fyb ) * ( 0.7 + 0.3 * bh ) );
         // about one pane in twenty is lit
-        float lit = step( 0.95, gHash( bcell.xz * 1.37 + bcell.y * 5.3 + 3.1 ) );
-        glass = mix( glass, vec3( 0.95, 0.80, 0.50 ), lit * ( shopGlass ? 0.25 : 0.55 ) );
+        // by day about one pane in twenty is lit; at night most shop fronts and a patchy 40% of windows
+        // (neighbourhoods differ), the same panes staying lit, with a few colour temperatures
+        float occ = 0.55 + 0.9 * gVNoise( bcell.xz * 0.09 + 4.0 );
+        float litP = shopGlass ? mix( 0.05, 0.78, uNight ) : mix( 0.05, 0.55 * occ, uNight );
+        float lit = step( 1.0 - litP, gHash( bcell.xz * 1.37 + bcell.y * 5.3 + 3.1 ) );
+        glass = mix( glass, vec3( 0.95, 0.80, 0.50 ), lit * ( shopGlass ? 0.25 : 0.55 ) * ( 1.0 - 0.8 * uNight ) );
+        float glowAmt = lit * uNight * ( 0.65 + 0.55 * gHash( bcell.xz * 2.9 + bcell.y * 1.7 ) );
         // thin white frame around each ordinary pane, mullions on shop fronts
         float fw = max( fwidth( fu ), fwidth( fyb ) ) + 1e-4;
         float inner = fBox( fu, 0.07, 0.93, fw ) * fBox( fyb, 0.07, 0.93, fw );
@@ -270,6 +299,7 @@ vec4 fStyle( float m ) {
         // set back behind the reveal: darker at the back, gradient toward the pane edges
         float edgeD = min( min( fu, 1.0 - fu ), min( fyb, 1.0 - fyb ) );
         bcol *= 0.86 * ( 1.0 - 0.30 * bdetail * ( 1.0 - smoothstep( 0.0, 0.5, edgeD ) ) );
+        gGlow = gWinCol( gHash( bcell.xz * 2.17 + bcell.y * 3.3 + 9.0 ) ) * glowAmt * ( shopGlass ? 0.9 : 0.62 ) * mix( 1.0, 0.25 + 0.75 * inner, bdetail );
       }
       if ( styleId > 46.5 && styleId < 47.5 ) {
         // bare concrete: grain, faint board marks
@@ -360,11 +390,18 @@ vec4 fStyle( float m ) {
         vec3 glassLow = vec3( 0.13, 0.17, 0.22 );
         vec3 glassHigh = vec3( 0.46, 0.58, 0.70 );
         vec3 glass = mix( glassLow, glassHigh, gy * gy * ( 3.0 - 2.0 * gy ) );
-        float lit = step( 0.95, gHash( vec2( bi, fl ) * 1.37 + plane + 3.1 ) ) * ( shop > 0.5 ? 0.0 : 1.0 );
-        glass = mix( glass, vec3( 0.95, 0.80, 0.50 ), lit * 0.55 );
+        // by day one window in twenty; at night about 40% of them (more in some buildings), shop fronts mostly
+        float occ = 0.4 + 1.2 * r2;
+        float litP = mix( 0.05, 0.36 * occ, uNight );
+        float lit = step( 1.0 - litP, gHash( vec2( bi, fl ) * 1.37 + plane + 3.1 ) ) * ( shop > 0.5 ? 0.0 : 1.0 );
+        float shopLit = shop > 0.5 ? step( 0.25, gHash( vec2( bi, plane ) * 2.3 + bid ) ) : 0.0;
+        float entrLit = entr > 0.5 ? step( 0.3, gHash( vec2( bi, plane ) * 1.9 + bid ) ) : 0.0;
+        float glowAmt = max( lit, max( shopLit, entrLit ) ) * uNight * ( 0.65 + 0.55 * gHash( vec2( bi, fl ) * 3.7 + plane ) );
+        glass = mix( glass, vec3( 0.95, 0.80, 0.50 ), lit * 0.55 * ( 1.0 - 0.8 * uNight ) );
         if ( entr > 0.5 ) glass = mix( wall * 0.28, vec3( 0.18, 0.12, 0.09 ), 0.5 );
         if ( modern ) glass = mix( glass, vec3( 0.35, 0.50, 0.62 ), 0.3 );
         col = mix( col, glass, inside * detail );
+        gGlow = gWinCol( gHash( vec2( bi, fl ) * 2.17 + plane + 9.0 ) ) * glowAmt * ( shop > 0.5 ? 0.9 : 0.62 ) * inside * detail;
         // white frames: cross bars on ordinary windows
         if ( shop < 0.5 && entr < 0.5 && !modern ) {
           float fr = max( 1.0 - fBox( fx, 0.0, 1.0, 1.0 ), 0.0 );
@@ -398,6 +435,9 @@ vec4 fStyle( float m ) {
       // far away fall back to the averaged tint (windows darken the wall a little)
       vec3 avg = wall * mix( 0.9, 0.84, clamp( st.z * st.w * 4.0, 0.0, 1.0 ) );
       diffuseColor.rgb = mix( avg, col, detail );
+      // too far for windows: scattered warm light, so the lit city still reads at distance
+      float farLit = smoothstep( 0.55, 0.75, gVNoise( vec2( u, vGWorld.y ) * 0.35 + bid ) );
+      gGlow += vec3( 1.0, 0.62, 0.28 ) * 0.2 * uNight * ( 1.0 - detail ) * farLit * clamp( st.z * st.w * 4.0, 0.0, 1.0 ) * step( hy, totalH - 0.8 );
       }
     }
     diffuseColor.rgb *= 1.0 - 0.32 * gcontact;

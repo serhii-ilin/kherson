@@ -1,5 +1,6 @@
 import { getQuality, setQuality } from './quality.ts';
 import { translit, type Place } from './ui/places.ts';
+import { TIME_PRESETS, formatTime, nextPreset } from './world/daylight.ts';
 
 export type Lang = 'uk' | 'en';
 export const LANGS: readonly Lang[] = ['uk', 'en'];
@@ -26,6 +27,7 @@ const STRINGS = {
     unmute: 'Увімкнути звук',
     qualityHigh: 'Якість: висока (натисніть, щоб знизити)',
     qualityLow: 'Якість: низька (натисніть, щоб підвищити)',
+    timeOfDay: 'Час доби (натисніть, щоб змінити)',
   },
   en: {
     title: 'Voxel Kherson',
@@ -48,6 +50,7 @@ const STRINGS = {
     unmute: 'Unmute sound',
     qualityHigh: 'Quality: high (click to lower)',
     qualityLow: 'Quality: low (click to raise)',
+    timeOfDay: 'Time of day (click to change)',
   },
 } as const;
 
@@ -185,6 +188,39 @@ export function createQualityButton(parent: HTMLElement): HTMLButtonElement {
     const url = new URL(location.href);
     url.searchParams.delete('quality'); // a ?quality= override would defeat the new choice
     location.replace(url.toString());
+  });
+  onLangChange(render);
+  render();
+  parent.appendChild(btn);
+  return btn;
+}
+
+/** Time-of-day button left of the quality toggle: shows the preset icon and time, a tap cycles presets. */
+export function createTimeButton(parent: HTMLElement, initialHours: number, onSelect: (hours: number) => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'vk-btn vk-time';
+  const icon = document.createElement('span');
+  const label = document.createElement('span');
+  label.className = 'vk-time-text';
+  btn.append(icon, label);
+  let hours = initialHours;
+  const render = (): void => {
+    let near = 0, bd = Infinity;
+    TIME_PRESETS.forEach((p, i) => {
+      const d = Math.abs((((hours - p.hours + 12) % 24) + 24) % 24 - 12);
+      if (d < bd) { bd = d; near = i; }
+    });
+    icon.textContent = TIME_PRESETS[near]!.icon;
+    label.textContent = formatTime(hours);
+    const text = `${t('timeOfDay')}: ${formatTime(hours)}`;
+    btn.title = text;
+    btn.setAttribute('aria-label', text);
+  };
+  btn.addEventListener('click', () => {
+    hours = TIME_PRESETS[nextPreset(hours)]!.hours;
+    render();
+    onSelect(hours);
   });
   onLangChange(render);
   render();

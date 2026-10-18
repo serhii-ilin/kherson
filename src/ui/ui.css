@@ -201,3 +201,23 @@
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+
+/* Time-of-day button sits left of the quality toggle; on phones it shrinks to the icon. */
+.vk-btn.vk-time {
+  right: 340px;
+  padding: 8px 10px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.vk-time-text {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+@media (pointer: coarse) {
+  .vk-time-text {
+    display: none;
+  }
+  .vk-btn.vk-time {
+    font-size: 18px;
+  }
+}

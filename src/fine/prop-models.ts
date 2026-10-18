@@ -164,7 +164,7 @@ function buildLamp(variant: number): PropModel {
   const headY = armTop - headH / 2;
 
   // Lamp head body with METAL (all but bottom)
-  // We need to handle the bottom separately with TRIM
+  // The bottom is the lens (MAT.LAMP), which glows at night
   const headY1 = headY + headH / 2;
   const headY0 = headY - headH / 2;
   const headZ0 = headZ - headD / 2;
@@ -176,9 +176,9 @@ function buildLamp(variant: number): PropModel {
   b.addQuad(headX0, headY1, headZ1, headX1, headY1, headZ1, headX1, headY1, headZ0, headX0, headY1, headZ0,
             0, 1, 0, MAT.METAL, 1.0);
 
-  // Bottom face with TRIM (y = headY0)
+  // Bottom face: the lens (y = headY0)
   b.addQuad(headX0, headY0, headZ0, headX1, headY0, headZ0, headX1, headY0, headZ1, headX0, headY0, headZ1,
-            0, -1, 0, MAT.TRIM, 0.6);
+            0, -1, 0, MAT.LAMP, 1.0);
 
   // Front (z = headZ1)
   b.addQuad(headX0, headY0, headZ1, headX1, headY0, headZ1, headX1, headY1, headZ1, headX0, headY1, headZ1,

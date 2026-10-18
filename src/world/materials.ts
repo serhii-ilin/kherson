@@ -59,6 +59,8 @@ export const MAT = {
   DOOR: 49,
   /** Shop-front glass (larger, darker than residential windows). */
   SHOPFRONT: 50,
+  /** Street-lamp lens: pale by day, glows warm at night (the facade shader). */
+  LAMP: 51,
   LEAVES: 60,
   TRUNK: 61,
   BRIDGE: 62,
@@ -112,6 +114,7 @@ const COLORS: Record<number, number> = {
   [MAT.METAL]: 0x4a5258,
   [MAT.DOOR]: 0x5a3f2c,
   [MAT.SHOPFRONT]: 0x2c3a44,
+  [MAT.LAMP]: 0xf4ecd0,
 };
 
 /** RGB bytes, 3 per material id; unknown ids are magenta. */

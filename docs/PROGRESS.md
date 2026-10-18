@@ -22,13 +22,13 @@ _Last updated: 2026-10-18_
 | City limited to Kherson (OSM relation 2175078) | ✅ | `35e6147` |
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
 | Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps; phone fps pending) | `418796d` |
-| Later: time of day, lit windows at dusk | ⬜ | |
+| Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | TOD |
 
 ## Open tasks
 
 ### Later
-- ⬜ Time of day with lit windows at dusk.
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
+- ⬜ Light pools under street lamps at night (needs per-lamp data in the shader).
 
 ## Open issues
 
@@ -49,10 +49,12 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 16 | P3 | Areas straddling the city boundary: painted in full in vector tiles, clipped in the coarse tier | clip concave polygons exactly |
 | 17 | P3 | Few pines: OSM forests lack `leaf_type` | owner decision below |
 | 18 | P2 | Coarse world uses `THREE.BatchedMesh`; browsers without `WEBGL_multi_draw` (possibly older Safari) fall back to one draw per chunk | check on Safari/iOS; keep per-chunk meshes as a fallback if needed |
-| 19 | P3 | Above 300 m the sun-shadow map freezes (a fixed 200 m patch) | acceptable at that height; revisit with time of day |
+| 19 | P3 | Above 300 m the sun-shadow map freezes (a fixed 200 m patch); it is redrawn when the time changes | acceptable at that height |
 | 20 | P3 | Traffic lights face along the nearest road, not the OSM `dir` | use `dir` when present |
 | 21 | P3 | About 10% of shops have no building within 25 m, so no sign; long names are already truncated in OSM | free-standing sign posts for those |
 | 22 | P3 | 0.5 m and mid tree models are still built on the main thread (≈2 ms each, up to 9 ms cold) | move to the veg worker if hitches show |
+| 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
+| 25 | P3 | Phones narrower than ~380 px may crowd the top button row (time, quality, sound, language, places) | collapse into a menu if reported |
 | 23 | P3 | 1 m khrushchevka is 3,962 triangles against the 4,000 test bound: little headroom for more facade detail | trim elsewhere before adding detail |
 
 ## Waiting on the owner

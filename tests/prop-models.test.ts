@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROP, buildProp } from '../src/fine/prop-models.ts';
+import { MAT } from '../src/world/materials.ts';
 
 describe('prop models', () => {
   it('every kind builds for variants 0..2', () => {
@@ -65,6 +66,22 @@ describe('prop models', () => {
       const prop = buildProp(PROP.LAMP, variant);
       expect(prop.max[1]).toBeGreaterThanOrEqual(6.8);
       expect(prop.max[1]).toBeLessThanOrEqual(7.6);
+    }
+  });
+
+  it('LAMP head has a lens face (MAT.LAMP) pointing down and no TRIM', () => {
+    for (let variant = 0; variant < 3; variant++) {
+      const prop = buildProp(PROP.LAMP, variant);
+      let lens = 0;
+      for (let v = 0; v < prop.walls.length / 4; v++) {
+        const id = prop.walls[v * 4]!;
+        expect(id).not.toBe(MAT.TRIM);
+        if (id === MAT.LAMP) {
+          lens++;
+          expect(prop.normals[v * 3 + 1]).toBe(-1);
+        }
+      }
+      expect(lens).toBe(4);
     }
   });
 

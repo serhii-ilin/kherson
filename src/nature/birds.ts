@@ -127,6 +127,11 @@ export class BirdSystem {
   private sflapOn: Uint8Array; private samp: Float32Array; private scruise: Float32Array;
   private swiftsReady = false;
 
+  /** 1 by day .. 0 at night: swifts are daytime birds, so fewer of them are drawn as it gets dark. */
+  setDaylight(day: number): void {
+    this.swiftMesh.count = Math.round(this.nSwifts * Math.min(1, Math.max(0, day)));
+  }
+
   // doves
   private groups: DoveGroup[] = [];
   private maxDoves: number;

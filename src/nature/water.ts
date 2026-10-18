@@ -61,6 +61,7 @@ const FRAGMENT = /* glsl */ `
 #include <fog_pars_fragment>
 uniform float uTime;
 uniform vec3 uSunDir;
+uniform vec3 uLight;
 uniform vec3 uSky;
 uniform vec3 uDeep;
 uniform vec3 uShallow;
@@ -101,7 +102,7 @@ void main() {
   vec3 V = normalize(uCamPos - vWorldPos);
   vec3 base = mix(uShallow, uDeep, smoothstep(0.0, 1.0, vShore));
   float diff = max(dot(n, L), 0.0);
-  vec3 lit = base * (uSky * 0.55 + vec3(1.0, 0.94, 0.82) * diff * 0.75);
+  vec3 lit = base * (uSky * 0.55 + uLight * diff * 0.75);
 
   float cosv = max(dot(n, V), 0.0);
   float fres = 0.02 + 0.98 * pow(1.0 - cosv, 5.0);
@@ -109,7 +110,7 @@ void main() {
 
   vec3 H = normalize(L + V);
   float spec = pow(max(dot(n, H), 0.0), 120.0) * 2.0;
-  col += vec3(1.0, 0.95, 0.85) * spec;
+  col += uLight * spec;
 
   float edge = 1.0 - smoothstep(0.0, 0.25, vShore);
   float fn = vnoise(vWorldPos.xz * 1.1 + vec2(uTime * 0.3, -uTime * 0.2)) * 0.6
@@ -138,6 +139,8 @@ export function createWaterMaterial(opts: {
       {
         uTime: { value: 0 },
         uSunDir: { value: opts.sunDir.clone().normalize() },
+        /** colour of the sun / moon light (scaled by intensity): drives diffuse and the sun glitter */
+        uLight: { value: new THREE.Vector3(1.0, 0.94, 0.82) },
         uSky: { value: opts.skyColor.clone() },
         uDeep: { value: new THREE.Color('#1f4f74') },
         uShallow: { value: new THREE.Color('#3f86a6') },
