@@ -82,7 +82,7 @@ A change is done only when all of these hold:
 
 ## Article 8: Licensing and attribution
 
-1. **Attribution:** map data is © OpenStreetMap contributors, under ODbL. The attribution must be visible in the README and in the running app; the in-app notice is still missing (see Open items). The baked world is a derived database under ODbL.
+1. **Attribution:** map data is © OpenStreetMap contributors, under ODbL. The attribution must be visible in the README and in the running app (bottom-left on desktop, bottom centre on phones). The baked world is a derived database under ODbL.
 2. **Assets:** prefer procedurally generated assets (models, sounds). Any external asset needs a licence compatible with public redistribution (CC0, CC-BY or public domain), credited in the README.
 3. **Code licence:** none chosen yet; the owner decides.
 
@@ -107,7 +107,6 @@ Working rules:
 
 These are known gaps against this constitution. Fix them before adding new features where possible:
 
-- Show an in-app "© OpenStreetMap contributors" attribution (Article 8.1).
 - Choose a code licence (Article 8.3).
 - Measure frame rates on real hardware (desktop GPU, mid-range phone) and record them here (Article 4).
 
