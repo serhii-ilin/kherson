@@ -3,7 +3,9 @@
  * from the coarse cells and the decoded vector tiles. Pure and deterministic; runs in a worker.
  *
  * Composition order: coarse base -> areas -> track ballast -> footways -> sidewalks (raised kerb)
- * -> carriageways -> lane/centre/edge markings -> zebra crossings -> rail/tram steel -> AO.
+ * -> carriageways -> lane/centre/edge markings -> zebra crossings -> bridge-deck markings (overlay)
+ * -> rail/tram steel -> sandy banks -> AO. Water polygons (when the tiles have them) carve the shoreline
+ * at 0.2 m: see paintWater.
  */
 import { MAT } from '../world/materials.ts';
 import {
@@ -19,6 +21,10 @@ import {
   type VectorTile,
 } from '../world/vector-format.ts';
 import { CHUNK, REGION_CHUNKS, VOXEL } from '../world/constants.ts';
+import { BlockWindowData } from './block-input.ts';
+import {
+  bridgeGeometry, bridgeProfile, deckTopOfColumn, sharedBridgeEnds, type BridgeDeck, type PlacedRoad,
+} from './bridges.ts';
 import { PATCH_PLANE, PATCH_W, P_GH, P_MAT, P_SH } from './patch.ts';
 import {
   CHUNK_SIZE_M,
@@ -28,6 +34,7 @@ import {
   FINE_PER_COARSE,
   FineGrid,
   dashPeriod,
+  fillMask,
   fillRings,
   paintBuffer,
   paintStripe,
@@ -42,6 +49,13 @@ export interface FineInput {
   patch: Uint8Array;
   /** Decoded tiles of the chunk's 3x3 region neighbourhood (any order; missing tiles = no items). */
   tiles: readonly VectorTile[];
+  /**
+   * Optional block-tier coarse window from buildBlockInput (ground height, material, bridge-deck top
+   * over 160x160 cells). Needed for the lane markings on bridge decks: they must follow the exact deck
+   * profile of the 1 m bridge blocks, which samples the coarse decks around the whole piece. Without it
+   * bridge decks get no markings.
+   */
+  win?: Uint8Array;
 }
 
 /** Sidewalk kerb height above the carriageway in cm. */
@@ -396,43 +410,126 @@ function paintZebra(g: FineGrid, roads: readonly LRoad[], x: number, z: number, 
 const AO_PAD = 4;
 const AO_W = FINE_N + 2 * AO_PAD;
 const aoDist = new Uint8Array(AO_W * AO_W);
+const PER_M = 1 / FINE_CELL;
 
-/** Contact shadow next to coarse building walls and at the foot of kerbs; 4 levels (0 darkest). */
-function paintAo(g: FineGrid, patch: Uint8Array): void {
+/**
+ * Two-pass chamfer distance (Chebyshev, in cells) over a w x w window: cells holding 0 are sources, every
+ * other cell holds the cap on entry and the distance to the nearest source (<= cap) on exit.
+ */
+function chamfer(d: Uint8Array, w: number): void {
+  for (let z = 0; z < w; z++) {
+    for (let x = 0; x < w; x++) {
+      let v = d[z * w + x]!;
+      if (v === 0) continue;
+      if (x > 0) v = Math.min(v, d[z * w + x - 1]! + 1);
+      if (z > 0) {
+        v = Math.min(v, d[(z - 1) * w + x]! + 1);
+        if (x > 0) v = Math.min(v, d[(z - 1) * w + x - 1]! + 1);
+        if (x < w - 1) v = Math.min(v, d[(z - 1) * w + x + 1]! + 1);
+      }
+      d[z * w + x] = v;
+    }
+  }
+  for (let z = w - 1; z >= 0; z--) {
+    for (let x = w - 1; x >= 0; x--) {
+      let v = d[z * w + x]!;
+      if (v === 0) continue;
+      if (x < w - 1) v = Math.min(v, d[z * w + x + 1]! + 1);
+      if (z < w - 1) {
+        v = Math.min(v, d[(z + 1) * w + x]! + 1);
+        if (x > 0) v = Math.min(v, d[(z + 1) * w + x - 1]! + 1);
+        if (x < w - 1) v = Math.min(v, d[(z + 1) * w + x + 1]! + 1);
+      }
+      d[z * w + x] = v;
+    }
+  }
+}
+
+/** Columns of 1 m around the chunk covered by the building raster (the AO reaches < 1 m). */
+const BLD_PAD = 2;
+const BLD_W = CHUNK_SIZE_M + 2 * BLD_PAD;
+const bldCols = new Uint8Array(BLD_W * BLD_W);
+
+/**
+ * 1 m building columns around the chunk from the vector-tile footprints, by the rule the 1 m block tier
+ * uses (src/fine/buildings.ts rasterMask): a column belongs to a building when its centre is inside
+ * ring 0 and outside the holes (even-odd over all rings). Buildings snap to whole 1 m columns, so this
+ * is where the real 1 m walls stand. Returns null when the tiles hold no building at all (caller falls back to the 2 m
+ * coarse outline).
+ */
+function buildingColumns(tiles: readonly VectorTile[], gcx: number, gcz: number): Uint8Array | null {
+  let total = 0;
+  for (const t of tiles) total += t.buildings.length;
+  if (total === 0) return null; // no tile data: keep the coarse outline
+  bldCols.fill(0);
+  const lo = -BLD_PAD, hi = CHUNK_SIZE_M + BLD_PAD;
+  const xs: number[] = [];
+  for (const t of tiles) {
+    for (const b of t.buildings) {
+      const r0 = b.rings[0];
+      if (r0 === undefined || r0.length < 6) continue;
+      const rings = b.rings.map((r) => localPoints(t, r, gcx, gcz));
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      const ring = rings[0]!;
+      for (let i = 0; i < ring.length; i += 2) {
+        const x = ring[i]!, z = ring[i + 1]!;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (z < z0) z0 = z;
+        if (z > z1) z1 = z;
+      }
+      if (x1 - x0 > 420 || z1 - z0 > 420) continue; // data noise, skipped by the block tier too
+      if (x1 < lo || x0 > hi || z1 < lo || z0 > hi) continue;
+      const j0 = Math.max(lo, Math.floor(z0)), j1 = Math.min(hi - 1, Math.floor(z1));
+      for (let j = j0; j <= j1; j++) {
+        const zc = j + 0.5;
+        xs.length = 0;
+        for (const rg of rings) {
+          const n = rg.length >> 1;
+          for (let i = 0; i < n; i++) {
+            const k = (i + 1) % n;
+            const za = rg[i * 2 + 1]!, zb = rg[k * 2 + 1]!;
+            if ((za <= zc && zc < zb) || (zb <= zc && zc < za)) {
+              const xa = rg[i * 2]!;
+              xs.push(xa + ((zc - za) * (rg[k * 2]! - xa)) / (zb - za));
+            }
+          }
+        }
+        if (xs.length < 2) continue;
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+          const a = Math.max(lo, Math.ceil(xs[k]! - 0.5));
+          const e = Math.min(hi - 1, Math.ceil(xs[k + 1]! - 0.5) - 1);
+          for (let gx = a; gx <= e; gx++) bldCols[(j + BLD_PAD) * BLD_W + gx + BLD_PAD] = 1;
+        }
+      }
+    }
+  }
+  return bldCols;
+}
+
+/**
+ * Contact shadow next to building walls and at the foot of kerbs; 4 levels (0 darkest). Walls come from the
+ * 1 m building columns of the vector tiles (`bld`), else from the 2 m coarse structure outline.
+ */
+function paintAo(g: FineGrid, patch: Uint8Array, bld: Uint8Array | null): void {
   const cap = AO_PAD;
   for (let wz = 0; wz < AO_W; wz++) {
-    const pz = Math.floor((wz - AO_PAD) / FINE_PER_COARSE) + 1;
     for (let wx = 0; wx < AO_W; wx++) {
-      const px = Math.floor((wx - AO_PAD) / FINE_PER_COARSE) + 1;
-      aoDist[wz * AO_W + wx] = patch[P_SH * PATCH_PLANE + pz * PATCH_W + px]! > 0 ? 0 : cap;
-    }
-  }
-  for (let wz = 0; wz < AO_W; wz++) {
-    for (let wx = 0; wx < AO_W; wx++) {
-      let d = aoDist[wz * AO_W + wx]!;
-      if (d === 0) continue;
-      if (wx > 0) d = Math.min(d, aoDist[wz * AO_W + wx - 1]! + 1);
-      if (wz > 0) {
-        d = Math.min(d, aoDist[(wz - 1) * AO_W + wx]! + 1);
-        if (wx > 0) d = Math.min(d, aoDist[(wz - 1) * AO_W + wx - 1]! + 1);
-        if (wx < AO_W - 1) d = Math.min(d, aoDist[(wz - 1) * AO_W + wx + 1]! + 1);
+      let wall: boolean;
+      if (bld !== null) {
+        const col = Math.floor((wx - AO_PAD) / PER_M) + BLD_PAD;
+        const row = Math.floor((wz - AO_PAD) / PER_M) + BLD_PAD;
+        wall = bld[row * BLD_W + col] === 1;
+      } else {
+        const pz = Math.floor((wz - AO_PAD) / FINE_PER_COARSE) + 1;
+        const px = Math.floor((wx - AO_PAD) / FINE_PER_COARSE) + 1;
+        wall = patch[P_SH * PATCH_PLANE + pz * PATCH_W + px]! > 0;
       }
-      aoDist[wz * AO_W + wx] = d;
+      aoDist[wz * AO_W + wx] = wall ? 0 : cap;
     }
   }
-  for (let wz = AO_W - 1; wz >= 0; wz--) {
-    for (let wx = AO_W - 1; wx >= 0; wx--) {
-      let d = aoDist[wz * AO_W + wx]!;
-      if (d === 0) continue;
-      if (wx < AO_W - 1) d = Math.min(d, aoDist[wz * AO_W + wx + 1]! + 1);
-      if (wz < AO_W - 1) {
-        d = Math.min(d, aoDist[(wz + 1) * AO_W + wx]! + 1);
-        if (wx > 0) d = Math.min(d, aoDist[(wz + 1) * AO_W + wx - 1]! + 1);
-        if (wx < AO_W - 1) d = Math.min(d, aoDist[(wz + 1) * AO_W + wx + 1]! + 1);
-      }
-      aoDist[wz * AO_W + wx] = d;
-    }
-  }
+  chamfer(aoDist, AO_W);
   for (let cz = 0; cz < FINE_N; cz++) {
     for (let cx = 0; cx < FINE_N; cx++) {
       const i = cz * FINE_N + cx;
@@ -453,6 +550,257 @@ function paintAo(g: FineGrid, patch: Uint8Array): void {
   }
 }
 
+// ---------------------------------------------------------------- water shoreline
+
+/** Cells of margin around the chunk in the water window; 20 = two coarse cells (qualification reach). */
+const WPAD = 20;
+const WW = FINE_N + 2 * WPAD;
+const waterPoly = new Uint8Array(WW * WW);
+/** Coarse cells -2 .. 33 (index + 2) with polygon coverage counts. */
+const CW = CHUNK + 4;
+const polyCnt = new Uint16Array(CW * CW);
+/** Water-ness for the bank distance over the chunk plus one coarse cell (10 fine cells). */
+const bankDist = new Uint8Array(WW * WW);
+const qualP = new Uint8Array(PATCH_W * PATCH_W);
+const lvlP = new Uint16Array(PATCH_W * PATCH_W);
+const BANK_REACH = 10;
+/** Banks fade from full sand to the original ground over this many fine cells (1.6 m). */
+const BANK_WIDTH = 8;
+const BANK_FULL = 3;
+/** Bank surface above the water in cm. */
+const BANK_ABOVE_CM = 10;
+const NB = [[1, 1], [1, 0], [0, 1], [-1, 1], [1, -1], [-1, 0], [0, -1], [-1, -1]] as const;
+
+// shoreline classes of a fine cell
+const C_LAND = 0;
+const C_WATER = 1;
+const C_CARVE = 2;
+const C_NEWLAND = 3;
+
+function bankHash(gx: number, gz: number): number {
+  let h = Math.imul(gx, 73856093) ^ Math.imul(gz, 19349663);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) & 255;
+}
+
+/**
+ * Water shoreline at 0.2 m from the WATER polygons of the vector tiles (all 3x3 tiles; polygons are
+ * duplicated per region, painted here by union). Three effects, all functions of the coarse patch and
+ * the polygons only, so neighbouring chunks agree on their border:
+ *  - a coarse WATER cell whose fine cell lies outside every polygon becomes sandy land at the height of the
+ *    nearest land neighbour (never below the water surface + 10 cm), covering the 2 m staircase;
+ *  - a coarse land cell whose fine cell lies inside a polygon is lowered to the water surface + 10 cm and
+ *    painted sand (only where a coarse water cell is within one coarse cell, so stray polygons cannot dig pits);
+ *  - bank colouring: ground within BANK_WIDTH cells of the water turns sandy with a dithered fade, so the
+ *    short side faces next to water are sand rather than brown soil.
+ * A coarse water cell is carved only when a polygon touches its 3x3 coarse neighbourhood, so canals and
+ * streams that exist only as buffered lines keep their coarse water. Without polygons nothing changes.
+ * Returns whether polygons were present (then {@link paintBanks} must run after the roads).
+ */
+function paintWater(g: FineGrid, patch: Uint8Array, tiles: readonly VectorTile[], gcx: number, gcz: number): boolean {
+  let any = false;
+  waterPoly.fill(0);
+  const margin = WPAD * FINE_CELL + 1;
+  for (const t of tiles) {
+    for (const a of t.areas) {
+      if (a.mat !== MAT.WATER || a.rings.length === 0) continue;
+      const rings = a.rings.map((r) => localPoints(t, r, gcx, gcz));
+      if (!nearChunk(rings[0]!, margin)) continue;
+      fillMask(waterPoly, WPAD, rings);
+      any = true;
+    }
+  }
+  if (!any) return false;
+
+  polyCnt.fill(0);
+  for (let wz = 0; wz < WW; wz++) {
+    for (let wx = 0; wx < WW; wx++) {
+      if (waterPoly[wz * WW + wx] === 0) continue;
+      const cxc = Math.floor((wx - WPAD) / FINE_PER_COARSE) + 2;
+      const czc = Math.floor((wz - WPAD) / FINE_PER_COARSE) + 2;
+      polyCnt[czc * CW + cxc]!++;
+    }
+  }
+  let touched = false;
+  for (let i = 0; i < polyCnt.length; i++) if (polyCnt[i]! > 0) { touched = true; break; }
+  if (!touched) return false;
+
+  // per patch cell (pc = coarse + 1): polygon qualification and nearby water level in cm
+  for (let pcz = 0; pcz < PATCH_W; pcz++) {
+    for (let pcx = 0; pcx < PATCH_W; pcx++) {
+      let q = 0;
+      // coarse cell c = pc - 1 ; counts cover c in -2..33 (index c + 2 = pc + 1)
+      for (let dz = -1; dz <= 1 && q === 0; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const ix = pcx + 1 + dx, iz = pcz + 1 + dz;
+          if (ix < 0 || iz < 0 || ix >= CW || iz >= CW) continue;
+          if (polyCnt[iz * CW + ix]! > 0) { q = 1; break; }
+        }
+      }
+      let lv = 0;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = pcx + dx, z = pcz + dz;
+          if (x < 0 || z < 0 || x >= PATCH_W || z >= PATCH_W) continue;
+          const o = z * PATCH_W + x;
+          if (patch[P_MAT * PATCH_PLANE + o] === MAT.WATER && patch[P_SH * PATCH_PLANE + o] === 0) {
+            lv = Math.max(lv, patch[P_GH * PATCH_PLANE + o]! * CM_PER_VOXEL);
+          }
+        }
+      }
+      qualP[pcz * PATCH_W + pcx] = q;
+      lvlP[pcz * PATCH_W + pcx] = lv;
+    }
+  }
+  const levelCm = (pcx: number, pcz: number): number => lvlP[pcz * PATCH_W + pcx]!;
+  const cls = (pcx: number, pcz: number, poly: number): number => {
+    const o = pcz * PATCH_W + pcx;
+    if (patch[P_SH * PATCH_PLANE + o]! > 0) return C_LAND;
+    if (patch[P_MAT * PATCH_PLANE + o] === MAT.WATER) {
+      return poly === 1 || qualP[o] === 0 ? C_WATER : C_NEWLAND;
+    }
+    return poly === 1 && lvlP[o]! > 0 ? C_CARVE : C_LAND;
+  };
+
+  // carve the chunk's own cells
+  for (let cz = 0; cz < FINE_N; cz++) {
+    const pcz = Math.floor(cz / FINE_PER_COARSE) + 1;
+    for (let cx = 0; cx < FINE_N; cx++) {
+      const pcx = Math.floor(cx / FINE_PER_COARSE) + 1;
+      const c = cls(pcx, pcz, waterPoly[(cz + WPAD) * WW + cx + WPAD]!);
+      if (c === C_LAND || c === C_WATER) continue;
+      const i = cz * FINE_N + cx;
+      const lvl = levelCm(pcx, pcz);
+      if (c === C_CARVE) {
+        if (g.mat[i] === 0) continue;
+        const h = lvl + BANK_ABOVE_CM;
+        if (h < g.hcm[i]!) g.hcm[i] = h;
+        g.mat[i] = MAT.SAND;
+        continue;
+      }
+      // coarse water that the polygon calls land: nearest land neighbour, towards the cell's side
+      const sx = cx % FINE_PER_COARSE < FINE_PER_COARSE / 2 ? -1 : 1;
+      const sz = cz % FINE_PER_COARSE < FINE_PER_COARSE / 2 ? -1 : 1;
+      let found = false;
+      for (let k = 0; k < 8 && !found; k++) {
+        const nx = pcx + NB[k]![0] * sx, nz = pcz + NB[k]![1] * sz;
+        if (nx < 0 || nz < 0 || nx >= PATCH_W || nz >= PATCH_W) continue;
+        const o = nz * PATCH_W + nx;
+        if (patch[P_MAT * PATCH_PLANE + o] === MAT.WATER || patch[P_SH * PATCH_PLANE + o]! > 0) continue;
+        const h = Math.max(patch[P_GH * PATCH_PLANE + o]! * CM_PER_VOXEL, lvl + BANK_ABOVE_CM);
+        g.mat[i] = MAT.SAND;
+        g.hcm[i] = h;
+        g.base[i] = h;
+        found = true;
+      }
+    }
+  }
+
+  // water-ness over the chunk plus one coarse cell, for the bank distance
+  bankDist.fill(BANK_WIDTH + 1);
+  for (let wz = WPAD - BANK_REACH; wz < WPAD + FINE_N + BANK_REACH; wz++) {
+    const cz = wz - WPAD;
+    const pcz = Math.floor(cz / FINE_PER_COARSE) + 1;
+    for (let wx = WPAD - BANK_REACH; wx < WPAD + FINE_N + BANK_REACH; wx++) {
+      const cx = wx - WPAD;
+      const pcx = Math.floor(cx / FINE_PER_COARSE) + 1;
+      const c = cls(pcx, pcz, waterPoly[wz * WW + wx]!);
+      let water = c === C_WATER || c === C_CARVE;
+      if (c === C_NEWLAND) {
+        water = !hasLandNeighbour(patch, pcx, pcz);
+      }
+      if (water) bankDist[wz * WW + wx] = 0;
+    }
+  }
+  chamfer(bankDist, WW);
+  return true;
+}
+
+function hasLandNeighbour(patch: Uint8Array, pcx: number, pcz: number): boolean {
+  for (let k = 0; k < 8; k++) {
+    const nx = pcx + NB[k]![0], nz = pcz + NB[k]![1];
+    if (nx < 0 || nz < 0 || nx >= PATCH_W || nz >= PATCH_W) continue;
+    const o = nz * PATCH_W + nx;
+    if (patch[P_MAT * PATCH_PLANE + o] !== MAT.WATER && patch[P_SH * PATCH_PLANE + o] === 0) return true;
+  }
+  return false;
+}
+
+/** Sandy bank fade on soft ground next to the water (after the roads, so paved ground keeps its look). */
+function paintBanks(g: FineGrid, gcx: number, gcz: number): void {
+  for (let cz = 0; cz < FINE_N; cz++) {
+    for (let cx = 0; cx < FINE_N; cx++) {
+      const i = cz * FINE_N + cx;
+      if (GRASSY[g.mat[i]!] !== 1) continue;
+      const d = bankDist[(cz + WPAD) * WW + cx + WPAD]!;
+      if (d === 0 || d > BANK_WIDTH) continue;
+      // full sand to BANK_FULL cells, then a dithered fade (deterministic in global cell coordinates)
+      const keep = d <= BANK_FULL ? 256 : Math.round(256 * (BANK_WIDTH + 1 - d) / (BANK_WIDTH + 1 - BANK_FULL));
+      if (bankHash(gcx * FINE_N + cx, gcz * FINE_N + cz) < keep) g.mat[i] = MAT.SAND;
+    }
+  }
+}
+
+// ---------------------------------------------------------------- bridge deck markings
+
+/**
+ * Lane markings on 1 m bridge decks: the markings use the same line rules as ground roads, laid out on a
+ * scratch carriageway raster, and each marked cell records the deck top of the 1 m bridge column below it
+ * (deckTopOfColumn: the profile bridges.ts builds the deck from). The mesher lifts them 1.5 cm above it.
+ */
+function paintBridgeMarkings(g: FineGrid, input: FineInput, tiles: readonly VectorTile[]): void {
+  const { gcx, gcz } = input;
+  if (input.win === undefined) return;
+  const all: PlacedRoad[] = [];
+  for (const t of tiles) {
+    for (const road of t.roads) if ((road.flags & ROAD_BRIDGE) !== 0) all.push({ road, ox: t.rx * REGION_M, oz: t.rz * REGION_M });
+  }
+  if (all.length === 0) return;
+  const shared = sharedBridgeEnds(all);
+  const wd = new BlockWindowData(input.win, gcx, gcz);
+  const ctx = { groundAt: wd.groundAt, isWater: wd.isWater, deckTopAt: wd.deckTopAt };
+  const x0 = gcx * CHUNK_SIZE_M, z0 = gcz * CHUNK_SIZE_M;
+  const pieces: { lr: LRoad; deck: BridgeDeck }[] = [];
+  for (const pr of all) {
+    const r = pr.road;
+    if (r.kind < ROAD.MOTORWAY || r.kind > ROAD.SERVICE || r.kind === ROAD.TRACK || r.kind === ROAD.SERVICE) continue;
+    if ((r.flags & ROAD_UNPAVED) !== 0) continue;
+    const deck = bridgeGeometry(pr);
+    if (deck === null) continue;
+    const [bx0, bz0, bx1, bz1] = deck.bbox;
+    if (bx1 < x0 - 1 || bx0 > x0 + CHUNK_SIZE_M + 1 || bz1 < z0 - 1 || bz0 > z0 + CHUNK_SIZE_M + 1) continue;
+    const t = tiles.find((tt) => tt.rx * REGION_M === pr.ox && tt.rz * REGION_M === pr.oz)!;
+    const lr = toLRoad(localPoints(t, r.pts, gcx, gcz), r, pieces.length);
+    lr.half = deck.halfCar;
+    pieces.push({ lr, deck: bridgeProfile(deck, ctx, shared) });
+  }
+  if (pieces.length === 0) return;
+  pieces.sort((a, b) => roadRank(a.lr.kind) - roadRank(b.lr.kind) || a.lr.order - b.lr.order);
+
+  const dg = new FineGrid();
+  dg.mat.fill(255);
+  const lrs = pieces.map((p) => p.lr);
+  for (let i = 0; i < lrs.length; i++) {
+    const r = lrs[i]!;
+    r.ownerId = i + 1;
+    paintBuffer(dg, r.pts, r.n, r.half, MAT.ASPHALT, -1, r.ownerId, null);
+  }
+  const junctions = findJunctions(lrs);
+  for (const r of lrs) paintRoadMarkings(dg, r, junctions);
+
+  for (let cz = 0; cz < FINE_N; cz++) {
+    for (let cx = 0; cx < FINE_N; cx++) {
+      const i = cz * FINE_N + cx;
+      if (dg.mat[i] !== MAT.MARKING) continue;
+      const deck = pieces[dg.own[i]! - 1]!.deck;
+      const H = deckTopOfColumn(deck, x0 + (cx + 0.5) * FINE_CELL, z0 + (cz + 0.5) * FINE_CELL);
+      if (H < 0) continue;
+      g.deckH ??= new Uint16Array(FINE_N * FINE_N);
+      g.deckH[i] = H * 100;
+    }
+  }
+}
+
 // ---------------------------------------------------------------- composition
 
 /** Rasterises one chunk's fine ground. */
@@ -460,7 +808,6 @@ export function rasterizeGround(input: FineInput): FineGrid {
   const { gcx, gcz, patch } = input;
   const g = new FineGrid();
   paintBase(g, patch);
-
   const tiles = [...input.tiles].sort((a, b) => a.rz - b.rz || a.rx - b.rx);
   const rx = Math.floor(gcx / REGION_CHUNKS);
   const rz = Math.floor(gcz / REGION_CHUNKS);
@@ -477,6 +824,9 @@ export function rasterizeGround(input: FineInput): FineGrid {
       fillRings(g, rings, a.mat);
     }
   }
+
+  // ---- water shoreline from the WATER polygons (after the areas, which never touch empty cells)
+  const banks = paintWater(g, patch, tiles, gcx, gcz);
 
   // ---- gather linear features
   const veh: LRoad[] = [];
@@ -541,6 +891,8 @@ export function rasterizeGround(input: FineInput): FineGrid {
     }
   }
 
+  paintBridgeMarkings(g, input, tiles);
+
   // ---- steel rails over whatever carries them
   stripe.half = RAIL_HALF;
   stripe.period = 0;
@@ -556,6 +908,7 @@ export function rasterizeGround(input: FineInput): FineGrid {
     }
   }
 
-  paintAo(g, patch);
+  if (banks) paintBanks(g, gcx, gcz);
+  paintAo(g, patch, buildingColumns(tiles, gcx, gcz));
   return g;
 }

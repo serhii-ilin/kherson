@@ -1,6 +1,6 @@
 import { MAT, materialColor } from '../world/materials.ts';
 
-export const PROP = { LAMP: 1, TRAFFIC_LIGHT: 2, BUS_SHELTER: 3, BENCH: 4, BIN: 5, BOLLARD: 6, FENCE: 7 } as const;
+export const PROP = { LAMP: 1, TRAFFIC_LIGHT: 2, BUS_SHELTER: 3, BENCH: 4, BIN: 5, BOLLARD: 6, FENCE: 7, SIGN_POST: 8 } as const;
 
 /** Same vertex layout as the world's chunk meshes, so props can be merged into them. */
 export interface PropModel {
@@ -130,6 +130,8 @@ export function buildProp(kind: number, variant: number): PropModel {
     return buildBollard(v);
   } else if (kind === PROP.FENCE) {
     return buildFence(v);
+  } else if (kind === PROP.SIGN_POST) {
+    return buildSignPost();
   }
 
   return buildBin(0);
@@ -370,5 +372,21 @@ function buildFence(variant: number): PropModel {
     b.addBox(x - picketW / 2, 0.05, -picketW / 2, x + picketW / 2, 0.05 + picketH, picketW / 2, MAT.METAL);
   }
 
+  return b.build();
+}
+
+/** Plate centre height and width of the free-standing shop sign (sign-place.ts puts the atlas quad in front of it). */
+export const SIGN_POST_PLATE_Y = 2.25;
+export const SIGN_POST_PLATE_W = 1.8;
+
+/** Two metal posts carrying a plate frame; the plate (atlas quad) hangs in front of it on +z. */
+function buildSignPost(): PropModel {
+  const b = new MeshBuilder();
+  const px = SIGN_POST_PLATE_W / 2 + 0.05;
+  for (const sx of [-1, 1]) b.addBox(sx * px - 0.04, 0, -0.05, sx * px + 0.04, 2.7, 0.05, MAT.METAL);
+  // backing board with a thin rim top and bottom
+  b.addBox(-px, 1.86, -0.03, px, 2.64, 0.03, MAT.METAL);
+  b.addBox(-px, 2.62, -0.05, px, 2.68, 0.05, MAT.METAL);
+  b.addBox(-px, 1.82, -0.05, px, 1.88, 0.05, MAT.METAL);
   return b.build();
 }

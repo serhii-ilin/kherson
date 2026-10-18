@@ -8,7 +8,7 @@ import {
   REGION,
   VOXEL,
 } from './constants.ts';
-import { FEATURE_BRIDGE_DECK, type RegionData } from './format.ts';
+import { FEATURE_BRIDGE_DECK, structMat, structTint, type RegionData } from './format.ts';
 import { MAT, PALETTE } from './materials.ts';
 
 /**
@@ -45,10 +45,23 @@ export interface ChunkMesh {
   /**
    * 4 floats per vertex: material id (building wall style, or asphalt/sidewalk/plaza on upward
    * faces, else 0), then for side faces top y (m), base y (m), contact flag (1 where the base meets
-   * neighbouring ground); zeros elsewhere.
+   * neighbouring ground); zeros elsewhere. A coarse building wall carries its per-building tint
+   * (0..3, region format v2) as the fraction of the id: `style + 0.1 * tint` (see {@link packWallId}).
    */
   walls: Float32Array;
+  /**
+   * 2 floats per vertex, coarse building walls only: distance (m) of the vertex from the start of its
+   * wall run along the wall, and the run length (m); zeros elsewhere (also for every 1 m block face).
+   * The facade shader fits a whole number of bays into the run so windows are never cut at run ends.
+   * Absent on meshes that never carry coarse walls.
+   */
+  runs?: Float32Array;
   indices: Uint32Array;
+}
+
+/** `aWall.x` of a coarse building wall: the style id plus 0.1 * tint (tint 0..3). */
+export function packWallId(style: number, tint: number): number {
+  return style + 0.1 * tint;
 }
 
 /** Tessellated water surface; normals and colours are computed by the water shader. */
@@ -91,6 +104,7 @@ export class QuadBuilder {
   private nor = new Float32Array(1024 * 12);
   private col = new Float32Array(1024 * 12);
   private wal = new Float32Array(1024 * 16);
+  private run = new Float32Array(1024 * 8);
   /** Per quad: 1 when the triangulation diagonal is v1-v3 instead of v0-v2 (AO anisotropy fix). */
   private flip = new Uint8Array(1024);
   quads = 0;
@@ -105,12 +119,18 @@ export class QuadBuilder {
     const w = new Float32Array(this.wal.length * 2);
     w.set(this.wal);
     this.wal = w;
+    const r = new Float32Array(this.run.length * 2);
+    r.set(this.run);
+    this.run = r;
     const f = new Uint8Array(this.flip.length * 2);
     f.set(this.flip);
     this.flip = f;
   }
 
-  /** Vertices must be counter-clockwise seen from the outside. */
+  /**
+   * Vertices must be counter-clockwise seen from the outside. `wTint` (0..3) tints a building wall;
+   * `runAxis` (0 = x, 2 = z, -1 = none) with `runMin`/`runLen` describe the wall run the quad spans.
+   */
   quad(
     x0: number, y0: number, z0: number,
     x1: number, y1: number, z1: number,
@@ -118,7 +138,7 @@ export class QuadBuilder {
     x3: number, y3: number, z3: number,
     nx: number, ny: number, nz: number,
     mat: number, shade: number,
-    ao = AO_OPEN, wTop = 0, wBase = 0, wContact = 0, wMat = -1,
+    ao = AO_OPEN, wTop = 0, wBase = 0, wContact = 0, wMat = -1, wTint = 0, runAxis = -1, runMin = 0, runLen = 0,
   ): void {
     if ((this.quads + 1) * 12 > this.pos.length) this.grow();
     const o = this.quads * 12;
@@ -132,11 +152,13 @@ export class QuadBuilder {
     const b = (PALETTE[mat * 3 + 2]! / 255) * shade;
     // building walls get their style id; upward faces of detailed ground materials get the ground id
     // (`wMat` >= 0 overrides the id: the block mesher tags glass faces for the shader this way)
+    const styled = wMat < 0 && mat >= WALL_MAT_MIN && mat <= WALL_MAT_MAX && wTop > 0;
     const isWall = wMat >= 0 ? wMat
-      : mat >= WALL_MAT_MIN && mat <= WALL_MAT_MAX && wTop > 0
-        ? mat
+      : styled
+        ? packWallId(mat, wTint)
         : ny > 0.5 && hasGroundDetail(mat) ? mat : 0;
     const w = this.wal;
+    const useRun = styled && runAxis >= 0 && runLen > 0;
     const a0 = AO_LEVEL[ao & 3]!;
     const a1 = AO_LEVEL[(ao >> 2) & 3]!;
     const a2 = AO_LEVEL[(ao >> 4) & 3]!;
@@ -148,6 +170,11 @@ export class QuadBuilder {
       this.col[i] = r * k; this.col[i + 1] = g * k; this.col[i + 2] = b * k;
       const wi = this.quads * 16 + v * 4;
       w[wi] = isWall; w[wi + 1] = wTop; w[wi + 2] = wBase; w[wi + 3] = wContact;
+      if (useRun) {
+        const ri = this.quads * 8 + v * 2;
+        this.run[ri] = p[o + v * 3 + runAxis]! - runMin;
+        this.run[ri + 1] = runLen;
+      }
     }
     // split along the diagonal joining the brighter pair
     this.flip[this.quads] = a1 + a3 > a0 + a2 ? 1 : 0;
@@ -164,19 +191,19 @@ export class QuadBuilder {
   }
 
   /** Wall facing +X/-X at plane x, spanning y and z ranges. */
-  wallX(x: number, ya: number, yb: number, za: number, zb: number, positive: boolean, mat: number, contact = false): void {
+  wallX(x: number, ya: number, yb: number, za: number, zb: number, positive: boolean, mat: number, contact = false, tint = 0): void {
     const s = ya === 0 ? BOTTOM_SHADE : SIDE_SHADE;
     const c = contact ? 1 : 0;
-    if (positive) this.quad(x, ya, zb, x, ya, za, x, yb, za, x, yb, zb, 1, 0, 0, mat, s, AO_OPEN, yb, ya, c);
-    else this.quad(x, ya, za, x, ya, zb, x, yb, zb, x, yb, za, -1, 0, 0, mat, s, AO_OPEN, yb, ya, c);
+    if (positive) this.quad(x, ya, zb, x, ya, za, x, yb, za, x, yb, zb, 1, 0, 0, mat, s, AO_OPEN, yb, ya, c, -1, tint, 2, za, zb - za);
+    else this.quad(x, ya, za, x, ya, zb, x, yb, zb, x, yb, za, -1, 0, 0, mat, s, AO_OPEN, yb, ya, c, -1, tint, 2, za, zb - za);
   }
 
   /** Wall facing +Z/-Z at plane z, spanning x and y ranges. */
-  wallZ(z: number, ya: number, yb: number, xa: number, xb: number, positive: boolean, mat: number, contact = false): void {
+  wallZ(z: number, ya: number, yb: number, xa: number, xb: number, positive: boolean, mat: number, contact = false, tint = 0): void {
     const s = ya === 0 ? BOTTOM_SHADE : SIDE_SHADE;
     const c = contact ? 1 : 0;
-    if (positive) this.quad(xa, ya, z, xb, ya, z, xb, yb, z, xa, yb, z, 0, 0, 1, mat, s, AO_OPEN, yb, ya, c);
-    else this.quad(xb, ya, z, xa, ya, z, xa, yb, z, xb, yb, z, 0, 0, -1, mat, s, AO_OPEN, yb, ya, c);
+    if (positive) this.quad(xa, ya, z, xb, ya, z, xb, yb, z, xa, yb, z, 0, 0, 1, mat, s, AO_OPEN, yb, ya, c, -1, tint, 0, xa, xb - xa);
+    else this.quad(xb, ya, z, xa, ya, z, xa, yb, z, xb, yb, z, 0, 0, -1, mat, s, AO_OPEN, yb, ya, c, -1, tint, 0, xa, xb - xa);
   }
 
   /** Axis-aligned box in metres; sides and top always, bottom optional. */
@@ -193,7 +220,16 @@ export class QuadBuilder {
     this.wallZ(za, ya, yb, xa, xb, false, mat);
   }
 
-  build(): ChunkMesh {
+  build(): ChunkMesh & { runs: Float32Array } {
+    return this.finish(true) as ChunkMesh & { runs: Float32Array };
+  }
+
+  /** Like build, without the (all-zero) run attribute: for meshes that carry no coarse walls. */
+  buildNoRuns(): ChunkMesh {
+    return this.finish(false);
+  }
+
+  private finish(withRuns: boolean): ChunkMesh {
     const q = this.quads;
     const indices = new Uint32Array(q * 6);
     for (let i = 0; i < q; i++) {
@@ -212,6 +248,7 @@ export class QuadBuilder {
       normals: this.nor.slice(0, q * 12),
       colors: this.col.slice(0, q * 12),
       walls: this.wal.slice(0, q * 16),
+      ...(withRuns ? { runs: this.run.slice(0, q * 8) } : {}),
       indices,
     };
   }
@@ -271,7 +308,7 @@ function meshTops(
       const sh = cells[PLANE * F_STRUCT_H + i]!;
       let mat: number;
       if (sh > 0) {
-        mat = cells[PLANE * F_ROOF_MAT + i]! || cells[PLANE * F_STRUCT_MAT + i]! || cells[i]!;
+        mat = cells[PLANE * F_ROOF_MAT + i]! || structMat(cells[PLANE * F_STRUCT_MAT + i]!) || cells[i]!;
       } else {
         mat = cells[PLANE * F_GROUND_MAT + i]!;
       }
@@ -331,11 +368,13 @@ function meshSides(
       let runY0 = 0;
       let runY1 = 0;
       let runMat = 0;
+      let runTint = 0;
       let runContact = false;
       for (let bi = 0; bi <= CHUNK; bi++) {
         let y0 = 0;
         let y1 = 0;
         let mat = 0;
+        let tint = 0;
         let contact = false;
         if (bi < CHUNK) {
           const cx = alongX ? x0 + bi : x0 + a;
@@ -361,24 +400,26 @@ function meshSides(
           } else {
             y0 = Math.max(nTop, gh);
             y1 = top;
-            mat = cells[PLANE * F_STRUCT_MAT + i]! || soilFor(gm);
+            const raw = cells[PLANE * F_STRUCT_MAT + i]!;
+            mat = structMat(raw) || soilFor(gm);
+            tint = structTint(raw);
           }
           if (y1 <= y0) y1 = y0 = 0;
           // the wall base rests on the neighbouring column's top (AO darkens this edge in the shader)
           contact = y0 > 0 && y0 === nTop;
         }
         const continues =
-          runStart >= 0 && y1 > y0 && y0 === runY0 && y1 === runY1 && mat === runMat && contact === runContact;
+          runStart >= 0 && y1 > y0 && y0 === runY0 && y1 === runY1 && mat === runMat && tint === runTint && contact === runContact;
         if (!continues) {
           if (runStart >= 0) {
             const ya = runY0 * VOXEL;
             const yb = runY1 * VOXEL;
             if (alongX) {
               const z = (z0 + a + (positive ? 1 : 0)) * VOXEL;
-              b.wallZ(z, ya, yb, (x0 + runStart) * VOXEL, (x0 + bi) * VOXEL, positive, runMat, runContact);
+              b.wallZ(z, ya, yb, (x0 + runStart) * VOXEL, (x0 + bi) * VOXEL, positive, runMat, runContact, runTint);
             } else {
               const x = (x0 + a + (positive ? 1 : 0)) * VOXEL;
-              b.wallX(x, ya, yb, (z0 + runStart) * VOXEL, (z0 + bi) * VOXEL, positive, runMat, runContact);
+              b.wallX(x, ya, yb, (z0 + runStart) * VOXEL, (z0 + bi) * VOXEL, positive, runMat, runContact, runTint);
             }
             runStart = -1;
           }
@@ -387,6 +428,7 @@ function meshSides(
             runY0 = y0;
             runY1 = y1;
             runMat = mat;
+            runTint = tint;
             runContact = contact;
           }
         }
@@ -545,4 +587,24 @@ export function meshChunk(region: RegionData, cx: number, cz: number, edges?: Re
   meshSides(b, region.cells, x0, z0, edges, 1);
   meshFeatures(b, region, x0, z0);
   return { ...b.build(), water: meshWater(region.cells, x0, z0, edges), groundIndexCount };
+}
+
+/**
+ * Roofs and walls of the structure cells of one chunk of a REGION-sized `cells` array (the chunk at cell
+ * origin x0, z0 with at least one valid cell of margin on every side), as the coarse mesher would emit
+ * them. Positions are relative to the chunk. The block job uses this for buildings that stay coarse
+ * inside a block-tier chunk (see src/fine/generate.ts).
+ */
+export function meshStructureChunk(cells: Uint8Array, x0: number, z0: number): ChunkMesh & { runs: Float32Array } {
+  const b = new QuadBuilder();
+  meshTops(b, cells, x0, z0, undefined, true);
+  meshSides(b, cells, x0, z0, undefined, 1);
+  const m = b.build();
+  const p = m.positions;
+  const ox = x0 * VOXEL, oz = z0 * VOXEL;
+  for (let i = 0; i < p.length; i += 3) {
+    p[i] = p[i]! - ox;
+    p[i + 2] = p[i + 2]! - oz;
+  }
+  return m;
 }

@@ -139,7 +139,7 @@ describe('block mesher', () => {
     const tris = m.indices.length / 3;
     // eslint-disable-next-line no-console
     console.log(`khrushchevka 60x12x5: ${tris} triangles`);
-    expect(tris).toBeLessThanOrEqual(4000);
+    expect(tris).toBeLessThanOrEqual(3800); // 3962 before the AO-bilinear merge + three-cover greedy (see blocks.ts)
     expect(tris).toBeGreaterThan(500);
   });
 

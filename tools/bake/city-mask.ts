@@ -54,10 +54,13 @@ export function buildCityMask(rings: readonly (readonly Pt[])[], cellsX: number,
 
 /**
  * Ground areas (see groundClass) that are natural land cover and so stay outside the city:
- * forest, wood, scrub, sand and beach. Everything else (industrial, parks, plazas, ...) is dropped there.
+ * forest, wood, scrub, sand, beach, wetland and meadow. Everything else (industrial, parks, plazas, ...) is dropped there.
  */
 export function keepOutsideGround(t: Tags): boolean {
-  return t.landuse === "forest" || t.natural === "wood" || t.natural === "scrub" || t.natural === "beach" || t.natural === "sand";
+  return (
+    t.landuse === "forest" || t.natural === "wood" || t.natural === "scrub" || t.natural === "beach" || t.natural === "sand" ||
+    t.natural === "wetland" || t.natural === "heath" || t.landuse === "meadow"
+  );
 }
 
 /** Mean of the ring vertices, the building anchor used for the in/out decision. */

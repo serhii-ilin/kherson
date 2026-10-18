@@ -4,7 +4,7 @@ import { MAT } from '../src/world/materials.ts';
 
 describe('prop models', () => {
   it('every kind builds for variants 0..2', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop = buildProp(kind, variant);
@@ -21,7 +21,7 @@ describe('prop models', () => {
   });
 
   it('array lengths are consistent', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop = buildProp(kind, variant);
@@ -51,7 +51,7 @@ describe('prop models', () => {
   });
 
   it('triangle bounds: each prop <= 400 triangles', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop = buildProp(kind, variant);
@@ -104,7 +104,7 @@ describe('prop models', () => {
   });
 
   it('all normals are unit length and axis aligned', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop = buildProp(kind, variant);
@@ -127,7 +127,7 @@ describe('prop models', () => {
   });
 
   it('triangle winding: cross product matches stored normal', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop = buildProp(kind, variant);
@@ -160,7 +160,7 @@ describe('prop models', () => {
   });
 
   it('deterministic: building twice gives identical arrays', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop1 = buildProp(kind, variant);
@@ -191,7 +191,7 @@ describe('prop models', () => {
   });
 
   it('no face with normal (0, -1, 0) lies at y = 0', () => {
-    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE];
+    const kinds = [PROP.LAMP, PROP.TRAFFIC_LIGHT, PROP.BUS_SHELTER, PROP.BENCH, PROP.BIN, PROP.BOLLARD, PROP.FENCE, PROP.SIGN_POST];
     for (const kind of kinds) {
       for (let variant = 0; variant < 3; variant++) {
         const prop = buildProp(kind, variant);

@@ -42,6 +42,8 @@ const MAX_REGIONS = 24;
 const MAX_JOBS = 8;
 const MAX_JOBS_PER_WORKER = 2;
 const MAX_FETCHES = 4;
+/** Metres the coarse ground sinks under an installed fine ground chunk (below the ~2 m water surface). */
+const GROUND_SINK = 3;
 const HYSTERESIS = 64;
 const RETRY_MS = 10000;
 const DEFAULT_GROUND_H = 2;
@@ -118,6 +120,8 @@ export class WorldStreamer {
   private readonly groundHidden = new Set<number>();
   /** Chunk keys whose structures (walls, roofs, bridge decks) are replaced by the block tier. */
   private readonly structuresHidden = new Set<number>();
+  /** Chunk keys whose coarse ground is sunk below the fine ground (kept only as a crack backing). */
+  private readonly groundSunk = new Set<number>();
   /** All coarse chunk meshes: one BatchedMesh, i.e. one draw call per pass. */
   private readonly batch: ChunkBatch;
   /** Tessellated water of all chunks (world-space positions): one more draw call. */
@@ -227,6 +231,15 @@ export class WorldStreamer {
     return h === UNKNOWN ? null : h;
   }
 
+  /**
+   * Bare terrain: neither building structures nor the coarse bridge decks. Used where the block tier
+   * supplies its own 1 m decks and railings.
+   */
+  terrainHeightAt(x: number, z: number): number | null {
+    const h = this.sample(x, z, undefined, true, true);
+    return h === UNKNOWN ? null : h;
+  }
+
   isWater(x: number, z: number, refY?: number): boolean {
     return this.sample(x, z, refY, false) !== UNKNOWN && this.sampleWater;
   }
@@ -269,6 +282,19 @@ export class WorldStreamer {
     if (c !== undefined && c.meshed) this.applyVisibility(c);
   }
 
+  /**
+   * Sinks (or restores) the coarse ground of a chunk by GROUND_SINK metres. The fine ground drawn over it
+   * is lowered at shores, so the coarse land column must not poke above it; it stays as a backing so
+   * hairline cracks in the fine mesh never show the sky. Remembered for chunks meshed later.
+   */
+  setGroundSunk(gcx: number, gcz: number, sunk: boolean): void {
+    const key = chunkKey(gcx, gcz);
+    if (sunk) this.groundSunk.add(key);
+    else this.groundSunk.delete(key);
+    const c = this.chunks.get(key);
+    if (c !== undefined && c.meshed) this.applyVisibility(c);
+  }
+
   isGroundHidden(gcx: number, gcz: number): boolean {
     return this.groundHidden.has(chunkKey(gcx, gcz));
   }
@@ -291,7 +317,10 @@ export class WorldStreamer {
   }
 
   private applyVisibility(c: Chunk): void {
-    if (c.ground !== null) this.batch.setVisible(c.ground, !this.groundHidden.has(c.key));
+    if (c.ground !== null) {
+      this.batch.setVisible(c.ground, !this.groundHidden.has(c.key));
+      this.batch.setOffsetY(c.ground, this.groundSunk.has(c.key) ? -GROUND_SINK : 0);
+    }
     if (c.structs !== null) this.batch.setVisible(c.structs, !this.structuresHidden.has(c.key));
   }
 
@@ -313,7 +342,7 @@ export class WorldStreamer {
   // ---------------------------------------------------------------- sampling
 
   /** Returns UNKNOWN (-1) when not loaded; sets sampleWater. */
-  private sample(x: number, z: number, refY: number | undefined, noStructures: boolean): number {
+  private sample(x: number, z: number, refY: number | undefined, noStructures: boolean, noDecks = false): number {
     this.sampleWater = false;
     if (x < 0 || z < 0) return UNKNOWN;
     const rx = Math.floor(x / REGION_M);
@@ -334,7 +363,7 @@ export class WorldStreamer {
     const gh = cells[PLANE * F_GROUND_H + i]!;
     const sh = cells[PLANE * F_STRUCT_H + i]!;
     const base = (noStructures ? gh : gh + sh) * VOXEL;
-    const deck = e.decks !== null ? e.decks.get(i) : undefined;
+    const deck = e.decks !== null && !noDecks ? e.decks.get(i) : undefined;
     if (deck !== undefined) {
       const top = deck * VOXEL;
       if (refY === undefined || top <= refY) return top > base ? top : base;
@@ -687,6 +716,7 @@ export class WorldStreamer {
     g.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     g.setAttribute('color', new THREE.BufferAttribute(mesh.colors, 3));
     g.setAttribute('aWall', new THREE.BufferAttribute(mesh.walls, 4));
+    g.setAttribute('aRun', new THREE.BufferAttribute(mesh.runs ?? new Float32Array((mesh.positions.length / 3) * 2), 2));
     g.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     g.computeBoundingSphere();
     return g;
@@ -702,6 +732,8 @@ export class WorldStreamer {
     // ground quads come first (see meshChunk): split the vertex/index arrays at the ground quad count
     const gq = mesh.groundIndexCount / 6;
     const totalQ = mesh.positions.length / 12;
+    // every geometry of the batch carries the same attributes: meshes without runs get zeros
+    const runs = mesh.runs ?? new Float32Array(totalQ * 8);
     const ox = entry.rx * REGION_M;
     const oz = entry.rz * REGION_M;
     if (gq > 0) {
@@ -711,6 +743,7 @@ export class WorldStreamer {
           normal: [mesh.normals.subarray(0, gq * 12), 3],
           color: [mesh.colors.subarray(0, gq * 12), 3],
           aWall: [mesh.walls.subarray(0, gq * 16), 4],
+          aRun: [runs.subarray(0, gq * 8), 2],
         },
         indices: mesh.indices.subarray(0, gq * 6),
       }, ox, oz);
@@ -725,6 +758,7 @@ export class WorldStreamer {
           normal: [mesh.normals.subarray(gq * 12), 3],
           color: [mesh.colors.subarray(gq * 12), 3],
           aWall: [mesh.walls.subarray(gq * 16), 4],
+          aRun: [runs.subarray(gq * 8), 2],
         },
         indices: idx,
       }, ox, oz);

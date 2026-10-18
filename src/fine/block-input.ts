@@ -4,7 +4,7 @@
  * (voxels, 0 = none). The margin lets every chunk sample the ground over whole buildings, so all the
  * chunks that see a building agree on its base level (up to buildings reaching past the margin).
  */
-import { CHUNK, F_GROUND_H, F_GROUND_MAT, REGION, VOXEL } from '../world/constants.ts';
+import { CHUNK, F_GROUND_H, F_GROUND_MAT, F_ROOF_MAT, F_STRUCT_H, F_STRUCT_MAT, REGION, VOXEL } from '../world/constants.ts';
 import { FEATURE_BRIDGE_DECK, type Feature, type RegionData } from '../world/format.ts';
 import { MAT } from '../world/materials.ts';
 
@@ -14,6 +14,12 @@ export const GPLANE = GW * GW;
 export const G_GH = 0;
 export const G_MAT = 1;
 export const G_DECK = 2;
+/** Coarse structure planes (building height in voxels, raw wall byte with tint, roof material), for the
+ * block job's 2 m fallback of buildings that stay coarse (see generate.ts). */
+export const G_SH = 3;
+export const G_SMAT = 4;
+export const G_RMAT = 5;
+export const G_PLANES = 6;
 
 const EMPTY_GROUND_H = 2;
 const REGION_PLANE = REGION * REGION;
@@ -37,7 +43,7 @@ export function buildBlockInput(
   gcx: number, gcz: number, regionsX: number, regionsZ: number,
   getRegion: (rx: number, rz: number) => RegionData | null | undefined,
 ): Uint8Array | null {
-  const out = new Uint8Array(3 * GPLANE);
+  const out = new Uint8Array(G_PLANES * GPLANE);
   const maxX = regionsX * REGION - 1;
   const maxZ = regionsZ * REGION - 1;
   const cx0 = gcx * CHUNK - GM;
@@ -67,6 +73,9 @@ export function buildBlockInput(
         const i = lz * REGION + (cx - rx * REGION);
         out[G_GH * GPLANE + o] = region.cells[REGION_PLANE * F_GROUND_H + i]!;
         out[G_MAT * GPLANE + o] = region.cells[REGION_PLANE * F_GROUND_MAT + i]!;
+        out[G_SH * GPLANE + o] = region.cells[REGION_PLANE * F_STRUCT_H + i]!;
+        out[G_SMAT * GPLANE + o] = region.cells[REGION_PLANE * F_STRUCT_MAT + i]!;
+        out[G_RMAT * GPLANE + o] = region.cells[REGION_PLANE * F_ROOF_MAT + i]!;
       }
     }
   }

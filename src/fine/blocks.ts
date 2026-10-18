@@ -30,6 +30,8 @@ export class BlockWindow {
   readonly mats = new Uint8Array(BLOCK_WIN * BLOCK_WIN * VOL_Y);
   /** 1 on columns inside a building footprint (see addBuildings). */
   readonly foot = new Uint8Array(BLOCK_WIN * BLOCK_WIN);
+  /** Per-building tint 0..3 of the building on each footprint column (see buildings.ts buildingTint). */
+  readonly tint = new Uint8Array(BLOCK_WIN * BLOCK_WIN);
 
   constructor(chunkX0: number, chunkZ0: number) {
     this.x0 = chunkX0 - BLOCK_PAD;
@@ -43,6 +45,7 @@ export class BlockWindow {
     (this as { z0: number }).z0 = chunkZ0 - BLOCK_PAD;
     this.mats.fill(0);
     this.foot.fill(0);
+    this.tint.fill(0);
   }
 
   get(wx: number, y: number, wz: number): number {
@@ -68,8 +71,11 @@ function isWallMat(m: number): boolean {
 /**
  * Greedy-meshes the inner (size - 2*pad)^2 columns of `mats` (a size x size x VOL_Y block array).
  * `groundY` (optional, size*size, metres) marks the terrain: bottom faces at or below it are not emitted.
+ * `tints` (optional, size*size) gives each wall column's per-building tint 0..3 (bits 28..29 of the merge key).
  */
-export function meshBlocks(mats: Uint8Array, size: number, pad: number, groundY?: Uint8Array): ChunkMesh {
+export function meshBlocks(
+  mats: Uint8Array, size: number, pad: number, groundY?: Uint8Array, tints?: Uint8Array,
+): ChunkMesh {
   const S = size;
   const S2 = S * S;
   const lo = pad;
@@ -89,7 +95,7 @@ export function meshBlocks(mats: Uint8Array, size: number, pad: number, groundY?
     }
   }
   const b = new QuadBuilder();
-  if (ymax === 0) return b.build();
+  if (ymax === 0) return b.buildNoRuns();
 
   const occ = (x: number, y: number, z: number): number => {
     if (y < 0 || y >= VOL_Y || x < 0 || x >= S || z < 0 || z >= S) return 0;
@@ -100,6 +106,10 @@ export function meshBlocks(mats: Uint8Array, size: number, pad: number, groundY?
   const rangeLo = [lo, 0, lo];
   const rangeHi = [hi, ymax, hi];
   const mask = new Int32Array(Math.max(n, ymax) * Math.max(n, ymax));
+  const mask2 = new Int32Array(mask.length);
+  const rects: number[] = [];
+  const rects2: number[] = [];
+  const rects3: number[] = [];
   const c3 = [0, 0, 0];
   const t1 = [0, 0, 0];
   const t2 = [0, 0, 0];
@@ -163,7 +173,7 @@ export function meshBlocks(mats: Uint8Array, size: number, pad: number, groundY?
                     if ((occ(nx + tu, ny + tv, nz + tw) && occ(nx - tu, ny - tv, nz - tw)) ||
                       (occ(nx + su, ny + sv, nz + sw) && occ(nx - su, ny - sv, nz - sw))) rmask = 1;
                   }
-                  key = m | (ao << 8) | (base << 16) | (rmask << 24);
+                  key = m | (ao << 8) | (base << 16) | (rmask << 24) | (isWallMat(m) && tints !== undefined ? tints[c3[2]! * S + c3[0]!]! << 28 : 0);
                   any = true;
                 }
               }
@@ -172,32 +182,143 @@ export function meshBlocks(mats: Uint8Array, size: number, pad: number, groundY?
           }
         }
         if (!any) continue;
-        // greedy rectangles
-        for (let v = 0; v < nv; v++) {
-          for (let u = 0; u < nu; u++) {
-            const k = mask[v * nu + u]!;
-            if (k === 0) continue;
-            const ao = (k >> 8) & 255;
-            const a00 = ao & 3, a10 = (ao >> 2) & 3, a11 = (ao >> 4) & 3, a01 = (ao >> 6) & 3;
-            const alongU = a00 === a10 && a01 === a11;
-            const alongV = a00 === a01 && a10 === a11;
-            let w = 1;
-            if (alongU) while (u + w < nu && mask[v * nu + u + w] === k) w++;
-            let h = 1;
-            if (alongV) {
-              outer: while (v + h < nv) {
-                for (let i = 0; i < w; i++) if (mask[(v + h) * nu + u + i] !== k) break outer;
-                h++;
-              }
-            }
-            for (let j = 0; j < h; j++) mask.fill(0, (v + j) * nu + u, (v + j) * nu + u + w);
-            emit(b, a, sg, ca - (a === 1 ? 0 : pad), rangeLo[ta]! - (ta === 1 ? 0 : pad) + u, rangeLo[tb]! - (tb === 1 ? 0 : pad) + v, w, h, k);
-          }
+        // Three covers, the one with the fewest quads wins: row-first, column-first, and "long runs first"
+        // (strips of >= LONG_RUN cells along either axis are cut before the short pieces, so a facade's
+        // floor slabs stay single strips instead of being chopped by the window piers).
+        rects.length = 0;
+        mask2.set(mask.subarray(0, nu * nv));
+        let best = rects;
+        let bestN = greedy(mask2, nu, nv, false, rects);
+        rects2.length = 0;
+        mask2.set(mask.subarray(0, nu * nv));
+        const nV = greedy(mask2, nu, nv, true, rects2);
+        if (nV < bestN) { best = rects2; bestN = nV; }
+        rects3.length = 0;
+        mask2.set(mask.subarray(0, nu * nv));
+        let nL = greedy(mask2, nu, nv, false, rects3, LONG_RUN);
+        nL += greedy(mask2, nu, nv, true, rects3, LONG_RUN);
+        nL += greedy(mask2, nu, nv, false, rects3);
+        if (nL < bestN) best = rects3;
+        for (let r = 0; r < best.length; r += 5) {
+          const u = best[r]!, v = best[r + 1]!, w = best[r + 2]!, h = best[r + 3]!;
+          emit(b, a, sg, ca - (a === 1 ? 0 : pad), rangeLo[ta]! - (ta === 1 ? 0 : pad) + u, rangeLo[tb]! - (tb === 1 ? 0 : pad) + v, w, h, best[r + 4]!);
         }
       }
     }
   }
-  return b.build();
+  return b.buildNoRuns();
+}
+
+/**
+ * Greedy rectangle cover of a nu x nv key mask (consumed). Cells merge when everything but the AO
+ * matches and the cells' corner AO is exactly the bilinear surface of the rectangle's four outer corners
+ * (a constant AO is the common case; a linear ramp such as a roof edge shading off merges too), so the
+ * merged quad shades identically to its cells. `vFirst` extends along v before u. Appends
+ * [u, v, w, h, key-with-merged-AO] per rectangle to `out` and returns the rectangle count. Rectangles
+ * shorter than `minLen` along the first axis are skipped (left in the mask for a later pass).
+ */
+function greedy(mask: Int32Array, nu: number, nv: number, vFirst: boolean, out: number[], minLen = 1): number {
+  let count = 0;
+  for (let v = 0; v < nv; v++) {
+    for (let u = 0; u < nu; u++) {
+      const k = mask[v * nu + u]!;
+      if (k === 0) continue;
+      // a start cell with four equal corner levels merges with any identical cell without a check
+      const ao0 = (k >> 8) & 255;
+      const flat0 = ao0 === (ao0 & 3) * 0x55;
+      let w = 1;
+      let h = 1;
+      if (!vFirst) {
+        while (u + w < nu) {
+          const n = mask[v * nu + u + w]!;
+          if (!sameKey(n, k)) break;
+          if (!(flat0 && ((n >> 8) & 255) === ao0) && !aoBilinear(mask, nu, u, v, w + 1, 1)) break;
+          w++;
+        }
+        outer: while (v + h < nv) {
+          let rowSame = true;
+          for (let i = 0; i < w; i++) {
+            const n = mask[(v + h) * nu + u + i]!;
+            if (!sameKey(n, k)) break outer;
+            if (((n >> 8) & 255) !== ao0) rowSame = false;
+          }
+          if (!(flat0 && rowSame) && !aoBilinear(mask, nu, u, v, w, h + 1)) break;
+          h++;
+        }
+      } else {
+        while (v + h < nv) {
+          const n = mask[(v + h) * nu + u]!;
+          if (!sameKey(n, k)) break;
+          if (!(flat0 && ((n >> 8) & 255) === ao0) && !aoBilinear(mask, nu, u, v, 1, h + 1)) break;
+          h++;
+        }
+        outer2: while (u + w < nu) {
+          let colSame = true;
+          for (let j = 0; j < h; j++) {
+            const n = mask[(v + j) * nu + u + w]!;
+            if (!sameKey(n, k)) break outer2;
+            if (((n >> 8) & 255) !== ao0) colSame = false;
+          }
+          if (!(flat0 && colSame) && !aoBilinear(mask, nu, u, v, w + 1, h)) break;
+          w++;
+        }
+      }
+      if ((vFirst ? h : w) < minLen) continue;
+      const ao = rectAO(mask, nu, u, v, w, h);
+      for (let j = 0; j < h; j++) mask.fill(0, (v + j) * nu + u, (v + j) * nu + u + w);
+      out.push(u, v, w, h, (k & ~(255 << 8)) | (ao << 8));
+      count++;
+    }
+  }
+  return count;
+}
+
+const SMALL_FACE = 4;
+/** Strips at least this long (cells) are cut first by the long-runs cover. */
+const LONG_RUN = 8;
+
+/** True when two mask keys differ at most in their packed AO (bits 8..15). */
+function sameKey(a: number, b: number): boolean {
+  return b !== 0 && ((a ^ b) & ~(255 << 8)) === 0;
+}
+
+/** AO level (0..3) of corner `c` (0 = (u0,v0), 1 = (u1,v0), 2 = (u1,v1), 3 = (u0,v1)) of the mask cell at `i`. */
+function cornerAO(mask: Int32Array, i: number, c: number): number {
+  return (mask[i]! >> (8 + 2 * c)) & 3;
+}
+
+/**
+ * True when the w x h cells at (u, v) can be one quad: the AO level at every cell corner equals the
+ * bilinear interpolation of the rectangle's four outer corners (compared in integers, scaled by w*h).
+ */
+function aoBilinear(mask: Int32Array, nu: number, u: number, v: number, w: number, h: number): boolean {
+  if (w === 1 && h === 1) return true;
+  const c00 = cornerAO(mask, v * nu + u, 0);
+  const c10 = cornerAO(mask, v * nu + u + w - 1, 1);
+  const c11 = cornerAO(mask, (v + h - 1) * nu + u + w - 1, 2);
+  const c01 = cornerAO(mask, (v + h - 1) * nu + u, 3);
+  const wh = w * h;
+  const tol = wh <= SMALL_FACE ? wh : 0;
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const cell = (v + j) * nu + u + i;
+      for (let c = 0; c < 4; c++) {
+        const I = i + (c === 1 || c === 2 ? 1 : 0);
+        const J = j + (c >= 2 ? 1 : 0);
+        const want = c00 * (w - I) * (h - J) + c10 * I * (h - J) + c11 * I * J + c01 * (w - I) * J;
+        if (Math.abs(want - cornerAO(mask, cell, c) * wh) > tol) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/** Packed AO of the merged quad: the outer corners of the rectangle. */
+function rectAO(mask: Int32Array, nu: number, u: number, v: number, w: number, h: number): number {
+  return cornerAO(mask, v * nu + u, 0)
+    | (cornerAO(mask, v * nu + u + w - 1, 1) << 2)
+    | (cornerAO(mask, (v + h - 1) * nu + u + w - 1, 2) << 4)
+    | (cornerAO(mask, (v + h - 1) * nu + u, 3) << 6);
 }
 
 const P = [0, 0, 0];
@@ -208,6 +329,7 @@ function emit(b: QuadBuilder, a: number, sg: number, ca: number, cu: number, cv:
   const ao = (key >> 8) & 255;
   const base = (key >> 16) & 255;
   const rmask = (key >> 24) & 15;
+  const tint = (key >> 28) & 3;
   const ta = (a + 1) % 3, tb = (a + 2) % 3;
   const plane = sg > 0 ? ca + 1 : ca;
   // corners (u0,v0) (u1,v0) (u1,v1) (u0,v1)
@@ -240,39 +362,80 @@ function emit(b: QuadBuilder, a: number, sg: number, ca: number, cu: number, cv:
   }
   b.quad(
     xs[0]!, ys[0]!, zs[0]!, xs[1]!, ys[1]!, zs[1]!, xs[2]!, ys[2]!, zs[2]!, xs[3]!, ys[3]!, zs[3]!,
-    nx, ny, nz, mat, shade, packed, wTop, wBase, wContact, wMat,
+    nx, ny, nz, mat, shade, packed, wTop, wBase, wContact, wMat, tint,
   );
 }
 
+/** Physics rasters of a chunk's inner columns (row-major VOL_XZ x VOL_XZ, metres, 0 = none). */
+export interface ColumnPhysics {
+  /** Ground-supported surface: see {@link columnPhysics}. */
+  tops: Uint8Array;
+  /** Walkable top of a bridge deck that floats above the ground (walkers pass under it). */
+  decks: Uint8Array;
+  /** Bottom (= deck surface) of a 1 m bridge railing standing on a deck, 0 = none; railings are solid walls. */
+  rails: Uint8Array;
+}
+
 /**
- * Physics raster of the chunk's inner columns (row-major VOL_XZ x VOL_XZ, metres, 0 = none):
- *  - building footprint columns: the highest solid block + 1 (overhangs are part of the column);
- *  - other columns: the top of the solid run that starts at the ground (within 1 m of `groundY`), so
- *    piers and ramps count while balconies, canopies and bridge decks above open air do not.
+ * Physics rasters of the chunk's inner columns:
+ *  - `tops`, building footprint columns: the highest solid block + 1 (overhangs are part of the column);
+ *  - `tops`, other columns: the top of the solid run that starts at the ground (within 1 m of `groundY`),
+ *    so piers and ramps count while balconies and canopies above open air do not;
+ *  - `decks`: a run that starts higher above the ground but contains BRIDGE blocks is a bridge deck: its
+ *    walking surface (the highest non-METAL block + 1) goes here, so the 1 m deck replaces the coarse 2 m
+ *    one over water and the walker can still pass under it (FineWorld honours the walker's height);
+ *  - `rails`: METAL blocks capping a bridge run (the railings) are not walkable surface; their bottom is
+ *    recorded so they act as 1 m walls. Only runs containing BRIDGE count, so door canopies and
+ *    balcony rails (also METAL) never become solid or walkable.
  */
-export function columnTops(mats: Uint8Array, size: number, pad: number, foot: Uint8Array, groundY: Uint8Array): Uint8Array {
+export function columnPhysics(mats: Uint8Array, size: number, pad: number, foot: Uint8Array, groundY: Uint8Array): ColumnPhysics {
   const S2 = size * size;
   const n = size - 2 * pad;
-  const out = new Uint8Array(n * n);
+  const tops = new Uint8Array(n * n);
+  const decks = new Uint8Array(n * n);
+  const rails = new Uint8Array(n * n);
   for (let z = 0; z < n; z++) {
     for (let x = 0; x < n; x++) {
       const c = (z + pad) * size + x + pad;
-      let top = 0;
+      const o = z * n + x;
       if (foot[c] === 1) {
         for (let y = VOL_Y - 1; y >= 0; y--) {
-          if (mats[y * S2 + c] !== 0) { top = y + 1; break; }
+          if (mats[y * S2 + c] !== 0) { tops[o] = y + 1; break; }
         }
-      } else {
-        const g = groundY[c]!;
-        let y = 0;
+        continue;
+      }
+      const g = groundY[c]!;
+      let y = 0;
+      let firstRun = true;
+      while (y < VOL_Y) {
         while (y < VOL_Y && mats[y * S2 + c] === 0) y++;
-        if (y < VOL_Y && y <= g + 1) {
-          while (y < VOL_Y && mats[y * S2 + c] !== 0) y++;
-          top = y;
+        if (y >= VOL_Y) break;
+        const y0 = y;
+        let bridge = false;
+        let walk = 0; // top of the highest block that is not a railing cap
+        while (y < VOL_Y && mats[y * S2 + c] !== 0) {
+          const m = mats[y * S2 + c]!;
+          if (m === MAT.BRIDGE) bridge = true;
+          if (m !== MAT.METAL) walk = y + 1;
+          y++;
+        }
+        const grounded = firstRun && y0 <= g + 1;
+        firstRun = false;
+        if (bridge && walk > 0) {
+          const hasRail = y > walk;
+          if (grounded) tops[o] = walk;
+          else if (walk > decks[o]!) decks[o] = walk;
+          if (hasRail) rails[o] = walk;
+        } else if (grounded) {
+          tops[o] = y;
         }
       }
-      out[z * n + x] = top;
     }
   }
-  return out;
+  return { tops, decks, rails };
+}
+
+/** The ground-supported column tops of {@link columnPhysics}. */
+export function columnTops(mats: Uint8Array, size: number, pad: number, foot: Uint8Array, groundY: Uint8Array): Uint8Array {
+  return columnPhysics(mats, size, pad, foot, groundY).tops;
 }

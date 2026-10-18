@@ -23,6 +23,7 @@ const STRINGS = {
     north: 'Пн',
     failed: 'Не вдалося запустити',
     switchTo: 'Switch to English',
+    settings: 'Налаштування: час, якість, звук',
     mute: 'Вимкнути звук',
     unmute: 'Увімкнути звук',
     qualityHigh: 'Якість: висока (натисніть, щоб знизити)',
@@ -46,6 +47,7 @@ const STRINGS = {
     north: 'N',
     failed: 'Failed to start',
     switchTo: 'Перемкнути на українську',
+    settings: 'Settings: time, quality, sound',
     mute: 'Mute sound',
     unmute: 'Unmute sound',
     qualityHigh: 'Quality: high (click to lower)',
@@ -77,6 +79,8 @@ const KINDS: Record<string, { uk: string; en: string }> = {
   museum: { uk: 'музей', en: 'museum' },
   university: { uk: 'університет', en: 'university' },
   allotments: { uk: 'дачі', en: 'allotments' },
+  ferry_terminal: { uk: 'причал', en: 'pier' },
+  port: { uk: 'порт', en: 'port' },
 };
 
 const STORAGE_KEY = 'vk-lang';
@@ -167,6 +171,39 @@ export function createLangSwitcher(parent: HTMLElement): HTMLButtonElement {
   btn.addEventListener('click', () => setLang(current === 'uk' ? 'en' : 'uk'));
   onLangChange(render);
   render();
+  parent.appendChild(btn);
+  createSettingsButton(parent);
+  return btn;
+}
+
+const MENU_OPEN = 'vk-menu-open';
+
+/**
+ * "⚙" button, shown only on narrow screens (ui.css): there the time, quality and sound buttons are hidden
+ * and drop down as a vertical stack under it (body.vk-menu-open) so the top row fits 320 px.
+ */
+function createSettingsButton(parent: HTMLElement): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'vk-btn vk-settings';
+  btn.textContent = '⚙';
+  const set = (open: boolean): void => {
+    document.body.classList.toggle(MENU_OPEN, open);
+    btn.setAttribute('aria-expanded', String(open));
+  };
+  btn.addEventListener('click', () => set(!document.body.classList.contains(MENU_OPEN)));
+  // a tap anywhere else (the Places button, the world) folds the menu back up
+  document.addEventListener('click', (e) => {
+    const el = e.target as Element | null;
+    if (el !== null && el.closest('.vk-settings, .vk-time, .vk-quality, .vk-mute') === null) set(false);
+  });
+  const render = (): void => {
+    btn.title = t('settings');
+    btn.setAttribute('aria-label', t('settings'));
+  };
+  onLangChange(render);
+  render();
+  set(false);
   parent.appendChild(btn);
   return btn;
 }

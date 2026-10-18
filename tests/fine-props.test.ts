@@ -113,6 +113,23 @@ describe('props', () => {
     expect(Math.sign(l[0]!.x - 150)).toBe(-Math.sign(l[1]!.x - 150));
   });
 
+  it('traffic lights follow the OSM node dir, not the nearest road; NO_DIR falls back to the road', () => {
+    const t = street();
+    addRoad(t, [[150, 40], [150, 160]], ROAD.RESIDENTIAL, ROAD_SIDEWALK | ROAD_LIT, 6.5);
+    t.points.push({ x: 15000, z: 10000, kind: POINT.TRAFFIC_SIGNALS, dir: 64, name: -1 }); // axis +z (quarter turn)
+    const l = placeProps([t], B(0, 0, 300, 200), ground).filter((q) => q.kind === PROP.TRAFFIC_LIGHT);
+    expect(l.length).toBe(2);
+    for (const q of l) {
+      expect(Math.abs(Math.sin(q.yaw))).toBeLessThan(0.01); // faces along z
+      expect(Math.abs(q.z - 100)).toBeGreaterThan(3); // set back along z
+    }
+    // opposite corners, heads face each other's approach (one looks +z, the other -z)
+    expect(Math.sign(l[0]!.z - 100)).toBe(-Math.sign(l[1]!.z - 100));
+    expect(Math.sign(l[0]!.x - 150)).toBe(-Math.sign(l[1]!.x - 150));
+    expect(Math.sign(Math.cos(l[0]!.yaw))).toBe(-Math.sign(Math.cos(l[1]!.yaw)));
+    expect(Math.sign(Math.cos(l[0]!.yaw))).toBe(Math.sign(l[0]!.z - 100)); // faces the traffic approaching from its own side
+  });
+
   it('benches along park footways, fences along fence lines', () => {
     const t = tile();
     t.areas.push({ rings: [cm([[0, 0], [200, 0], [200, 60], [0, 60]])], mat: MAT.PARK, prio: 1 });
@@ -147,6 +164,40 @@ describe('shop signs', () => {
     expect(q.x + q.avail / 2).toBeLessThanOrEqual(60 + 1e-6);
     expect(q.y).toBeGreaterThan(4);
     expect(q.y).toBeLessThan(7);
+  });
+
+  it('a shop with no building within 25 m gets one free-standing post sign facing the road', () => {
+    const t = tile();
+    addBuilding(t, [[40, 200], [60, 200], [60, 210], [40, 210]]); // 100+ m away
+    addRoad(t, [[0, 36], [100, 36]], ROAD.RESIDENTIAL, ROAD_SIDEWALK);
+    addPoint(t, 50, 50, POINT.SHOP, 0);
+    const b = B(0, 0, 100, 100);
+    const signs = placeSigns([t], b, () => 2);
+    expect(signs.length).toBe(1);
+    const posts = placeProps([t], b, ground).filter((q) => q.kind === PROP.SIGN_POST);
+    expect(posts.length).toBe(1);
+    const post = posts[0]!, sg = signs[0]!;
+    // shop is on the +z side of the road: post on the sidewalk, plate faces -z (the road)
+    expect(post.z).toBeGreaterThan(36 + 3.25);
+    expect(post.z).toBeLessThan(36 + 6);
+    expect(sg.nz).toBeCloseTo(-1, 6);
+    expect(Math.abs(Math.sin(post.yaw))).toBeLessThan(1e-6);
+    expect(Math.cos(post.yaw)).toBeLessThan(0);
+    expect(Math.hypot(sg.x - post.x, sg.z - post.z)).toBeLessThan(0.2);
+    expect(sg.y).toBeGreaterThan(post.y + 1.5);
+    expect(sg.y).toBeLessThan(post.y + 3);
+  });
+
+  it('every shop gets exactly one sign, and a post only when no building is in range', () => {
+    const t = shopTile();
+    addPoint(t, 50, 100, POINT.SHOP, 0); // far from the building
+    addRoad(t, [[0, 96], [100, 96]], ROAD.RESIDENTIAL, 0);
+    const b = B(0, 0, 100, 150);
+    expect(placeSigns([t], b, () => 2).length).toBe(2);
+    expect(placeProps([t], b, ground).filter((q) => q.kind === PROP.SIGN_POST).length).toBe(1);
+    // chunk independence
+    const a = placeSigns([t], B(0, 0, 100, 75), () => 2), c = placeSigns([t], B(0, 75, 100, 150), () => 2);
+    expect(a.length + c.length).toBe(2);
   });
 
   it('is emitted by exactly one chunk', () => {

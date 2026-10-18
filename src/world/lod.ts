@@ -112,10 +112,10 @@ export function buildOverviewTile(
   }
   let water: ChunkMeshResult['water'] = null;
   if (wb.quads > 0) {
-    const m = wb.build();
+    const m = wb.buildNoRuns();
     water = { positions: m.positions, shore: new Float32Array(m.positions.length / 3).fill(1), indices: m.indices };
   }
-  const mesh = b.build();
+  const mesh = b.buildNoRuns();
   return { ...mesh, water, groundIndexCount: mesh.indices.length };
 }
 

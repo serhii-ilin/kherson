@@ -490,9 +490,15 @@ function placeTrafficLights(c: Ctx): void {
     if (near !== null) {
       tx = near.hit.tx; tz = near.hit.tz; half = near.r.half; px = near.hit.px; pz = near.hit.pz;
     } else if (p.dir !== NO_DIR) {
-      const a = (p.dir / 256) * Math.PI * 2;
-      tx = Math.cos(a); tz = Math.sin(a); half = 3.5;
+      half = 3.5;
+      tx = 0; tz = 0;
     } else continue;
+    if (p.dir !== NO_DIR) {
+      // the OSM node direction (road axis at the signal, 256ths of a turn) wins over the nearest road's
+      // tangent, which at a junction may belong to the cross street
+      const a = (p.dir / 256) * Math.PI * 2;
+      tx = Math.cos(a); tz = Math.sin(a);
+    }
     const rx = -tz, rz = tx; // right-hand side of traffic heading +t
     const back = 4, off = half + 0.6;
     const spots: [number, number, number, number][] = [
@@ -503,6 +509,72 @@ function placeTrafficLights(c: Ctx): void {
       if (c.blocked(x, z) || c.buildingDist(x, z) < 0.3) continue;
       c.add(PROP.TRAFFIC_LIGHT, x, z, yawOf(dx, dz));
     }
+  }
+}
+
+/** A free-standing shop sign: post position, unit direction the plate faces (towards the road), kerb step. */
+export interface PostSpot {
+  x: number;
+  z: number;
+  nx: number;
+  nz: number;
+  /** True on a raised sidewalk band (+KERB_CM), as Ctx.surfaceY. */
+  raised: boolean;
+}
+
+/** Shops with no building within this distance (m) get a post instead of a wall sign (see sign-place.ts). */
+export const SIGN_BUILDING_RANGE = 25;
+const POST_ROAD_RANGE = 40;
+
+/**
+ * Where the free-standing sign of shop `p` stands, or null when it has a building within
+ * SIGN_BUILDING_RANGE (it gets a wall sign) or no free spot exists. Pure world data, so the post prop
+ * (placeProps) and the sign quad (placeSigns) agree. The post stands on the sidewalk of the nearest
+ * drivable road, on the shop's side, opposite the shop point; the plate faces the road.
+ */
+export function shopPostSpot(w: PropWorld, p: WPoint): PostSpot | null {
+  const L = SIGN_BUILDING_RANGE;
+  for (const b of w.buildings) {
+    if (p.x < b.bx0 - L || p.x > b.bx1 + L || p.z < b.bz0 - L || p.z > b.bz1 + L) continue;
+    if (polyDist(b, p.x, p.z) <= L) return null;
+  }
+  const h = newHit();
+  let best: WRoad | null = null;
+  const bh = newHit();
+  for (const r of w.veh) {
+    if (p.x < r.bx0 - POST_ROAD_RANGE || p.x > r.bx1 + POST_ROAD_RANGE || p.z < r.bz0 - POST_ROAD_RANGE || p.z > r.bz1 + POST_ROAD_RANGE) continue;
+    closest(r, p.x, p.z, h);
+    if (h.d <= POST_ROAD_RANGE && (best === null || h.d < bh.d)) { best = r; Object.assign(bh, h); }
+  }
+  if (best === null) return null;
+  const cross = bh.tx * (p.z - bh.pz) - bh.tz * (p.x - bh.px);
+  const first = Math.abs(cross) < 0.3 ? (posHash(p.x, p.z, 11) & 1 ? 1 : -1) : cross > 0 ? 1 : -1;
+  const off = best.half + 1.2;
+  for (const side of [first, -first]) {
+    const nx = -bh.tz * side, nz = bh.tx * side; // from the road towards the post
+    const x = bh.px + nx * off, z = bh.pz + nz * off;
+    let bad = false;
+    for (const b of w.buildings) {
+      if (x < b.bx0 - 0.4 || x > b.bx1 + 0.4 || z < b.bz0 - 0.4 || z > b.bz1 + 0.4) continue;
+      if (polyDist(b, x, z) < 0.4) { bad = true; break; }
+    }
+    if (bad) continue;
+    for (const r of w.veh) {
+      if (r === best || x < r.bx0 - r.half || x > r.bx1 + r.half || z < r.bz0 - r.half || z > r.bz1 + r.half) continue;
+      if (closest(r, x, z, h).d < r.half + 0.3) { bad = true; break; }
+    }
+    if (bad) continue;
+    return { x, z, nx: -nx, nz: -nz, raised: (best.flags & ROAD_SIDEWALK) !== 0 && best.kind !== ROAD.TRACK };
+  }
+  return null;
+}
+
+function placeSignPosts(c: Ctx): void {
+  for (const p of c.w.points) {
+    if (p.kind !== POINT.SHOP || p.name < 0 || (p.tile.strings[p.name] ?? '') === '' || !c.inBounds(p.x, p.z)) continue;
+    const s = shopPostSpot(c.w, p);
+    if (s === null) continue;
+    c.add(PROP.SIGN_POST, s.x, s.z, yawOf(s.nx, s.nz), c.g.groundAt(s.x, s.z) + (s.raised ? KERB_CM / 100 : 0));
   }
 }
 
@@ -590,6 +662,7 @@ export function placeProps(tiles: readonly VectorTile[], bounds: Bounds, ground:
   const c = new Ctx(w, bounds, ground);
   placeLamps(c);
   placeTrafficLights(c);
+  placeSignPosts(c);
   placeBusStops(c);
   placeBenches(c);
   placeFences(c);

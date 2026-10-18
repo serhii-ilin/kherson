@@ -72,6 +72,35 @@ function meshTops(b: QuadBuilder, g: FineGrid): void {
   }
 }
 
+/** Height (m) above a bridge deck top at which deck markings float: clear of z-fighting, invisible as a gap. */
+export const DECK_MARK_LIFT = 0.015;
+
+/** Marking quads lying on 1 m bridge decks (FineGrid.deckH), greedy-merged per equal deck height. */
+function meshDeckMarks(b: QuadBuilder, g: FineGrid): void {
+  const dh = g.deckH;
+  if (dh === null) return;
+  for (let i = 0; i < FINE_N * FINE_N; i++) used[i] = dh[i] === 0 ? 1 : 0;
+  for (let cz = 0; cz < FINE_N; cz++) {
+    for (let cx = 0; cx < FINE_N; cx++) {
+      const s = cz * FINE_N + cx;
+      if (used[s]) continue;
+      const key = dh[s]!;
+      let w = 1;
+      while (cx + w < FINE_N && !used[s + w] && dh[s + w] === key) w++;
+      let h = 1;
+      outer: while (cz + h < FINE_N) {
+        const row = s + h * FINE_N;
+        for (let k = 0; k < w; k++) {
+          if (used[row + k] || dh[row + k] !== key) break outer;
+        }
+        h++;
+      }
+      for (let dz = 0; dz < h; dz++) used.fill(1, s + dz * FINE_N, s + dz * FINE_N + w);
+      b.top(cx * FINE_CELL, (cx + w) * FINE_CELL, key / 100 + DECK_MARK_LIFT, cz * FINE_CELL, (cz + h) * FINE_CELL, MAT.MARKING, 255);
+    }
+  }
+}
+
 // result of faceFor()
 let fy0 = 0;
 let fy1 = 0;
@@ -154,7 +183,8 @@ export function meshFineGround(g: FineGrid, patch: Uint8Array): FineMesh {
   const b = new QuadBuilder();
   meshTops(b, g);
   meshSides(b, g, patch);
+  meshDeckMarks(b, g);
   const raster = new Uint16Array(FINE_N * FINE_N);
   for (let i = 0; i < raster.length; i++) raster[i] = g.mat[i] === 0 ? NO_GROUND : g.hcm[i]!;
-  return { ...b.build(), raster };
+  return { ...b.buildNoRuns(), raster };
 }

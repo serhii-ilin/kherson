@@ -50,6 +50,7 @@ scope.onmessage = (e) => {
     mesh.normals.buffer,
     mesh.colors.buffer,
     mesh.walls.buffer,
+    ...(mesh.runs ? [mesh.runs.buffer] : []),
     mesh.indices.buffer,
     ...(mesh.water ? [mesh.water.positions.buffer, mesh.water.shore.buffer, mesh.water.indices.buffer] : []),
   ]);

@@ -28,6 +28,12 @@ export class FineGrid {
   readonly own = new Uint16Array(FINE_N * FINE_N);
   /** Ground AO level 0 (dark) .. 3 (open) per cell. */
   readonly ao = new Uint8Array(FINE_N * FINE_N).fill(3);
+  /**
+   * Bridge-deck marking overlay: top height in cm of a marking lying on a 1 m bridge deck (0 = none).
+   * Allocated by the ground generator only for chunks with bridge markings; the mesher adds a small
+   * lift so the quads sit just above the deck top.
+   */
+  deckH: Uint16Array | null = null;
 }
 
 function clampCell(v: number): number {
@@ -200,6 +206,54 @@ export function fillRings(g: FineGrid, rings: Float64Array[], mat: number): void
         const i = cz * FINE_N + cx;
         if (g.mat[i] !== 0) g.mat[i] = mat;
       }
+    }
+  }
+}
+
+/**
+ * Even-odd scanline fill of rings (outer + holes, flat [x, z, ...] chunk-local metres) into a byte mask
+ * covering cells -pad .. FINE_N + pad - 1 on both axes (row length FINE_N + 2 * pad). Sets `value`.
+ */
+export function fillMask(mask: Uint8Array, pad: number, rings: Float64Array[], value = 1): void {
+  const w = FINE_N + 2 * pad;
+  let minZ = Infinity, maxZ = -Infinity, edges = 0;
+  for (const r of rings) {
+    const n = r.length / 2;
+    if (n < 3) return;
+    edges += n;
+    for (let i = 0; i < n; i++) {
+      const z = r[i * 2 + 1]!;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+  }
+  if (rings.length === 0) return;
+  if (crossings.length < edges) crossings = new Float64Array(edges * 2);
+  const lo = -pad, hi = FINE_N + pad - 1;
+  const j0 = Math.max(lo, Math.floor(minZ / FINE_CELL));
+  const j1 = Math.min(hi, Math.floor(maxZ / FINE_CELL));
+  for (let cz = j0; cz <= j1; cz++) {
+    const zc = (cz + 0.5) * FINE_CELL;
+    let nc = 0;
+    for (const r of rings) {
+      const n = r.length / 2;
+      let px = r[(n - 1) * 2]!, pz = r[(n - 1) * 2 + 1]!;
+      for (let i = 0; i < n; i++) {
+        const qx = r[i * 2]!, qz = r[i * 2 + 1]!;
+        if ((pz <= zc) !== (qz <= zc)) {
+          const x = px + ((zc - pz) * (qx - px)) / (qz - pz);
+          let k = nc++;
+          while (k > 0 && crossings[k - 1]! > x) { crossings[k] = crossings[k - 1]!; k--; }
+          crossings[k] = x;
+        }
+        px = qx;
+        pz = qz;
+      }
+    }
+    for (let c = 0; c + 1 < nc; c += 2) {
+      const xa = Math.max(lo, Math.ceil(crossings[c]! / FINE_CELL - 0.5));
+      const xb = Math.min(hi, Math.ceil(crossings[c + 1]! / FINE_CELL - 0.5) - 1);
+      for (let cx = xa; cx <= xb; cx++) mask[(cz + pad) * w + cx + pad] = value;
     }
   }
 }

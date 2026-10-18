@@ -9,9 +9,12 @@ export function groundClass(t: Tags): { mat: number; prio: number } | null {
   if (lu === "forest") return { mat: MAT.FOREST, prio: 1 };
   if (lu === "industrial" || lu === "railway" || lu === "quarry" || lu === "construction" || lu === "brownfield" || lu === "landfill")
     return { mat: MAT.DIRT, prio: 1 };
+  if (lu === "meadow") return { mat: MAT.MEADOW, prio: 1 };
   if (lu === "recreation_ground" || lu === "village_green") return { mat: MAT.PARK, prio: 1 };
   const nat = t.natural;
-  if (nat === "wood" || nat === "scrub") return { mat: MAT.FOREST, prio: 2 };
+  if (nat === "wood") return { mat: MAT.FOREST, prio: 2 };
+  if (nat === "scrub" || nat === "heath") return { mat: MAT.SCRUB, prio: 2 };
+  if (nat === "wetland") return { mat: t.wetland === "reedbed" ? MAT.REED : MAT.WETLAND, prio: 2 };
   if (nat === "beach" || nat === "sand") return { mat: MAT.SAND, prio: 2 };
   const le = t.leisure;
   if (le === "park" || le === "garden" || le === "common" || le === "nature_reserve") return { mat: MAT.PARK, prio: 3 };

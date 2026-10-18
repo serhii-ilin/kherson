@@ -14,7 +14,8 @@ import { buildingSpec, parseNum } from "./building-style.ts";
 import { keepOutsideGround } from "./city-mask.ts";
 import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./classes.ts";
 import type { Tags } from "./osm.ts";
-import type { Pt } from "./rasterize.ts";
+import { fillPolygon, type Pt } from "./rasterize.ts";
+import { MAT } from "../../src/world/materials.ts";
 
 export interface VArea_ {
   id: number;
@@ -55,6 +56,10 @@ export interface VectorStats {
   roads: number;
   areas: number;
   areaCopies: number;
+  /** Water polygons in the areas layer (mat WATER, prio 0), a subset of `areas`. */
+  waterAreas: number;
+  /** Built-up ground areas dropped because they straddle the city mask (#16). */
+  straddleDropped: number;
   lines: number;
   points: number;
 }
@@ -248,7 +253,7 @@ function dirOf(dx: number, dz: number): number {
 export function buildVectorTiles(input: VectorInput): { tiles: Map<number, VectorTile>; stats: VectorStats } {
   const { regionsX, regionsZ, inCity } = input;
   const accs = new Map<number, TileAcc>();
-  const stats: VectorStats = { buildings: 0, roads: 0, areas: 0, areaCopies: 0, lines: 0, points: 0 };
+  const stats: VectorStats = { buildings: 0, roads: 0, areas: 0, areaCopies: 0, waterAreas: 0, straddleDropped: 0, lines: 0, points: 0 };
   const acc = (rx: number, rz: number): TileAcc | null => {
     if (rx < 0 || rz < 0 || rx >= regionsX || rz >= regionsZ) return null;
     const k = rz * 65536 + rx;
@@ -395,23 +400,44 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
     });
   }
 
-  // ---- ground areas (duplicated + clipped per region)
+  // ---- ground and water areas (duplicated + clipped per region)
+  // Water polygons (riverbanks, lakes, ponds, natural=water) are kept everywhere, inside and outside the city mask,
+  // as mat WATER, prio 0 (painted first, ground classes on top). Rivers/canals/streams drawn as lines are not included.
+  // #16: a built-up (non natural, "dropped outside the city") ground class that straddles the city mask is painted by the
+  // coarse tier only inside the mask but would be painted in full by the fine tier. Exact polygon-vs-mask clipping is not
+  // available, so such areas are EXCLUDED from the vector tiles: the fine ground then falls back to the coarse ground
+  // there (right colours, coarser detail). "Straddles" = at least one 2 m cell of the polygon outside the mask.
+  const cellOut = (cx: number, cz: number): boolean => !inCity!((cx + 0.5) * VOXEL * 100, (cz + 0.5) * VOXEL * 100);
   const ground: { mat: number; prio: number; a: VArea_; i: number }[] = [];
   input.areas.forEach((a, i) => {
-    if (has(a.tags.building) || isWater(a.tags)) return;
+    if (has(a.tags.building)) return;
+    if (isWater(a.tags)) {
+      ground.push({ mat: MAT.WATER, prio: 0, a, i });
+      return;
+    }
     const g = groundClass(a.tags);
     if (!g) return;
-    if (inCity && !keepOutsideGround(a.tags) && !(a.rings[0] ?? []).some((p) => inCity(...toCm(p)))) return;
+    if (inCity && !keepOutsideGround(a.tags)) {
+      if (!(a.rings[0] ?? []).some((p) => inCity(...toCm(p)))) return;
+      let out = false;
+      fillPolygon(a.rings, (cx, cz) => { if (!out && cellOut(cx, cz)) out = true; });
+      if (out) {
+        stats.straddleDropped++;
+        return;
+      }
+    }
     ground.push({ ...g, a, i });
   });
   ground.sort((p, q) => p.prio - q.prio || p.i - q.i);
   for (const { mat, prio, a } of ground) {
     const rings = a.rings.map(ringCm).filter((r) => r.length >= 3);
-    if (rings.length === 0 || a.rings[0] === undefined || ringCm(a.rings[0]).length < 3) continue;
+    if (rings.length === 0) continue;
+    // multipolygons may have several outer rings (the rings are filled even-odd): bound all of them
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-    for (const p of rings[0]!) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+    for (const r of rings) for (const p of r) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
     const rx0 = Math.max(0, Math.floor((x0 - AREA_MARGIN_CM) / REGION_CM)), rx1 = Math.min(regionsX - 1, Math.floor((x1 + AREA_MARGIN_CM) / REGION_CM));
     const rz0 = Math.max(0, Math.floor((z0 - AREA_MARGIN_CM) / REGION_CM)), rz1 = Math.min(regionsZ - 1, Math.floor((z1 + AREA_MARGIN_CM) / REGION_CM));
+    if (mat === MAT.WATER) stats.waterAreas++;
     stats.areas++;
     for (let rz = rz0; rz <= rz1; rz++) {
       for (let rx = rx0; rx <= rx1; rx++) {
@@ -423,10 +449,7 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
             const f = c[0]!, l = c[c.length - 1]!;
             if (f[0] === l[0] && f[1] === l[1]) c.pop();
           }
-          if (c.length < 3) {
-            if (ri === 0) break; // outer ring gone: nothing of this area in this region
-            continue;
-          }
+          if (c.length < 3) continue; // this ring does not reach the region
           clipped.push(flat(c, ox, oz));
         }
         if (clipped.length === 0) continue;

@@ -20,6 +20,8 @@ export interface WalkWorld {
   isWater?(x: number, z: number, refY?: number): boolean;
   /** True when a tree trunk centre lies within r metres of (x, z). */
   trunkNear?(x: number, z: number, r: number): boolean;
+  /** True when a body with feet at `y` overlaps a solid wall-like obstacle (bridge railing) at (x, z). */
+  blockedAt?(x: number, z: number, y: number): boolean;
 }
 
 /** A walker is stopped when its centre comes this close to a tree trunk centre. */
@@ -72,6 +74,19 @@ export class WalkBody {
     return world.trunkNear(x, z, TRUNK_RADIUS) && !world.trunkNear(this.x, this.z, TRUNK_RADIUS);
   }
 
+  /** A railing in any corner of the footprint; leaving one the body already overlaps is not blocked. */
+  private hitsRail(world: WalkWorld, x: number, z: number): boolean {
+    if (!world.blockedAt) return false;
+    const r = PLAYER_RADIUS;
+    const at = (px: number, pz: number): boolean => {
+      for (let i = 0; i < 4; i++) {
+        if (world.blockedAt!(px + (i & 1 ? r : -r), pz + (i & 2 ? r : -r), this.y)) return true;
+      }
+      return false;
+    };
+    return at(x, z) && !at(this.x, this.z);
+  }
+
   /** Puts the feet on the highest surface at (x, z); false when that column is not loaded. */
   placeOnGround(world: WalkWorld, x: number, z: number): boolean {
     const g = this.ground(world, x, z, Infinity);
@@ -100,8 +115,10 @@ export class WalkBody {
     const dz = wz * speed * dt;
 
     // per-axis resolution: try x, then z (lets the player slide along walls)
-    if (dx !== 0 && this.passable(world, this.x + dx, this.z) && !this.hitsTrunk(world, this.x + dx, this.z)) this.x += dx;
-    if (dz !== 0 && this.passable(world, this.x, this.z + dz) && !this.hitsTrunk(world, this.x, this.z + dz)) this.z += dz;
+    if (dx !== 0 && this.passable(world, this.x + dx, this.z) && !this.hitsTrunk(world, this.x + dx, this.z)
+      && !this.hitsRail(world, this.x + dx, this.z)) this.x += dx;
+    if (dz !== 0 && this.passable(world, this.x, this.z + dz) && !this.hitsTrunk(world, this.x, this.z + dz)
+      && !this.hitsRail(world, this.x, this.z + dz)) this.z += dz;
 
     // vertical
     const ground = this.ground(world, this.x, this.z, this.y + STEP_HEIGHT);

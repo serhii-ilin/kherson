@@ -38,9 +38,11 @@ export function facadeShader(this: { userData?: Record<string, unknown> } | void
       '#include <common>',
       `#include <common>
 attribute vec4 aWall;
+attribute vec2 aRun;
 varying vec3 vGWorld;
 varying vec3 vGN;
-varying vec4 vWall;`,
+varying vec4 vWall;
+varying vec2 vRun;`,
     )
     .replace(
       '#include <begin_vertex>',
@@ -51,7 +53,8 @@ varying vec4 vWall;`,
   vGWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
   #endif
   vGN = objectNormal;
-  vWall = aWall;`,
+  vWall = aWall;
+  vRun = aRun;`,
     );
   shader.fragmentShader = shader.fragmentShader
     .replace(
@@ -60,6 +63,7 @@ varying vec4 vWall;`,
 varying vec3 vGWorld;
 varying vec3 vGN;
 varying vec4 vWall;
+varying vec2 vRun;
 uniform float uFade;
 uniform float uNight;
 // light added after lighting (see emissivemap_fragment below): lit windows and lamp lenses
@@ -138,6 +142,29 @@ vec3 fMicro( vec3 c, float id, vec2 p, float hy, float px, float seed, float gf 
   c *= 1.0 - 0.10 * k * streak * ( 0.4 + 0.6 * ( 1.0 - smoothstep( 0.0, 5.0, hy ) ) );
   c *= 1.0 - 0.10 * k * ( 1.0 - smoothstep( 0.1, 0.9, hy ) ) * ( 0.6 + 0.8 * gVNoise( p * 3.0 ) );
   return c;
+}
+// Per-building tint (0..3, baked from the OSM id): four subtle brightness / warmth variants per style
+// family, applied to the whole building. Brick and historic walls shift in warmth as well as value;
+// panel, public and industrial walls mostly in value; houses and pastel variants in warmth.
+vec3 gTintMul( float m, float t ) {
+  bool brick = ( m > 24.5 && m < 25.5 ) || ( m > 29.5 && m < 34.5 );
+  bool grey = ( m > 21.5 && m < 24.5 ) || ( m > 25.5 && m < 29.5 );
+  if ( brick ) {
+    if ( t < 0.5 ) return vec3( 1.0 );
+    if ( t < 1.5 ) return vec3( 1.07, 1.05, 0.97 );
+    if ( t < 2.5 ) return vec3( 0.90, 0.88, 0.86 );
+    return vec3( 1.04, 0.95, 0.89 );
+  }
+  if ( grey ) {
+    if ( t < 0.5 ) return vec3( 1.0 );
+    if ( t < 1.5 ) return vec3( 1.07 );
+    if ( t < 2.5 ) return vec3( 0.90 );
+    return vec3( 0.96, 0.98, 1.04 );
+  }
+  if ( t < 0.5 ) return vec3( 1.0 );
+  if ( t < 1.5 ) return vec3( 1.06, 1.04, 0.97 );
+  if ( t < 2.5 ) return vec3( 0.93, 0.95, 0.98 );
+  return vec3( 1.03, 0.98, 0.93 );
 }
 // returns style parameters per wall material:
 //   x floor height (m), y bay width (m), z window width fraction, w window height fraction
@@ -246,7 +273,9 @@ vec4 fStyle( float m ) {
     gGlow = vec3( 1.0, 0.78, 0.42 ) * 3.0 * uNight;
   } else if ( vWall.y > 0.0 && abs( vGN.y ) < 0.5 ) {
     // ---- walls
-    float styleId = vWall.x;
+    // coarse building walls carry style + 0.1 * tint in aWall.x
+    float styleId = floor( vWall.x + 0.02 );
+    float tintId = floor( fract( vWall.x + 0.02 ) * 10.0 );
     float wallTop = vWall.y;
     float wallBase = vWall.z;
     bool ax = abs( vGN.x ) > 0.5;
@@ -307,15 +336,17 @@ vec4 fStyle( float m ) {
       }
       diffuseColor.rgb = bcol;
     } else if ( styleId > 19.5 && styleId < 39.5 ) {
-      vec2 bid = vec2( plane, floor( u / 24.0 ) );
+      // wall run (coarse walls): the hash seed is the run's start; blocks have no run (vRun.y = 0)
+      float runL = vRun.y;
+      bool hasRun = runL > 0.5;
+      vec2 bid = vec2( plane, hasRun ? floor( ( u - vRun.x ) * 0.5 + 0.5 ) : floor( u / 24.0 ) );
       float r = gHash( bid + 7.3 );
       float r2 = gHash( bid + 1.7 );
-      float r3 = gHash( bid + 4.1 );
       if ( carved ) {
         // geometry carries the windows: keep the tint and a faint per-block variation
         vec3 bcell = floor( vGWorld - vGN * 0.5 );
         float bh = gHash( bcell.xz + bcell.y * 17.0 );
-        vec3 cc = base * ( 0.94 + 0.12 * r3 ) * ( 1.0 + 0.07 * gFade * ( bh - 0.5 ) );
+        vec3 cc = base * gTintMul( styleId, tintId ) * ( 1.0 + 0.07 * gFade * ( bh - 0.5 ) );
         cc = fMicro( cc, styleId, vec2( u, vGWorld.y ), hy, mpx, r, mk * fFade( mpx, 0.3, 1.0 ) );
         // reveal / slot: occluded, darker toward the middle of the 1 m channel
         cc *= 1.0 - recessF * ( 0.26 + 0.10 * gFade );
@@ -338,13 +369,18 @@ vec4 fStyle( float m ) {
       // distance-adaptive bay width keeps the pattern stable
       float bay = st.y * ( 0.9 + 0.2 * r );
       float bu = u / bay;
+      if ( hasRun ) {
+        // a whole number of bays fits the run, so windows are never cut at its ends
+        bay = runL / max( 1.0, floor( runL / bay + 0.5 ) );
+        bu = vRun.x / bay;
+      }
       float fx = fract( bu );
       float bi = floor( bu );
       float pxw = max( fwidth( u ) / bay, 1e-4 );
       float pyw = max( fwidth( vGWorld.y ) / fh, 1e-4 );
       float detail = gFade * ( 1.0 - smoothstep( 0.35, 0.9, max( pxw, pyw ) ) );
 
-      vec3 tint = base * ( 0.92 + 0.16 * r3 );
+      vec3 tint = base * gTintMul( styleId, tintId );
       vec3 wall = fMicro( tint, styleId, vec2( u, vGWorld.y ), hy, max( fwidth( u ), fwidth( vGWorld.y ) ), r, gFade * fFade( max( pxw * bay, pyw * fh ), 0.3, 1.0 ) );
       // ground-floor shop fronts on public / modern / historic / stalin
       float shopChance = ( pub || modern || historic || stalin ) ? 0.55 : 0.0;

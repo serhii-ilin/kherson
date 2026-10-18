@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FIELDS, REGION } from '../src/world/constants';
-import { cellIndex, decodeRegion, encodeRegion, type RegionData } from '../src/world/format';
+import { cellIndex, decodeRegion, encodeRegion, packStruct, structMat, structTint, type RegionData } from '../src/world/format';
+
+const MAT_MAX_WALL = 63;
 
 function makeRegion(): RegionData {
   const cells = new Uint8Array(FIELDS * REGION * REGION);
@@ -39,7 +41,7 @@ describe('region format', () => {
     const buf = encodeRegion(makeRegion());
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
     expect(String.fromCharCode(...buf.subarray(0, 4))).toBe('VKR1');
-    expect(dv.getUint16(4, true)).toBe(1);
+    expect(dv.getUint16(4, true)).toBe(2);
     expect(dv.getInt16(6, true)).toBe(-3);
     expect(dv.getInt16(8, true)).toBe(7);
     expect(dv.getUint16(10, true)).toBe(REGION);
@@ -63,5 +65,28 @@ describe('region format', () => {
     const bad = buf.slice();
     bad[0] = 0;
     expect(() => decodeRegion(bad)).toThrow();
+  });
+
+  it('rejects version 1 data (v2 changes the F_STRUCT_MAT byte)', () => {
+    const buf = encodeRegion(makeRegion());
+    new DataView(buf.buffer, buf.byteOffset).setUint16(4, 1, true);
+    expect(() => decodeRegion(buf)).toThrow(/version/);
+  });
+
+  it('keeps the per-building tint in the high 2 bits of F_STRUCT_MAT through a round trip', () => {
+    const cells = new Uint8Array(FIELDS * REGION * REGION);
+    const walls = [20, 25, 30, 38, 62, 63];
+    walls.forEach((w, i) => {
+      for (let t = 0; t < 4; t++) cells[cellIndex(3, i * 4 + t, 5)] = packStruct(w, t);
+    });
+    const out = decodeRegion(encodeRegion({ rx: 1, rz: 2, cells, features: [] }));
+    walls.forEach((w, i) => {
+      for (let t = 0; t < 4; t++) {
+        const v = out.cells[cellIndex(3, i * 4 + t, 5)]!;
+        expect(structMat(v)).toBe(w);
+        expect(structTint(v)).toBe(t);
+      }
+    });
+    expect(packStruct(MAT_MAX_WALL, 3)).toBe(255);
   });
 });

@@ -25,8 +25,16 @@ export const FEATURE_BUSH = 3;
 
 const HEADER_SIZE = 16;
 const PLANE = REGION * REGION;
-const VERSION = 1;
+/** Version 2: the F_STRUCT_MAT byte carries a per-building tint (0..3) in its high 2 bits, the wall MAT id in the low 6. */
+const VERSION = 2;
 const MAGIC = [0x56, 0x4b, 0x52, 0x31]; // "VKR1"
+
+/** Wall MAT id (low 6 bits) of an F_STRUCT_MAT byte. */
+export const structMat = (v: number): number => v & 63;
+/** Per-building tint 0..3 (high 2 bits) of an F_STRUCT_MAT byte. */
+export const structTint = (v: number): number => v >> 6;
+/** Pack a wall MAT id (< 64) and a tint 0..3 into an F_STRUCT_MAT byte. */
+export const packStruct = (mat: number, tint: number): number => (mat & 63) | ((tint & 3) << 6);
 
 export function cellIndex(field: number, x: number, z: number): number {
   return field * PLANE + z * REGION + x;

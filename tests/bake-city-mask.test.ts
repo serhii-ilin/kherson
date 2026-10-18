@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildCityMask, keepOutsideGround, ringCentroid, ringTouchesMask } from '../tools/bake/city-mask';
 import { buildVectorTiles, type VectorInput } from '../tools/bake/vectors';
 import { groundClass } from '../tools/bake/classes';
+import { MAT } from '../src/world/materials';
 
 // square city from cell (20,20) to (60,60)
 const square: [number, number][] = [[20, 20], [60, 20], [60, 60], [20, 60]];
@@ -83,12 +84,41 @@ describe('vector tiles with a city mask', () => {
     expect(tiles.size).toBeGreaterThan(0);
   });
 
-  it('keeps only natural ground areas outside', () => {
+  it('keeps only natural ground areas outside, and drops built-up areas that straddle the mask (#16)', () => {
     const input = base();
     input.areas.push({ id: 1, tags: { natural: 'wood' }, rings: [sq(150, 150, 10)] });
     input.areas.push({ id: 2, tags: { landuse: 'industrial' }, rings: [sq(160, 160, 10)] });
-    input.areas.push({ id: 3, tags: { landuse: 'industrial' }, rings: [sq(95, 10, 10)] }); // straddles the edge
-    const { stats } = buildVectorTiles(input);
-    expect(stats.areas).toBe(2);
+    input.areas.push({ id: 3, tags: { landuse: 'industrial' }, rings: [sq(95, 10, 10)] }); // straddles the edge: excluded
+    input.areas.push({ id: 4, tags: { landuse: 'industrial' }, rings: [sq(10, 10, 10)] }); // fully inside: kept
+    input.areas.push({ id: 5, tags: { natural: 'wood' }, rings: [sq(95, 50, 10)] }); // natural classes straddle freely
+    const { stats, tiles } = buildVectorTiles(input);
+    expect(stats.areas).toBe(3);
+    expect(stats.straddleDropped).toBe(1);
+    const mats = [...tiles.values()].flatMap((t) => t.areas.map((a) => a.mat));
+    expect(mats.length).toBeGreaterThan(0);
+  });
+
+  it('keeps water polygons everywhere (prio 0), inside and outside the mask', () => {
+    const input = base();
+    input.areas.push({ id: 1, tags: { natural: 'water' }, rings: [sq(10, 10, 10)] });
+    input.areas.push({ id: 2, tags: { waterway: 'riverbank' }, rings: [sq(300, 300, 30)] });
+    input.areas.push({ id: 3, tags: { natural: 'water', water: 'lake' }, rings: [sq(90, 90, 30)] }); // straddles
+    input.areas.push({ id: 4, tags: { landuse: 'industrial' }, rings: [sq(20, 20, 5)] });
+    const { stats, tiles } = buildVectorTiles(input);
+    expect(stats.waterAreas).toBe(3);
+    const all = [...tiles.values()].flatMap((t) => t.areas);
+    expect(all.filter((a) => a.mat === MAT.WATER).every((a) => a.prio === 0)).toBe(true);
+    expect(all.some((a) => a.mat === MAT.WATER)).toBe(true);
+    // water first, land cover after it
+    const t0 = tiles.get(0)!;
+    expect(t0.areas[0]!.mat).toBe(MAT.WATER);
+  });
+
+  it('classifies floodplain ground (wetland, reed, meadow, scrub) as natural ground', () => {
+    expect(groundClass({ natural: 'wetland', wetland: 'marsh' })).toEqual({ mat: MAT.WETLAND, prio: 2 });
+    expect(groundClass({ natural: 'wetland', wetland: 'reedbed' })).toEqual({ mat: MAT.REED, prio: 2 });
+    expect(groundClass({ natural: 'scrub' })!.mat).toBe(MAT.SCRUB);
+    expect(groundClass({ landuse: 'meadow' })!.mat).toBe(MAT.MEADOW);
+    for (const t of [{ natural: 'wetland' }, { landuse: 'meadow' }, { natural: 'heath' }] as Record<string, string>[]) expect(keepOutsideGround(t)).toBe(true);
   });
 });

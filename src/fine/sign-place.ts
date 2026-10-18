@@ -3,8 +3,10 @@
  * sign, from the chunk containing the point. Chunk independence as in props.ts: the result depends on
  * world data only, and signs near the bounds are resolved together so overlaps settle identically.
  */
+import { KERB_CM } from './ground.ts';
 import { POINT, ROAD_BRIDGE, type VectorTile } from '../world/vector-format.ts';
-import { closest, inRings, isVehicleKind, PropWorld, segDist, type Bounds, type Hit, type WPoly } from './props.ts';
+import { SIGN_POST_PLATE_W, SIGN_POST_PLATE_Y } from './prop-models.ts';
+import { closest, inRings, isVehicleKind, PropWorld, segDist, shopPostSpot, SIGN_BUILDING_RANGE, type Bounds, type Hit, type WPoly } from './props.ts';
 
 export interface SignPlacement {
   /** Centre of the plate (world m). */
@@ -21,7 +23,7 @@ export interface SignPlacement {
 }
 
 export const SIGN_STRIDE = 7;
-const MAX_BUILDING_DIST = 25;
+const MAX_BUILDING_DIST = SIGN_BUILDING_RANGE;
 const STACK_STEP = 0.9;
 const NEAR = 30;
 
@@ -89,7 +91,18 @@ export function placeSigns(
       }
       if (d < bd || (d === bd && bp !== null && p.id < bp.id)) { bd = d; bp = p; }
     }
-    if (bp === null || bd > MAX_BUILDING_DIST) continue;
+    if (bp === null || bd > MAX_BUILDING_DIST) {
+      // no building to hang it on: a free-standing post (SIGN_POST prop, placed by props.ts at the same spot)
+      const spot = shopPostSpot(w, s);
+      const pname = s.tile.strings[s.name] ?? '';
+      if (spot === null || pname === '') continue;
+      const y = ground(spot.x, spot.z) + (spot.raised ? KERB_CM / 100 : 0) + SIGN_POST_PLATE_Y;
+      const px = spot.x + spot.nx * 0.08, pz = spot.z + spot.nz * 0.08;
+      if (s.x >= bounds.x0 && s.x < bounds.x1 && s.z >= bounds.z0 && s.z < bounds.z1) {
+        out.push({ x: px, y, z: pz, nx: spot.nx, nz: spot.nz, avail: SIGN_POST_PLATE_W, name: pname });
+      }
+      continue;
+    }
     const ring = bp.rings[0]!;
     const n = ring.length >> 1;
     let area = 0;

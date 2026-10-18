@@ -22,6 +22,10 @@ export interface BatchSlot {
   /** Triangles of the geometry currently stored in the slot. */
   tris: number;
   live: boolean;
+  /** Instance translation (world x, y offset, z) currently applied. */
+  x: number;
+  y: number;
+  z: number;
 }
 
 const CLASS_RATIO = 1.3;
@@ -43,6 +47,14 @@ function sizeClass(n: number): [number, number] {
  * Coarse chunk meshes merged into one THREE.BatchedMesh: a single draw call (and a single shadow-pass
  * call) for every chunk, with per-instance frustum culling in both passes. BatchedMesh only appends
  * geometry, so freed slots are kept and recycled by size class instead of deleted.
+ *
+ * Without the WEBGL_multi_draw extension (some older Safari/iOS) three's WebGLRenderer does not fail: it
+ * loops over the visible instances and issues one `drawElements` each, setting the `_gl_DrawID` uniform
+ * (WebGLRenderer.renderBufferDirect, `object.isBatchedMesh` branch; batching_pars_vertex.glsl defines
+ * `gl_DrawID` as that uniform). That costs one draw call per visible slot (ground + structure part per
+ * chunk), the same as the per-chunk meshes this batch replaced, so nothing breaks and nothing is worse
+ * than before; culling and visibility still apply per instance. Dev flag `?nomultidraw=1` (main.ts)
+ * forces this path for testing. The facade shader uses `batchingMatrix`, which works in both modes.
  */
 export class ChunkBatch {
   readonly mesh: THREE.BatchedMesh;
@@ -86,11 +98,14 @@ export class ChunkBatch {
       this.reserve(vcap, icap);
       const geomId = this.mesh.addGeometry(geo, vcap, icap);
       const instId = this.mesh.addInstance(geomId);
-      slot = { geomId, instId, cls, vcap, icap, visible: true, tris: 0, live: false };
+      slot = { geomId, instId, cls, vcap, icap, visible: true, tris: 0, live: false, x, y: 0, z };
     } else {
       this.mesh.setGeometryAt(slot.geomId, geo);
     }
     geo.dispose();
+    slot.x = x;
+    slot.z = z;
+    slot.y = 0;
     _m.makeTranslation(x, 0, z);
     this.mesh.setMatrixAt(slot.instId, _m);
     slot.live = true;
@@ -122,6 +137,14 @@ export class ChunkBatch {
     slot.visible = visible;
     this.mesh.setVisibleAt(slot.instId, visible);
     this.triangles += visible ? slot.tris : -slot.tris;
+  }
+
+  /** Moves a live slot vertically (y metres relative to its placement), e.g. to sink a backing surface. */
+  setOffsetY(slot: BatchSlot, y: number): void {
+    if (!slot.live || slot.y === y) return;
+    slot.y = y;
+    _m.makeTranslation(slot.x, y, slot.z);
+    this.mesh.setMatrixAt(slot.instId, _m);
   }
 
   /** Hides the slot and returns it to the pool. */

@@ -40,6 +40,15 @@ renderer.shadowMap.enabled = shadowsOn;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+// Dev only: ?nomultidraw=1 hides WEBGL_multi_draw (as on browsers without it), to test the BatchedMesh
+// fallback: three then issues one draw per visible instance (see ChunkBatch).
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('nomultidraw') === '1') {
+  const ext = renderer.extensions as { has(n: string): boolean; get(n: string): unknown };
+  const has = ext.has.bind(ext);
+  const get = ext.get.bind(ext);
+  ext.has = (n) => n !== 'WEBGL_multi_draw' && has(n);
+  ext.get = (n) => (n === 'WEBGL_multi_draw' ? null : get(n));
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
@@ -62,10 +71,19 @@ scene.fog = new THREE.Fog(sky.horizonColor.clone(), 2500, 9000);
 // Sun shadows: a ~200 m orthographic box that follows the camera, snapped to shadow texels.
 const SHADOW_HALF = 100;
 const SHADOW_MAP = 2048;
-/** Camera height above ground at which the shadow pass is frozen / resumed. */
-const SHADOW_OFF = 300;
-const SHADOW_ON = 250;
-let shadowFrozen = false;
+/**
+ * Camera height above ground between which the shadows fade out (the 200 m box is a speck from up
+ * there), and the heights at which the shadow pass stops / resumes (hysteresis, so it never flaps).
+ * The light keeps `castShadow` (switching it would recompile every material): the fade is the
+ * shadow's `intensity` uniform, and once it is 0 the map is simply not rendered any more.
+ */
+const SHADOW_FADE_START = 250;
+const SHADOW_FADE_END = 320;
+const SHADOW_PASS_OFF = 320;
+const SHADOW_PASS_ON = 300;
+let shadowPassOn = true;
+/** Dev only (`__vk.shadowProbe`): offsets the shadow box from the camera, to test texel snapping without moving the view. */
+const shadowProbe = { x: 0, z: 0 };
 const SHADOW_TEXEL = (SHADOW_HALF * 2) / SHADOW_MAP;
 if (shadowsOn) {
   sun.castShadow = true;
@@ -140,7 +158,7 @@ function applyTime(hours: number): void {
   NIGHT_UNIFORM.value = d.lights;
   // low sun: a larger normal offset keeps grazing-angle shadows free of acne
   sun.shadow.normalBias = 0.15 + 0.25 * (1 - Math.min(1, Math.max(0, (d.lightDir[1] - 0.17) / 0.4)));
-  // re-aim the light (also when the shadow pass is frozen high up, or off in Low) and redraw the map once
+  // re-aim the light (also when the shadow pass is off high up, or in Low) and redraw the map once
   updateShadowFrustum(frustumX, 0, frustumZ);
   if (shadowsOn) sun.shadow.needsUpdate = true;
   dayFactor = 1 - d.lights;
@@ -260,7 +278,7 @@ async function start(): Promise<void> {
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, fine, input, birds, ambience, vegetation, renderer, scene, camera } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, input, birds, ambience, vegetation, renderer, scene, camera } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -294,12 +312,17 @@ async function start(): Promise<void> {
     player.update(dt, physics);
     const agl = camera.position.y - (streamer.heightAt(camera.position.x, camera.position.z) ?? 0);
     if (shadowsOn) {
-      // High above the city the 200 m shadow box is a speck: freeze it (map and frustum together, so the
-      // old shadows stay consistent) and skip the whole shadow pass.
-      if (!shadowFrozen && agl > SHADOW_OFF && rendered > 0) shadowFrozen = true; // needs one rendered map first
-      else if (shadowFrozen && agl < SHADOW_ON) shadowFrozen = false;
-      sun.shadow.autoUpdate = !shadowFrozen;
-      if (!shadowFrozen) updateShadowFrustum(camera.position.x, 0, camera.position.z);
+      // Above ~300 m the 200 m shadow box is a speck: fade the shadows out over 250..320 m and, once
+      // they are invisible, stop rendering the shadow pass (no frozen patch is ever shown).
+      const k = Math.min(1, Math.max(0, (SHADOW_FADE_END - agl) / (SHADOW_FADE_END - SHADOW_FADE_START)));
+      sun.shadow.intensity = k * k * (3 - 2 * k);
+      if (shadowPassOn && agl > SHADOW_PASS_OFF && rendered > 0) shadowPassOn = false;
+      else if (!shadowPassOn && agl < SHADOW_PASS_ON) {
+        shadowPassOn = true;
+        sun.shadow.needsUpdate = true;
+      }
+      sun.shadow.autoUpdate = shadowPassOn;
+      if (shadowPassOn) updateShadowFrustum(camera.position.x + shadowProbe.x, 0, camera.position.z + shadowProbe.z);
     }
     streamer.update(camera.position.x, camera.position.z);
     fine?.update(camera.position.x, camera.position.z, agl);

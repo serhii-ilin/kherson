@@ -354,4 +354,30 @@ describe('vertex ambient occlusion', () => {
     }
     expect(walls).toBe(4 * 4 + 0);
   });
+
+  it('masks the tint byte, carries the tint in the wall id and the run extent per wall quad', () => {
+    const r = flat();
+    // a 5-cell long building (x 8..12, z 8), tint 2 in the high bits of the wall byte
+    for (let x = 8; x <= 12; x++) {
+      r.cells[cellIndex(2, x, 8)] = 3;
+      r.cells[cellIndex(3, x, 8)] = MAT.WALL_KHRUSH | (2 << 6);
+      r.cells[cellIndex(4, x, 8)] = MAT.ROOF_RED;
+    }
+    const m = meshChunk(r, 0, 0);
+    let walls = 0;
+    for (let q = 0; q < m.positions.length / 12; q++) {
+      const id = m.walls[q * 16]!;
+      if (m.walls[q * 16 + 1] === 0) continue;
+      walls++;
+      expect(Math.floor(id + 0.02)).toBe(MAT.WALL_KHRUSH);
+      expect(Math.round((id - MAT.WALL_KHRUSH) * 10)).toBe(2);
+      // run: the long faces span 10 m, the short end faces 2 m; vertex distances run 0..length
+      const len = m.runs![q * 8 + 1]!;
+      expect([10, 2]).toContain(len);
+      const d = [0, 1, 2, 3].map((v) => m.runs![q * 8 + v * 2]!);
+      expect(Math.min(...d)).toBe(0);
+      expect(Math.max(...d)).toBe(len);
+    }
+    expect(walls).toBe(4);
+  });
 });

@@ -6,7 +6,7 @@ import { CHUNK_M, chunkKey, distToChunk, neededChunks, regionKey, type ChunkRef 
 import type { FineRequest, FineResponse, TileRef } from './fine.worker.ts';
 import type { FineMesh } from './mesh.ts';
 import { buildBlockInput } from './block-input.ts';
-import type { BlockMesh } from './generate.ts';
+import { makeTierSnapshot, TIER_W, TIER_R, type BlockMesh } from './generate.ts';
 import { buildPatch } from './patch.ts';
 import { FineWorld } from './world.ts';
 import type { SignData, SignLayer } from './signs.ts';
@@ -66,12 +66,21 @@ interface FChunk {
   disposed: boolean;
   /** Block chunks: the generated mesh until it is merged into its tile; then null. */
   data: BlockMesh | null;
-  /** Block chunks: physics column tops (see FineWorld.setBlocks). */
+  /** Block chunks: physics column tops, floating deck tops and railing bottoms (see FineWorld.setBlocks). */
   tops: Uint8Array | null;
+  decks: Uint8Array | null;
+  rails: Uint8Array | null;
   /** Block chunks: merged into a tile (structures hidden, physics registered). */
   installed: boolean;
   /** Block chunks: shop signs until installed. */
   signs: SignData | null;
+  /** Block chunks: chunks (flat [dx, dz, ...]) whose tier status decided building assignments, and the tier snapshot used. */
+  deps: Int8Array | null;
+  snap: Uint8Array | null;
+  /** Ground chunks: the coarse ground under it is sunk. */
+  sunk?: boolean;
+  /** Block chunks: the tier changed under this chunk's buildings; regenerate. */
+  stale: boolean;
   /** Dither-in state while the chunk fades over the tier underneath (null when done). */
   fade: Fade | null;
 }
@@ -90,6 +99,7 @@ interface Job {
   worker: number;
   patch: Uint8Array;
   win: Uint8Array | null;
+  tier: Uint8Array | null;
   tiles: Tile[];
 }
 
@@ -145,6 +155,8 @@ export class FineStreamer {
   private need: ChunkRef[] = [];
   private bneed: ChunkRef[] = [];
   private readonly needed: Tile[] = [];
+  /** Chunks in (or about to be in) the block tier: the wanted set plus those kept by hysteresis. */
+  private readonly tierSet = new Set<number>();
   private nextJobId = 1;
   private inflight = 0;
   private fetchActive = 0;
@@ -236,7 +248,10 @@ export class FineStreamer {
   private setHigh(high: boolean): void {
     this.high = high;
     this.signLayer?.setVisible(!high);
-    for (const c of this.chunks.values()) if (c.mesh !== null) c.mesh.visible = !high;
+    for (const c of this.chunks.values()) {
+      if (c.mesh !== null) c.mesh.visible = !high;
+      if (c.sunk) this.coarse.setGroundSunk(c.gcx, c.gcz, !high); // tier off: coarse ground back at full height
+    }
     for (const t of this.btiles.values()) if (t.mesh !== null) t.mesh.visible = !high;
     for (const c of this.fading) if (c.fade?.mesh) c.fade.mesh.visible = !high;
     for (const c of this.bchunks.values()) if (c.installed) this.coarse.setStructuresHidden(c.gcx, c.gcz, !high);
@@ -263,6 +278,7 @@ export class FineStreamer {
       if (c.kind === 'ground') {
         if (c.mesh !== null) c.mesh.material = this.material;
         this.endFade(c);
+        this.sinkCoarse(c, true); // only now: during the fade the coarse ground must stay at full height
       } else if (c.data !== null) {
         // fully faded in: merge into its tile (which hides the coarse structures); the temporary mesh is
         // removed by the flush in the same step
@@ -390,6 +406,7 @@ export class FineStreamer {
         }
       }
     }
+    this.refreshTier();
     this.dirty = true;
   }
 
@@ -399,54 +416,110 @@ export class FineStreamer {
     this.lastTry = performance.now();
     this.tick++;
     const maxJobs = this.workers.length * MAX_JOBS_PER_WORKER;
-    // the 0.2 m ground first (cheap, close), then the block tier
+    // the 0.2 m ground first (cheap, close), then the block tier (regenerating chunks whose building
+    // assignment went stale before new ones, so the tier edge settles quickly)
     if (this.high) return;
     if (this.scan(this.need, this.chunks, 'ground', maxJobs)) return;
-    if (this.blockRadius > 0) this.scan(this.bneed, this.bchunks, 'blocks', maxJobs);
+    if (this.blockRadius > 0) {
+      if (this.regen(maxJobs)) return;
+      this.scan(this.bneed, this.bchunks, 'blocks', maxJobs);
+    }
+  }
+
+  /** Collects the 3x3 vector tiles and the coarse input of a job; null when something is not ready yet. */
+  private prepare(
+    gcx: number, gcz: number, kind: 'ground' | 'blocks',
+  ): { patch: Uint8Array; win: Uint8Array; tiles: Tile[]; worker: number } | 'full' | null {
+    const needed = this.needed;
+    const rx = Math.floor(gcx / REGION_CHUNKS);
+    const rz = Math.floor(gcz / REGION_CHUNKS);
+    needed.length = 0;
+    let blocked = false;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const t = this.getTile(rx + dx, rz + dz);
+        if (t === null) continue;
+        t.lastUsed = this.tick;
+        if (t.state === 'idle' || t.state === 'failed') this.startFetch(t);
+        if (t.state !== 'loaded' && t.state !== 'none') blocked = true;
+        needed.push(t);
+      }
+    }
+    if (blocked) return null;
+    const getRegion = (x: number, z: number): ReturnType<WorldStreamer['regionData']> => this.coarse.regionData(x, z);
+    // ground jobs also get the block window (bridge deck markings read the bridge-deck plane)
+    const win = buildBlockInput(gcx, gcz, this.manifest.regionsX, this.manifest.regionsZ, getRegion);
+    if (win === null) return null;
+    const patch = kind === 'ground'
+      ? buildPatch(gcx, gcz, this.manifest.regionsX, this.manifest.regionsZ, getRegion)
+      : EMPTY_PATCH;
+    if (patch === null) return null;
+    const worker = this.pickWorker(needed);
+    if (worker < 0) return 'full';
+    return { patch, win, tiles: needed.slice(), worker };
+  }
+
+  /** True when chunk (gx, gz) is, or is about to be, a block-tier chunk (wanted, or kept by hysteresis). */
+  private inTier(gx: number, gz: number): boolean {
+    return this.tierSet.has(chunkKey(gx, gz));
+  }
+
+  private launchBlocks(chunk: FChunk, p: { patch: Uint8Array; win: Uint8Array; tiles: Tile[]; worker: number }): void {
+    const tier = makeTierSnapshot(chunk.gcx, chunk.gcz, (gx, gz) => this.inTier(gx, gz));
+    chunk.snap = tier;
+    chunk.busy = true;
+    chunk.stale = false;
+    this.send({ id: this.nextJobId++, chunk, worker: p.worker, patch: p.patch, win: p.win, tier, tiles: p.tiles }, false);
   }
 
   /** Dispatches jobs for the missing chunks of `list`, nearest first; true when the job slots are full. */
   private scan(list: ChunkRef[], map: Map<number, FChunk>, kind: 'ground' | 'blocks', maxJobs: number): boolean {
-    const needed = this.needed;
     for (const ref of list) {
       const key = chunkKey(ref.gcx, ref.gcz);
       if (map.has(key)) continue;
       if (this.inflight >= maxJobs) { this.waiting = true; return true; }
-      const rx = Math.floor(ref.gcx / REGION_CHUNKS);
-      const rz = Math.floor(ref.gcz / REGION_CHUNKS);
-      needed.length = 0;
-      let blocked = false;
-      for (let dz = -1; dz <= 1; dz++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const t = this.getTile(rx + dx, rz + dz);
-          if (t === null) continue;
-          t.lastUsed = this.tick;
-          if (t.state === 'idle' || t.state === 'failed') this.startFetch(t);
-          if (t.state !== 'loaded' && t.state !== 'none') blocked = true;
-          needed.push(t);
-        }
-      }
-      let patch: Uint8Array | null = EMPTY_PATCH;
-      let win: Uint8Array | null = null;
-      if (!blocked) {
-        const getRegion = (x: number, z: number): ReturnType<WorldStreamer['regionData']> => this.coarse.regionData(x, z);
-        if (kind === 'ground') {
-          patch = buildPatch(ref.gcx, ref.gcz, this.manifest.regionsX, this.manifest.regionsZ, getRegion);
-        } else {
-          win = buildBlockInput(ref.gcx, ref.gcz, this.manifest.regionsX, this.manifest.regionsZ, getRegion);
-          if (win === null) patch = null;
-        }
-      }
-      if (blocked || patch === null) { this.waiting = true; continue; }
-      const worker = this.pickWorker(needed);
-      if (worker < 0) { this.waiting = true; return true; }
+      const p = this.prepare(ref.gcx, ref.gcz, kind);
+      if (p === 'full') { this.waiting = true; return true; }
+      if (p === null) { this.waiting = true; continue; }
       const chunk: FChunk = {
-        key, gcx: ref.gcx, gcz: ref.gcz, kind, mesh: null, tris: 0, busy: true, disposed: false, data: null, tops: null, installed: false, signs: null, fade: null,
+        key, gcx: ref.gcx, gcz: ref.gcz, kind, mesh: null, tris: 0, busy: true, disposed: false, data: null, tops: null, decks: null, rails: null, installed: false, signs: null, deps: null, snap: null, stale: false, fade: null,
       };
       map.set(key, chunk);
-      this.send({ id: this.nextJobId++, chunk, worker, patch, win, tiles: needed.slice() }, false);
+      if (kind === 'blocks') this.launchBlocks(chunk, p);
+      else this.send({ id: this.nextJobId++, chunk, worker: p.worker, patch: p.patch, win: p.win, tier: null, tiles: p.tiles }, false);
     }
     return false;
+  }
+
+  /**
+   * Regenerates block chunks whose tier snapshot went stale (a chunk their straddling buildings overlap
+   * entered or left the tier). The old geometry stays until the new one replaces it in the same tile flush.
+   */
+  private regen(maxJobs: number): boolean {
+    for (const c of this.bchunks.values()) {
+      if (!c.stale || c.busy || c.disposed) continue;
+      if (this.inflight >= maxJobs) { this.waiting = true; return true; }
+      const p = this.prepare(c.gcx, c.gcz, 'blocks');
+      if (p === 'full') { this.waiting = true; return true; }
+      if (p === null) { this.waiting = true; continue; }
+      this.launchBlocks(c, p);
+    }
+    return false;
+  }
+
+  /** Rebuilds the tier set (wanted chunks plus the kept ones) and flags chunks whose assignments changed. */
+  private refreshTier(): void {
+    this.tierSet.clear();
+    for (const r of this.bneed) this.tierSet.add(chunkKey(r.gcx, r.gcz));
+    for (const c of this.bchunks.values()) if (!c.disposed) this.tierSet.add(c.key);
+    for (const c of this.bchunks.values()) {
+      if (c.disposed || c.deps === null || c.snap === null) continue;
+      for (let i = 0; i < c.deps.length; i += 2) {
+        const dx = c.deps[i]!, dz = c.deps[i + 1]!;
+        const was = c.snap[(dz + TIER_R) * TIER_W + dx + TIER_R] === 1;
+        if (was !== this.inTier(c.gcx + dx, c.gcz + dz)) { c.stale = true; break; }
+      }
+    }
   }
 
   private pickWorker(tiles: Tile[]): number {
@@ -476,10 +549,9 @@ export class FineStreamer {
       }
     }
     const req: FineRequest = { id: job.id, gcx: job.chunk.gcx, gcz: job.chunk.gcz, patch: job.patch, tiles: refs };
-    if (job.chunk.kind === 'blocks') {
-      req.kind = 'blocks';
-      req.win = job.win!;
-    }
+    if (job.chunk.kind === 'blocks') req.kind = 'blocks';
+    if (job.win !== null) req.win = job.win;
+    if (job.tier !== null) req.tier = job.tier;
     this.jobs.set(job.id, job);
     this.workerLoad[job.worker]!++;
     this.inflight++;
@@ -543,6 +615,7 @@ export class FineStreamer {
       this.scene.add(m);
       chunk.mesh = m;
       if (this.fading.length < MAX_FADING) this.startFade(chunk, m, this.material);
+      else this.sinkCoarse(chunk, true);
       chunk.tris = mesh.indices.length / 3;
       this.triCount += chunk.tris;
       this.meshCount++;
@@ -550,7 +623,15 @@ export class FineStreamer {
     this.world.setChunk(chunk.gcx, chunk.gcz, mesh.raster);
   }
 
+  /** Sinks / restores the coarse ground under a fine ground chunk (see WorldStreamer.setGroundSunk). */
+  private sinkCoarse(c: FChunk, on: boolean): void {
+    if (c.kind !== 'ground' || c.sunk === on || (on && (c.mesh === null || c.disposed))) return;
+    c.sunk = on;
+    this.coarse.setGroundSunk(c.gcx, c.gcz, on && !this.high);
+  }
+
   private drop(c: FChunk): void {
+    this.sinkCoarse(c, false);
     c.disposed = true;
     this.endFade(c);
     this.world.setChunk(c.gcx, c.gcz, null);
@@ -564,13 +645,33 @@ export class FineStreamer {
 
   // ---------------------------------------------------------------- block tier
 
+  /** True when the tier changed since `chunk`'s job was dispatched, for a chunk its buildings depend on. */
+  private snapStale(c: FChunk): boolean {
+    if (c.deps === null || c.snap === null) return false;
+    for (let i = 0; i < c.deps.length; i += 2) {
+      const dx = c.deps[i]!, dz = c.deps[i + 1]!;
+      if ((c.snap[(dz + TIER_R) * TIER_W + dx + TIER_R] === 1) !== this.inTier(c.gcx + dx, c.gcz + dz)) return true;
+    }
+    return false;
+  }
+
   private queueBlocks(chunk: FChunk, data: BlockMesh): void {
+    chunk.deps = data.deps ?? null;
+    if (this.snapStale(chunk)) {
+      // the tier moved while this was generating: its building assignment is out of date; keep whatever
+      // is installed and regenerate (pump -> regen)
+      chunk.stale = true;
+      return;
+    }
     chunk.data = data;
     chunk.tops = data.tops;
+    chunk.decks = data.decks;
+    chunk.rails = data.rails;
     chunk.signs = data.signs === undefined ? null : { ...data.signs, ox: chunk.gcx * CHUNK_M, oz: chunk.gcz * CHUNK_M };
     // the chunk's blocks dither in over the still-drawn coarse structures; the merge into the tile (and the
-    // hiding of the coarse structures) follows once the fade is done
-    if (this.fading.length >= MAX_FADING) {
+    // hiding of the coarse structures) follows once the fade is done. A regenerated, already installed
+    // chunk replaces its old geometry in the tile flush directly (no fade: the same buildings, re-assigned).
+    if (chunk.installed || this.fading.length >= MAX_FADING) {
       // bulk arrival (teleport, first load): no fade, to keep the temporary draw calls down
       const tile = this.blockTile(chunk);
       tile.pending.push(chunk);
@@ -582,6 +683,7 @@ export class FineStreamer {
     g.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
     g.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
     g.setAttribute('aWall', new THREE.BufferAttribute(data.walls, 4));
+    if (data.runs !== undefined) g.setAttribute('aRun', new THREE.BufferAttribute(data.runs, 2));
     g.setIndex(new THREE.BufferAttribute(data.indices, 1));
     g.computeBoundingSphere();
     const m = new THREE.Mesh(g, this.coarse.material);
@@ -620,8 +722,9 @@ export class FineStreamer {
    * in the scene; removed chunks were unhidden when dropped.
    */
   private flushTile(tile: BlockTile): void {
-    const keep = tile.parts.filter((p) => !p.chunk.disposed);
     const add = tile.pending.filter((c) => !c.disposed && c.data !== null);
+    // a regenerated chunk's old part is replaced by its new one
+    const keep = tile.parts.filter((p) => !p.chunk.disposed && !add.includes(p.chunk));
     tile.pending.length = 0;
     let tv = 0;
     let ti = 0;
@@ -642,6 +745,7 @@ export class FineStreamer {
       const normals = new Float32Array(tv * 3);
       const colors = new Float32Array(tv * 3);
       const walls = new Float32Array(tv * 4);
+      const runs = new Float32Array(tv * 2);
       const indices = new Uint32Array(ti);
       const parts: Part[] = [];
       let vo = 0;
@@ -652,12 +756,14 @@ export class FineStreamer {
         const on = g.getAttribute('normal').array as Float32Array;
         const oc = g.getAttribute('color').array as Float32Array;
         const ow = g.getAttribute('aWall').array as Float32Array;
+        const orun = g.getAttribute('aRun').array as Float32Array;
         const oi = g.index!.array as Uint32Array;
         for (const p of keep) {
           positions.set(op.subarray(p.v * 3, (p.v + p.vn) * 3), vo * 3);
           normals.set(on.subarray(p.v * 3, (p.v + p.vn) * 3), vo * 3);
           colors.set(oc.subarray(p.v * 3, (p.v + p.vn) * 3), vo * 3);
           walls.set(ow.subarray(p.v * 4, (p.v + p.vn) * 4), vo * 4);
+          runs.set(orun.subarray(p.v * 2, (p.v + p.vn) * 2), vo * 2);
           const shift = vo - p.v;
           for (let k = 0; k < p.in; k++) indices[io + k] = oi[p.i + k]! + shift;
           parts.push({ chunk: p.chunk, v: vo, vn: p.vn, i: io, in: p.in });
@@ -678,6 +784,7 @@ export class FineStreamer {
         normals.set(d.normals, vo * 3);
         colors.set(d.colors, vo * 3);
         walls.set(d.walls, vo * 4);
+        if (d.runs !== undefined) runs.set(d.runs, vo * 2);
         for (let k = 0; k < d.indices.length; k++) indices[io + k] = d.indices[k]! + vo;
         parts.push({ chunk: c, v: vo, vn, i: io, in: d.indices.length });
         vo += vn;
@@ -688,6 +795,7 @@ export class FineStreamer {
       g.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
       g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       g.setAttribute('aWall', new THREE.BufferAttribute(walls, 4));
+      g.setAttribute('aRun', new THREE.BufferAttribute(runs, 2));
       g.setIndex(new THREE.BufferAttribute(indices, 1));
       g.computeBoundingSphere();
       if (old !== null) {
@@ -710,16 +818,18 @@ export class FineStreamer {
       tile.parts = parts;
     }
     for (const c of add) {
+      const again = c.installed; // a regenerated chunk: replace its signs, keep the count
       c.data = null;
       c.installed = true;
+      if (again) this.signLayer?.remove(c.key);
       this.signLayer?.add(c.key, c.signs);
       c.signs = null;
-      this.blockCount++;
+      if (!again) this.blockCount++;
       this.endFade(c);
     }
     for (const c of add) {
       this.coarse.setStructuresHidden(c.gcx, c.gcz, !this.high);
-      this.world.setBlocks(c.gcx, c.gcz, c.tops);
+      this.world.setBlocks(c.gcx, c.gcz, c.tops, c.decks ?? undefined, c.rails ?? undefined);
     }
     if (tile.mesh === null && tile.parts.length === 0 && tile.pending.length === 0) this.btiles.delete(tile.key);
   }

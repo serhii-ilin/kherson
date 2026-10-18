@@ -19,6 +19,15 @@ export const MAT = {
   KERB: 13,
   /** Footway / cycleway paving. */
   PAVING: 14,
+  // floodplain / natural ground (coarse and fine shaders treat these generically; ids 15..19 are the last free ground ids)
+  /** Marsh, swamp, fen: dark wet olive. */
+  WETLAND: 15,
+  /** Reedbed: straw-green. */
+  REED: 16,
+  /** Meadow / rough grass: pale yellow-green. */
+  MEADOW: 17,
+  /** Scrub: grey-green olive with brown. */
+  SCRUB: 18,
   WALL_HOUSE: 20,
   WALL_APART: 21,
   WALL_INDUSTRIAL: 22,
@@ -81,6 +90,10 @@ const COLORS: Record<number, number> = {
   [MAT.STEEL]: 0x8d9298,
   [MAT.KERB]: 0xa9a79f,
   [MAT.PAVING]: 0xa59f96,
+  [MAT.WETLAND]: 0x4a5a34,
+  [MAT.REED]: 0x9aa457,
+  [MAT.MEADOW]: 0x86a640,
+  [MAT.SCRUB]: 0x5f7a3a,
   [MAT.WALL_HOUSE]: 0xe8dcc0,
   [MAT.WALL_APART]: 0xc9c4bb,
   [MAT.WALL_INDUSTRIAL]: 0x9a9fa3,

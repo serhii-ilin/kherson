@@ -55,7 +55,7 @@ export function buildOverview(
               if (gh > maxGround) maxGround = gh;
               if (sh > 0) {
                 structCells++;
-                const m = cells[F_ROOF_MAT * PLANE + i]! || cells[F_STRUCT_MAT * PLANE + i]! || gm;
+                const m = cells[F_ROOF_MAT * PLANE + i]! || (cells[F_STRUCT_MAT * PLANE + i]! & 63) || gm;
                 cntTop[m]!++;
                 if (gh + sh > maxTop) maxTop = gh + sh;
               }

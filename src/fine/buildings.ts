@@ -120,6 +120,21 @@ export function styleOf(wall: number): Style {
   return STYLES.get(wall) ?? STYLES.get(MAT.WALL_APART)!;
 }
 
+/**
+ * Per-building tint 0..3: exactly the bake's rule (tools/bake.ts: `hash(osmId, 0x7177) >>> 30` with the
+ * two-argument hash of tools/bake/building-style.ts), so a building keeps its tint when the block tier
+ * replaces its coarse 2 m cells. `id` is the low 32 bits of the OSM id (VBuilding.id).
+ */
+export function buildingTint(id: number): number {
+  let h = Math.imul(id | 0, 0x9e3779b1) ^ Math.imul((0x7177 | 0) + 0x7f4a7c15, 0x85ebca6b);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  h = Math.imul(h, 0x297a2d39);
+  h ^= h >>> 15;
+  return (h >>> 0) >>> 30;
+}
+
 // ---------------------------------------------------------------- per-building preparation
 
 /** Mask margin (columns) around the footprint bbox: covers every neighbourhood lookup. */
@@ -178,6 +193,8 @@ interface Prep {
   phaseX: number;
   phaseZ: number;
   entOff: number;
+  /** Per-building tint 0..3 (see buildingTint). */
+  tint: number;
   clipX0: number;
   clipX1: number;
   clipZ0: number;
@@ -223,6 +240,24 @@ function rasterMask(p: Prep, rings: Float64Array[]): void {
   }
 }
 
+/**
+ * True when the block tier can draw this building at all (a usable outer ring of sane size). The tier
+ * assignment (generate.ts) keeps every other building coarse, so it never disappears.
+ */
+export function canBlock(pb: PlacedBuilding): boolean {
+  const ring0 = pb.b.rings[0];
+  if (ring0 === undefined || ring0.length < 6) return false;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < ring0.length; i += 2) {
+    const x = ring0[i]!, z = ring0[i + 1]!;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  return (maxX - minX) / 100 <= MAX_SPAN && (maxZ - minZ) / 100 <= MAX_SPAN;
+}
+
 function prepare(
   pb: PlacedBuilding, gx0: number, gz0: number, size: number, ctx: BuildingContext,
 ): Prep | null {
@@ -265,7 +300,7 @@ function prepare(
     baseY: 0, bottomY: 0, topY: 0, bodyTop: 0, firstTop: 0, floorBase: 0, floorsTop: 0, roofKind: 0, rmax: 0,
     ca: 1, sa: 0, ridgeOnA: true, ac0: 0, bc0: 0, w2: 0, l2: 0, dome: null, nF: 1,
     rowFlags: new Uint8Array(0),
-    phaseX: hash(b.id, 1) % 16, phaseZ: hash(b.id, 2) % 16, entOff: hash(b.id, 3) % 6,
+    phaseX: hash(b.id, 1) % 16, phaseZ: hash(b.id, 2) % 16, entOff: hash(b.id, 3) % 6, tint: buildingTint(b.id),
     clipX0: Math.max(gx0 - DETAIL_PAD, Math.floor(minX)), clipX1: Math.min(gx0 + size + DETAIL_PAD, Math.floor(maxX) + 1),
     clipZ0: Math.max(gz0 - DETAIL_PAD, Math.floor(minZ)), clipZ1: Math.min(gz0 + size + DETAIL_PAD, Math.floor(maxZ) + 1),
   };
@@ -423,13 +458,17 @@ class Writer {
   readonly gz0: number;
   readonly size: number;
   readonly foot: Uint8Array | undefined;
+  readonly tint: Uint8Array | undefined;
 
-  constructor(mats: Uint8Array, gx0: number, gz0: number, size: number, foot: Uint8Array | undefined) {
+  constructor(
+    mats: Uint8Array, gx0: number, gz0: number, size: number, foot: Uint8Array | undefined, tint: Uint8Array | undefined,
+  ) {
     this.mats = mats;
     this.gx0 = gx0;
     this.gz0 = gz0;
     this.size = size;
     this.foot = foot;
+    this.tint = tint;
   }
 
   set(gx: number, y: number, gz: number, m: number): void {
@@ -500,6 +539,7 @@ function fillBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
       const z = gz - w.gz0;
       if (x < 0 || z < 0 || x >= w.size || z >= w.size) continue;
       if (w.foot !== undefined) w.foot[z * w.size + x] = 1;
+      if (w.tint !== undefined) w.tint[z * w.size + x] = p.tint;
       const g = Math.max(0, Math.floor(ctx.groundAt(gx + 0.5, gz + 0.5) + 1e-6));
       const y0 = p.bottomY > p.baseY ? p.bottomY : Math.min(g, p.baseY);
       // foundation below the base where the ground drops away (no floating walls)
@@ -737,10 +777,11 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
 
 /**
  * Writes every building overlapping `grid` into it, clipped. `foot` (optional, size*size) is set to 1
- * on columns inside a footprint, so the physics can tell buildings from ground-supported pieces.
+ * on columns inside a footprint, so the physics can tell buildings from ground-supported pieces; `tint`
+ * (optional, size*size) receives the building's tint 0..3 on the same columns.
  */
 export function addBuildings(
-  grid: BlockGrid, placed: readonly PlacedBuilding[], ctx: BuildingContext, foot?: Uint8Array,
+  grid: BlockGrid, placed: readonly PlacedBuilding[], ctx: BuildingContext, foot?: Uint8Array, tint?: Uint8Array,
 ): void {
   const size = gridSize(grid);
   const gx0 = Math.round(grid.x0);
@@ -752,7 +793,7 @@ export function addBuildings(
     const p = prepare(pb, gx0, gz0, size, ctx);
     if (p !== null) preps.push(p);
   }
-  const w = new Writer(grid.mats, gx0, gz0, size, foot);
+  const w = new Writer(grid.mats, gx0, gz0, size, foot, tint);
   for (const p of preps) fillBuilding(p, w, ctx);
   for (const p of preps) detailBuilding(p, w, ctx);
 }

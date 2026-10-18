@@ -221,3 +221,67 @@
     font-size: 18px;
   }
 }
+
+/*
+ * Narrow screens (phones, 320..440 px): the top row is [settings][language][Places] with fixed widths so it
+ * fits 320 px in both languages. Time, quality and sound live in a vertical menu that drops down from the
+ * settings button (body.vk-menu-open); the minimap is hidden while it is open so the two never overlap.
+ */
+.vk-btn.vk-settings {
+  display: none;
+}
+@media (max-width: 440px) {
+  .vk-btn.vk-places {
+    right: 12px;
+    width: 88px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .vk-btn.vk-lang {
+    right: 108px;
+    width: 88px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .vk-btn.vk-settings {
+    display: block;
+    right: 204px;
+    width: 48px;
+    padding: 8px 0;
+    font-size: 20px;
+    text-align: center;
+  }
+  body.vk-menu-open .vk-btn.vk-settings {
+    background: #333e;
+    border-color: #ffffff80;
+  }
+  .vk-btn.vk-time,
+  .vk-btn.vk-quality,
+  .vk-btn.vk-mute {
+    display: none;
+    right: 12px;
+    width: 120px;
+    min-height: 44px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+  body.vk-menu-open .vk-btn.vk-time,
+  body.vk-menu-open .vk-btn.vk-quality,
+  body.vk-menu-open .vk-btn.vk-mute {
+    display: block;
+  }
+  .vk-btn.vk-time { top: 62px; font-size: 16px; }
+  .vk-btn.vk-quality { top: 112px; }
+  .vk-btn.vk-mute { top: 162px; }
+  .vk-time-text {
+    display: inline;
+  }
+  body.vk-menu-open .vk-minimap {
+    visibility: hidden;
+  }
+  /* the HUD text ends 8 px left of the minimap (122 px wide at 320 px) */
+  #hud {
+    box-sizing: border-box;
+    max-width: calc(100vw - 144px);
+  }
+}

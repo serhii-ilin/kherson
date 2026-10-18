@@ -21,6 +21,8 @@ export interface FineRequest {
   patch: Uint8Array;
   /** Coarse window for the block tier (see block-input.ts). */
   win?: Uint8Array;
+  /** Block jobs: tier status of the surrounding chunks (generate.ts makeTierSnapshot). */
+  tier?: Uint8Array;
   tiles: TileRef[];
 }
 
@@ -44,7 +46,7 @@ const CACHE_MAX = 24;
 const cache = new Map<number, VectorTile>();
 
 scope.onmessage = (e) => {
-  const { id, kind, gcx, gcz, patch, win, tiles } = e.data;
+  const { id, kind, gcx, gcz, patch, win, tier, tiles } = e.data;
   const missing: number[] = [];
   const decoded: VectorTile[] = [];
   try {
@@ -69,7 +71,7 @@ scope.onmessage = (e) => {
       return;
     }
     if (kind === 'blocks') {
-      const blocks = generateBlockChunk({ gcx, gcz, win: win!, tiles: decoded });
+      const blocks = generateBlockChunk({ gcx, gcz, win: win!, tier, tiles: decoded });
       scope.postMessage({ id, blocks } satisfies FineResponse, [
         blocks.positions.buffer,
         blocks.normals.buffer,
@@ -77,11 +79,14 @@ scope.onmessage = (e) => {
         blocks.walls.buffer,
         blocks.indices.buffer,
         blocks.tops.buffer,
+        blocks.decks.buffer,
+        blocks.rails.buffer,
+        ...(blocks.runs !== undefined ? [blocks.runs.buffer] : []),
         ...(blocks.signs !== undefined ? [blocks.signs.data.buffer] : []),
       ]);
       return;
     }
-    const mesh = generateFineChunk({ gcx, gcz, patch, tiles: decoded });
+    const mesh = generateFineChunk({ gcx, gcz, patch, win, tiles: decoded });
     scope.postMessage({ id, mesh } satisfies FineResponse, [
       mesh.positions.buffer,
       mesh.normals.buffer,

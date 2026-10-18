@@ -87,7 +87,7 @@ export class PlacesMenu {
 
     this.button = document.createElement('button');
     this.button.type = 'button';
-    this.button.className = 'vk-btn';
+    this.button.className = 'vk-btn vk-places';
     this.button.textContent = t('places');
     this.button.addEventListener('click', () => this.toggle());
 

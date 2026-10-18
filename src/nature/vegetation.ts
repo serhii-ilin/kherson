@@ -102,7 +102,7 @@ export class Vegetation {
   private readonly counts = new Int32Array(N_MODELS * SLOTS);
   private readonly cursor = new Int32Array(N_MODELS * SLOTS);
   private readonly uTime = { value: 0 };
-  /** Finest (lod 3) models are built in a Web Worker; the cheap LODs are built synchronously (< 2 ms each). */
+  /** Every model LOD except the far boxes is built in a Web Worker (key = model * SLOTS + slot); far boxes are built synchronously. */
   private readonly queue: VegModelQueue;
   private camX = 0;
   private camZ = 0;
@@ -119,9 +119,9 @@ export class Vegetation {
         return { post: (req) => w.postMessage(req), terminate: () => w.terminate() };
       },
       (key, m) => {
-        if (this.geoms[key * SLOTS] !== null) return;
-        this.geoms[key * SLOTS] = toGeometry(m);
-        this.dirty = true; // instances switch from the 0.5 m model on the next update
+        if (this.geoms[key] !== null) return;
+        this.geoms[key] = toGeometry(m);
+        this.dirty = true; // instances switch from their stand-in model on the next update
       },
     );
     const rf = opts.fineRadius ?? 40;
@@ -284,6 +284,7 @@ export class Vegetation {
     const gi = model * SLOTS + slot;
     let g = this.geoms[gi];
     if (g) return g;
+    // only the far box (slot 3) is built here; the other slots arrive from the worker (see rebuild)
     g = toGeometry(buildModel(SPECIES_LIST[Math.floor(model / VARIANTS)]!, model % VARIANTS, LOD_OF_SLOT[slot]!));
     this.geoms[gi] = g;
     return g;
@@ -322,6 +323,7 @@ export class Vegetation {
     counts.fill(0);
     const reach = this.farRadius + REGION_M * 1.5;
     let near = 0, fine = 0, total = 0;
+    this.queue.reprioritize();
     // pass 1: LOD per instance and group sizes
     for (const r of this.regions.values()) {
       const cxm = (r.rx + 0.5) * REGION_M - camX, czm = (r.rz + 0.5) * REGION_M - camZ;
@@ -331,11 +333,12 @@ export class Vegetation {
         const dx = r.x[i]! - camX, dz = r.z[i]! - camZ;
         const d2 = dx * dx + dz * dz;
         let s = d2 < fineSq ? 0 : d2 < lod0Sq ? 1 : d2 < nearSq ? 2 : d2 < farSq ? 3 : -1;
-        if (s === 0 && this.geoms[r.model[i]! * SLOTS] === null) {
-          // the 0.2 m model is built in a worker; until it arrives the 0.5 m model stands in
+        // models are built in a worker, nearest first; until the wanted LOD arrives the next coarser one that
+        // exists stands in (finally the far box, built on demand), so nothing pops out of existence
+        if (s >= 0 && s < 3 && this.geoms[r.model[i]! * SLOTS + s] === null) {
           const m = r.model[i]!;
-          this.queue.request(m, SPECIES_LIST[Math.floor(m / VARIANTS)]!, m % VARIANTS, 3);
-          s = 1;
+          this.queue.request(m * SLOTS + s, SPECIES_LIST[Math.floor(m / VARIANTS)]!, m % VARIANTS, LOD_OF_SLOT[s]!, d2);
+          do s++; while (s < 3 && this.geoms[m * SLOTS + s] === null);
         }
         r.slot[i] = s;
         if (s >= 0) counts[r.model[i]! * SLOTS + s]!++;
