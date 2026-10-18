@@ -22,7 +22,7 @@ _Last updated: 2026-10-18_
 | City limited to Kherson (OSM relation 2175078) | ✅ | `35e6147` |
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
 | Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps; phone fps pending) | `418796d` |
-| Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | TOD |
+| Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | `efeb49b` |
 
 ## Open tasks
 
