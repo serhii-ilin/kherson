@@ -29,6 +29,8 @@ _Last updated: 2026-10-18_
 ### Next
 - ⬜ River fish: fish seen now and then in the river water.
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
+  - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
+  - ⬜ Landmark detail layer built from the briefs.
 - ⬜ Realistic bird sounds: sparrows, swifts, pigeons and other birds recorded in Kherson, mixed in proportion to how often each species is seen there.
 
 ### Later
