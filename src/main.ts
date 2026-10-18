@@ -153,7 +153,11 @@ async function start(): Promise<void> {
     .then((r) => r.json() as Promise<Place[]>)
     .then((places) => {
       new PlacesMenu(document.body, places, (p) => {
-        if (player.mode === 'fly') player.setFlyPose(p.x, Math.max(player.y, 80), p.z, player.yaw, player.pitch);
+        if (p.yaw !== undefined) {
+          // a street: stand on it at street level, looking along it
+          player.spawn(p.x, p.z);
+          player.yaw = p.yaw * deg;
+        } else if (player.mode === 'fly') player.setFlyPose(p.x, Math.max(player.y, 80), p.z, player.yaw, player.pitch);
         else player.spawn(p.x, p.z);
       });
     })

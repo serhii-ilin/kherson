@@ -7,6 +7,10 @@ export interface Place {
   kind: string;
   x: number;
   z: number;
+  /** Streets only: direction along the street in degrees (0 = north, positive turns left). */
+  yaw?: number;
+  /** Former names (OSM `old_name`), searchable: many people still use them. */
+  old?: string[];
 }
 
 const TRANSLIT: Record<string, string> = {
@@ -37,17 +41,29 @@ export function translit(s: string): string {
 }
 
 /** Case-insensitive substring match on name, nameEn and the Latin transliteration of name. */
+function matchesText(text: string, q: string): boolean {
+  return text.toLowerCase().includes(q) || translit(text).toLowerCase().includes(q);
+}
+
+/** The former name that matches `query` when the current names don't, else null. */
+export function matchedOldName(p: Place, query: string): string | null {
+  const q = query.trim().toLowerCase();
+  if (!q || p.old === undefined) return null;
+  if (matchesText(p.name, q) || (p.nameEn !== undefined && p.nameEn.toLowerCase().includes(q))) return null;
+  return p.old.find((o) => matchesText(o, q)) ?? null;
+}
+
 export function filterPlaces(places: Place[], query: string, limit = 50): Place[] {
   const q = query.trim().toLowerCase();
   if (!q) return places.slice(0, limit);
   const out: Place[] = [];
   for (const p of places) {
     if (out.length >= limit) break;
-    if (p.name.toLowerCase().includes(q)) {
-      out.push(p);
-    } else if (p.nameEn !== undefined && p.nameEn.toLowerCase().includes(q)) {
-      out.push(p);
-    } else if (translit(p.name).toLowerCase().includes(q)) {
+    if (
+      matchesText(p.name, q) ||
+      (p.nameEn !== undefined && p.nameEn.toLowerCase().includes(q)) ||
+      (p.old !== undefined && p.old.some((o) => matchesText(o, q)))
+    ) {
       out.push(p);
     }
   }
@@ -143,7 +159,8 @@ export class PlacesMenu {
       name.className = 'vk-place-name';
       name.textContent = placeName(p);
       text.appendChild(name);
-      const alt = placeAltName(p);
+      const former = matchedOldName(p, this.input.value);
+      const alt = former !== null ? `${t('formerly')}: ${former}` : placeAltName(p);
       if (alt !== null) {
         const sub = document.createElement('span');
         sub.className = 'vk-place-en';

@@ -17,6 +17,7 @@ import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
 import { buildVectorTiles } from "./bake/vectors.ts";
 import { encodeVectorTile } from "../src/world/vector-format.ts";
 import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./bake/classes.ts";
+import { collectStreets } from "./bake/streets.ts";
 
 const INPUT = process.argv[2] ?? "data/osm/kherson.json.gz";
 const OUT_DIR = process.argv[3] ?? "public/world";
@@ -607,7 +608,7 @@ async function main(): Promise<void> {
 
 // ---------------------------------------------------------------- places
 
-interface Place { name: string; nameEn?: string; kind: string; x: number; z: number }
+interface Place { name: string; nameEn?: string; kind: string; x: number; z: number; yaw?: number }
 const KIND_ORDER = [
   "city", "town", "square", "district", "suburb", "quarter", "neighbourhood", "village", "island", "hamlet",
   "bridge", "townhall", "university", "theatre", "museum", "attraction", "place_of_worship", "park", "historic",
@@ -663,6 +664,8 @@ function collectPlaces(osm: OsmData, areas: Area[], lines: Line[], mask: CityMas
     out.push(p);
     if (out.length >= 400) break;
   }
+  // named streets come after the landmarks (the menu lists landmarks first when the query is empty)
+  for (const st of collectStreets(lines, (x, z) => mask.hasPoint(x, z), VOXEL)) out.push(st);
   return out;
 }
 

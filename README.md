@@ -27,7 +27,7 @@ The interface is Ukrainian by default, with English available.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
 - **Ambient sound**, synthesised in real time with WebAudio (no audio files): songbirds, screaming swift fly-bys with Doppler shift, cooing doves, wind and water. There is a mute toggle.
 - **UI**:
-  - Places search and teleport, covering 209 named places, in Cyrillic or Latin.
+  - Places search and teleport, in Cyrillic or Latin: 161 landmarks and 686 streets. Former street names work too (e.g. «Ушакова» finds проспект Незалежності), and a street result puts you on the street, looking along it.
   - A minimap.
   - A language switcher (УКР | EN).
   - Shareable URL poses.

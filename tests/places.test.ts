@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterPlaces, translit, type Place } from '../src/ui/places.ts';
+import { filterPlaces, matchedOldName, translit, type Place } from '../src/ui/places.ts';
 
 const places: Place[] = [
   { name: 'Площа Свободи', nameEn: 'Freedom Square', kind: 'square', x: 10270, z: 8820 },
@@ -50,5 +50,20 @@ describe('filterPlaces', () => {
     expect(filterPlaces(places, 'о', 2)).toHaveLength(2);
     expect(filterPlaces(places, '', 3)).toHaveLength(3);
     expect(filterPlaces(places, 'nonsense')).toHaveLength(0);
+  });
+});
+
+describe('former street names', () => {
+  const street = { name: 'проспект Незалежності', nameEn: 'Nezalezhnosti Avenue', kind: 'street', x: 1, z: 2, yaw: 20, old: ['проспект Ушакова'] };
+
+  it('finds a street by its old name, in Cyrillic or Latin', () => {
+    expect(filterPlaces([street], 'ушакова')).toHaveLength(1);
+    expect(filterPlaces([street], 'ushakova')).toHaveLength(1);
+  });
+
+  it('reports the matching old name only when the current name does not match', () => {
+    expect(matchedOldName(street, 'ушак')).toBe('проспект Ушакова');
+    expect(matchedOldName(street, 'незалеж')).toBeNull();
+    expect(matchedOldName(street, '')).toBeNull();
   });
 });
