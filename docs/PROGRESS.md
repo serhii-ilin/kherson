@@ -21,7 +21,7 @@ _Last updated: 2026-10-18_
 | Phase 3: buildings and bridges as 1 m blocks, shop signs | ✅ | `657dc30`, `418796d` |
 | City limited to Kherson (OSM relation 2175078) | ✅ | `35e6147` |
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
-| Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps; phone fps pending) | `418796d` |
+| Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps, phone 60–90 fps) | `418796d` |
 | Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | `efeb49b` |
 
 ## Open tasks
@@ -59,9 +59,9 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 ## Waiting on the owner
 
-- ⛔ **Phone frame rate**: open the site on a phone, try HQ and LQ, report the fps from the HUD. Laptop done: MacBook Air 16 GB holds a steady 60 fps (display cap) on both LQ and HQ (2026-10-18), so the desktop 150 m / 250 m tier radii stay.
+- ✅ **Frame rates measured (2026-10-18)**: MacBook Air 16 GB steady 60 fps (display cap), owner's phone 60–90 fps, both on LQ and HQ.
 - ⛔ **Code licence**: none chosen yet (all rights reserved).
-- ⛔ **Phone default**: phones start in LQ, so they don't see the 0.2 m ground and 1 m blocks unless switched to HQ. Keep or change?
+- ⛔ **Phone default**: phones start in LQ, so they don't see the 0.2 m ground and 1 m blocks unless switched to HQ. The owner's phone runs HQ at 60–90 fps; switch the phone default to HQ?
 - ⛔ **Landmarks removed by the city cut**: bring back the Antonivskyi bridge and/or the Karantynnyi island entry?
 - ⛔ **Ambient sound**: owner's listening feedback.
 - ⛔ **Pines**: make left-bank forests pine?
