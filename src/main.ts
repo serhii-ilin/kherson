@@ -3,6 +3,7 @@ import { toLatLon } from './world/geo.ts';
 import { Overview, parseOverview } from './world/lod.ts';
 import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
+import { createSky } from './world/sky.ts';
 import { createWaterMaterial, updateWater } from './nature/water.ts';
 import { Vegetation } from './nature/vegetation.ts';
 import { BirdSystem, type BirdListener } from './nature/birds.ts';
@@ -10,7 +11,8 @@ import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
-import { applyDocument, createLangSwitcher, t } from './i18n.ts';
+import { applyDocument, createLangSwitcher, createQualityButton, t } from './i18n.ts';
+import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
 import { PlacesMenu, type Place } from './ui/places.ts';
@@ -20,29 +22,80 @@ import { REGION, VOXEL } from './world/constants.ts';
 const SKY = 0x9cc8ef;
 const isMobile = TouchControls.isTouchDevice() || /Mobi|Android/i.test(navigator.userAgent);
 
+const quality = getQuality();
+const shadowsOn = quality === 'high';
+/** Pixel-ratio cap shared by startup and resize: Low is 1, phones 1.5, desktop 2. */
+const pixelCap = quality === 'low' ? 1 : isMobile ? 1.5 : 2;
+const pixelRatio = (): number => Math.min(window.devicePixelRatio, pixelCap);
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+renderer.setPixelRatio(pixelRatio());
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = shadowsOn;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 2500, 9000);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 12000);
-scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 0.9));
-const sun = new THREE.DirectionalLight(0xfff0d0, 1.6);
-sun.position.set(-300, 500, 300); // from the south-west
+scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x6b5a3a, 1.0));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.8);
+const SUN_DIR = new THREE.Vector3(-300, 500, 300).normalize(); // from the south-west
+const SUN_DIST = 400;
+sun.position.copy(SUN_DIR).multiplyScalar(SUN_DIST);
 scene.add(sun);
+scene.add(sun.target);
+// Gradient sky dome with a sun disc; the fog takes its horizon colour so distant terrain melts into it.
+const sky = createSky({ sunDir: SUN_DIR });
+scene.add(sky.mesh);
+scene.fog = new THREE.Fog(sky.horizonColor, 2500, 9000);
+
+// Sun shadows: a ~200 m orthographic box that follows the camera, snapped to shadow texels.
+const SHADOW_HALF = 100;
+const SHADOW_MAP = 2048;
+const SHADOW_TEXEL = (SHADOW_HALF * 2) / SHADOW_MAP;
+if (shadowsOn) {
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+  const sc = sun.shadow.camera;
+  sc.left = -SHADOW_HALF;
+  sc.right = SHADOW_HALF;
+  sc.top = SHADOW_HALF;
+  sc.bottom = -SHADOW_HALF;
+  sc.near = SUN_DIST - 250; // tall buildings (~120 m) between the sun and the ground
+  sc.far = SUN_DIST + 250;
+  sc.updateProjectionMatrix();
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.15;
+}
+// light-space basis, preallocated
+const lightFwd = SUN_DIR.clone().negate();
+const lightRight = new THREE.Vector3().crossVectors(lightFwd, new THREE.Vector3(0, 1, 0)).normalize();
+const lightUp = new THREE.Vector3().crossVectors(lightRight, lightFwd).normalize();
+function updateShadowFrustum(cx: number, cy: number, cz: number): void {
+  const r = Math.round((cx * lightRight.x + cy * lightRight.y + cz * lightRight.z) / SHADOW_TEXEL) * SHADOW_TEXEL;
+  const u = Math.round((cx * lightUp.x + cy * lightUp.y + cz * lightUp.z) / SHADOW_TEXEL) * SHADOW_TEXEL;
+  const f = cx * lightFwd.x + cy * lightFwd.y + cz * lightFwd.z;
+  const tx = lightRight.x * r + lightUp.x * u + lightFwd.x * f;
+  const ty = lightRight.y * r + lightUp.y * u + lightFwd.y * f;
+  const tz = lightRight.z * r + lightUp.z * u + lightFwd.z * f;
+  sun.target.position.set(tx, ty, tz);
+  sun.position.set(tx + SUN_DIR.x * SUN_DIST, ty + SUN_DIR.y * SUN_DIST, tz + SUN_DIR.z * SUN_DIST);
+  sun.target.updateMatrixWorld();
+}
 const waterMaterial = createWaterMaterial({
   skyColor: new THREE.Color(SKY),
-  sunDir: sun.position.clone().normalize(),
+  sunDir: SUN_DIR.clone(),
   fog: true,
 });
 
 const hud = document.getElementById('hud')!;
 applyDocument();
 createLangSwitcher(document.body);
+createQualityButton(document.body);
 const base = import.meta.env.BASE_URL;
 
 async function start(): Promise<void> {
@@ -135,7 +188,7 @@ async function start(): Promise<void> {
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(pixelRatio());
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
@@ -151,6 +204,7 @@ async function start(): Promise<void> {
     last = now;
 
     player.update(dt, streamer);
+    if (shadowsOn) updateShadowFrustum(camera.position.x, 0, camera.position.z);
     streamer.update(camera.position.x, camera.position.z);
     vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
@@ -158,6 +212,7 @@ async function start(): Promise<void> {
       overview.setHole(camera.position.x, camera.position.z, streamer.holeRadius(camera.position.x, camera.position.z));
     }
     updateWater(waterMaterial, now / 1000, camera.position);
+    sky.update(camera.position);
     const cp = camera.position;
     if (dt > 0) birdListener.speed = Math.hypot(cp.x - birdListener.x, cp.z - birdListener.z) / dt;
     birdListener.x = cp.x;

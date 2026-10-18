@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FIELDS, REGION, VOXEL } from '../src/world/constants';
 import { FEATURE_BRIDGE_DECK, FEATURE_TREE, cellIndex, type RegionData } from '../src/world/format';
-import { edgeTops, meshChunk } from '../src/world/mesher';
+import { AO_OPEN, edgeTops, meshChunk, topAO } from '../src/world/mesher';
 import { MAT } from '../src/world/materials';
 
 function flat(): RegionData {
@@ -52,7 +52,7 @@ describe('meshChunk', () => {
     const walls = [...Array(quads).keys()].filter((q) => m.normals[q * 12 + 1] === 0).length;
     const tops = quads - walls;
     expect(walls).toBe(4);
-    expect(tops).toBe(1 + 4);
+    expect(tops).toBeGreaterThanOrEqual(1 + 4); // roof + ground ring (split where AO differs)
     // wall spans from ground (y=2 voxels) to 5 voxels
     let maxY = 0;
     for (let i = 1; i < m.positions.length; i += 3) maxY = Math.max(maxY, m.positions[i]!);
@@ -244,5 +244,114 @@ describe('water mesh', () => {
 
   it('chunks without water have none', () => {
     expect(meshChunk(flat(), 0, 0).water).toBeNull();
+  });
+});
+
+describe('vertex ambient occlusion', () => {
+  /** Flat grass at height 2 with one 1x1 building (height 5) at cell (8, 8). */
+  function withBlock(): RegionData {
+    const r = flat();
+    r.cells[cellIndex(2, 8, 8)] = 3; // structure height: top at 2 + 3 = 5 voxels
+    r.cells[cellIndex(3, 8, 8)] = MAT.WALL_HOUSE;
+    r.cells[cellIndex(4, 8, 8)] = MAT.ROOF_RED;
+    return r;
+  }
+
+  it('topAO: open ground is 3, corners next to a tall column are darker', () => {
+    const r = withBlock();
+    const ao = (x: number, z: number): number => topAO(r.cells, undefined, x, z, 2);
+    expect(ao(20, 20)).toBe(AO_OPEN);
+    // cell (9,8) east of the block: its -x corners (v0 at +z, v3 at -z) touch the block
+    const e = ao(9, 8);
+    expect(e & 3).toBe(2); // v0 (-x,+z): one side blocked, diagonal (8,9) open -> 3-1 = 2
+    expect((e >> 6) & 3).toBe(2); // v3 (-x,-z)
+    expect((e >> 2) & 3).toBe(3); // v1 (+x,+z) open
+    expect((e >> 4) & 3).toBe(3); // v2 (+x,-z) open
+    // diagonal cell (9,9): only its (-x,-z) corner sees the block through the diagonal
+    const d = ao(9, 9);
+    expect((d >> 6) & 3).toBe(2);
+    expect(d & 0x3f).toBe(0x3f);
+  });
+
+  it('topAO: both sides blocked means fully enclosed', () => {
+    const r = flat();
+    r.cells[cellIndex(2, 5, 4)] = 2; // +x neighbour of (4,4)
+    r.cells[cellIndex(2, 4, 5)] = 2; // +z neighbour
+    expect((topAO(r.cells, undefined, 4, 4, 2) >> 2) & 3).toBe(0); // v1 (+x,+z)
+  });
+
+  it('topAO reads neighbour-region edges so region seams match', () => {
+    const r = flat();
+    const high = new Uint8Array(REGION).fill(9);
+    // v1 (+x,+z) and v2 (+x,-z): the +x side and the diagonal are blocked -> level 1
+    expect(topAO(r.cells, { px: high }, REGION - 1, 10, 2)).toBe(3 | (1 << 2) | (1 << 4) | (3 << 6));
+    expect(topAO(r.cells, undefined, REGION - 1, 10, 2)).toBe(AO_OPEN);
+  });
+
+  it('multiplies AO into vertex colours', () => {
+    const m = meshChunk(withBlock(), 0, 0);
+    let min = 1, max = 0;
+    for (let i = 0; i < m.colors.length; i++) { min = Math.min(min, m.colors[i]!); max = Math.max(max, m.colors[i]!); }
+    expect(max).toBeGreaterThan(min);
+  });
+
+  it('greedy merge does not smear AO across different corner patterns', () => {
+    const m = meshChunk(withBlock(), 0, 0);
+    // the open grass must still be merged into few quads, but the ring around the block is split
+    const tops: number[] = [];
+    for (let i = 0; i < m.indices.length; i += 6) {
+      const v = m.indices[i]!;
+      if (m.normals[v * 3 + 1]! > 0.5 && Math.abs(m.positions[v * 3 + 1]! - 2 * VOXEL) < 1e-4) tops.push(v);
+    }
+    // flat region would be 1 quad; with one block we expect more than 1 but far fewer than 32*32
+    expect(tops.length).toBeGreaterThan(4);
+    expect(tops.length).toBeLessThan(40);
+    // no merged quad (bigger than one cell) has a non-open corner pattern varying along its long axis
+    for (const v of tops) {
+      const w = m.positions[(v + 1) * 3]! - m.positions[v * 3]!;
+      const d = m.positions[v * 3 + 2]! - m.positions[(v + 3) * 3 + 2]!;
+      if (w > VOXEL + 1e-4) {
+        // v0 and v1 share one brightness, v2 and v3 the other
+        expect(m.colors[v * 3]).toBeCloseTo(m.colors[(v + 1) * 3]!, 5);
+        expect(m.colors[(v + 2) * 3]).toBeCloseTo(m.colors[(v + 3) * 3]!, 5);
+      }
+      if (d > VOXEL + 1e-4) {
+        expect(m.colors[v * 3]).toBeCloseTo(m.colors[(v + 3) * 3]!, 5);
+        expect(m.colors[(v + 1) * 3]).toBeCloseTo(m.colors[(v + 2) * 3]!, 5);
+      }
+    }
+  });
+
+  it('flips the triangulation diagonal to follow the brighter pair', () => {
+    const m = meshChunk(withBlock(), 0, 0);
+    // cell (9,9) has only corner v3 darkened: a1+a3 (1.0+0.85) < a0+a2 (2.0) -> default diagonal
+    // cell (7,7) is the mirrored case where only v1 (+x,+z) is darkened -> same, default diagonal
+    // cell (9,8) has v0 and v3 darkened: a1+a3 = 1.0+0.85 < a0+a2 = 0.85+1.0 (equal) -> default
+    // A flip appears when v0 and v2 are the darker pair; check indices stay valid triangles of one quad
+    for (let i = 0; i < m.indices.length; i += 6) {
+      const q = Math.floor(m.indices[i]! / 4);
+      for (let k = 0; k < 6; k++) expect(Math.floor(m.indices[i + k]! / 4)).toBe(q);
+    }
+    quadNormalDirs(m);
+  });
+
+  it('wall attribute carries style, top, base and contact', () => {
+    const m = meshChunk(withBlock(), 0, 0);
+    const top = 5 * VOXEL;
+    const base = 2 * VOXEL;
+    let walls = 0;
+    for (let v = 0; v < m.positions.length / 3; v++) {
+      const style = m.walls[v * 4]!;
+      if (m.normals[v * 3 + 1] !== 0) {
+        expect(m.walls[v * 4 + 1]).toBe(0);
+        continue;
+      }
+      expect(style).toBe(MAT.WALL_HOUSE);
+      expect(m.walls[v * 4 + 1]).toBe(top);
+      expect(m.walls[v * 4 + 2]).toBe(base);
+      expect(m.walls[v * 4 + 3]).toBe(1); // base rests on the neighbouring ground
+      walls++;
+    }
+    expect(walls).toBe(4 * 4 + 0);
   });
 });

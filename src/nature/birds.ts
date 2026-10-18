@@ -27,9 +27,11 @@ const TAU = Math.PI * 2;
 const GROUND_DEFAULT = 4;
 const MAX_GROUP = 20;
 
-function makeMaterial(rate: number, fold: boolean): THREE.MeshLambertMaterial {
+/** Lit material plus a matching depth material so shadows follow the wing flap. */
+function makeMaterial(rate: number, fold: boolean): { mat: THREE.MeshLambertMaterial; depth: THREE.MeshDepthMaterial } {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  mat.onBeforeCompile = (shader) => {
+  const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  const patch = (mt: THREE.Material) => (shader: THREE.WebGLProgramParametersWithUniforms): void => {
     shader.uniforms.uTime = { value: 0 };
     shader.uniforms.uFlapRate = { value: rate };
     shader.uniforms.uFold = { value: fold ? 1 : 0 };
@@ -57,9 +59,11 @@ if (wing != 0.0) {
   transformed.yz = vec2(ca * transformed.y - sa * transformed.z, sa * transformed.y + ca * transformed.z);
 }`,
       );
-    mat.userData.shader = shader;
+    mt.userData.shader = shader;
   };
-  return mat;
+  mat.onBeforeCompile = patch(mat);
+  depth.onBeforeCompile = patch(depth);
+  return { mat, depth };
 }
 
 // Dove states
@@ -112,7 +116,7 @@ export class BirdSystem {
   private doveMesh: THREE.InstancedMesh;
   private swiftFlap: THREE.InstancedBufferAttribute;
   private doveFlap: THREE.InstancedBufferAttribute;
-  private mats: THREE.MeshLambertMaterial[] = [];
+  private mats: THREE.Material[] = [];
 
   // swifts
   private flocks: Flock[] = [];
@@ -160,9 +164,9 @@ export class BirdSystem {
       this.swiftFlocks.push(info);
       this.nSwifts += count;
     }
-    const swiftMat = makeMaterial(14, false);
-    const doveMat = makeMaterial(50, true);
-    this.mats.push(swiftMat, doveMat);
+    const { mat: swiftMat, depth: swiftDepth } = makeMaterial(14, false);
+    const { mat: doveMat, depth: doveDepth } = makeMaterial(50, true);
+    this.mats.push(swiftMat, doveMat, swiftDepth, doveDepth);
     const sg = buildSwiftGeometry();
     this.swiftFlap = new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
     this.swiftFlap.setUsage(THREE.DynamicDrawUsage);
@@ -170,6 +174,8 @@ export class BirdSystem {
     this.swiftMesh = new THREE.InstancedMesh(sg, swiftMat, n);
     this.swiftMesh.count = this.nSwifts;
     this.swiftMesh.frustumCulled = false;
+    this.swiftMesh.castShadow = true;
+    this.swiftMesh.customDepthMaterial = swiftDepth;
     this.swiftMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(this.swiftMesh);
 
@@ -183,6 +189,8 @@ export class BirdSystem {
     dg.setAttribute('aFlap', this.doveFlap);
     this.doveMesh = new THREE.InstancedMesh(dg, doveMat, dn);
     this.doveMesh.frustumCulled = false;
+    this.doveMesh.castShadow = true;
+    this.doveMesh.customDepthMaterial = doveDepth;
     this.doveMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < dn; i++) this.doveMesh.setMatrixAt(i, this.zero);
     scene.add(this.doveMesh);

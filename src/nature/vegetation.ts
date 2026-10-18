@@ -63,6 +63,8 @@ function modelOf(f: Feature): number {
 export class Vegetation {
   readonly stats: VegetationStats = { instances: 0, near: 0, triangles: 0 };
   readonly material: THREE.MeshLambertMaterial;
+  /** Depth material with the same sway, so shadows move with the foliage. */
+  readonly depthMaterial: THREE.MeshDepthMaterial;
 
   private readonly scene: THREE.Scene;
   private readonly lod0Sq: number;
@@ -92,7 +94,8 @@ export class Vegetation {
 
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true });
     const uTime = this.uTime;
-    this.material.onBeforeCompile = (shader) => {
+    this.depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    const patch = (shader: THREE.WebGLProgramParametersWithUniforms): void => {
       shader.uniforms.uTime = uTime;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nattribute float sway;\nuniform float uTime;')
@@ -113,6 +116,8 @@ export class Vegetation {
   gl_Position = projectionMatrix * mvPosition;`,
         );
     };
+    this.material.onBeforeCompile = patch;
+    this.depthMaterial.onBeforeCompile = patch;
   }
 
   /** Adds (or, with null features, removes) a region's vegetation. `cells` provides ground heights. */
@@ -199,6 +204,7 @@ export class Vegetation {
     for (const g of this.geoms) g?.dispose();
     this.regions.clear();
     this.material.dispose();
+    this.depthMaterial.dispose();
   }
 
   // ---------------------------------------------------------------- internals
@@ -232,6 +238,10 @@ export class Vegetation {
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false; // one mesh spans every loaded region
     mesh.matrixAutoUpdate = false;
+    // lod0 (slot 0) and mid (slot 1) cast and receive; far boxes only receive
+    mesh.castShadow = gi % 3 !== 2;
+    mesh.receiveShadow = true;
+    mesh.customDepthMaterial = this.depthMaterial;
     this.scene.add(mesh);
     grp.mesh = mesh;
     grp.capacity = cap;

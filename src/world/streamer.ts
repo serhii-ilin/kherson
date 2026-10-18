@@ -12,6 +12,7 @@ import { FEATURE_BRIDGE_DECK, FEATURE_TREE, decodeRegion, type RegionData } from
 import { jitterX, jitterZ } from '../nature/placement.ts';
 import type { Manifest } from './manifest.ts';
 import { MAT } from './materials.ts';
+import { facadeShader } from './facade-shader.ts';
 import { QuadBuilder, edgeTops, type ChunkMesh, type EdgeKey, type RegionEdges, type WaterMesh } from './mesher.ts';
 import type { MeshRequest, MeshResponse } from './mesher.worker.ts';
 import {
@@ -87,44 +88,6 @@ interface Job {
   edges: RegionEdges | undefined;
 }
 
-/** Adds world-space value noise to upward-facing terrain colours (more on green ground). */
-function groundNoise(shader: { vertexShader: string; fragmentShader: string }): void {
-  shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vGWorld;\nvarying float vGNy;')
-    .replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vGWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;\n  vGNy = objectNormal.y;',
-    );
-  shader.fragmentShader = shader.fragmentShader
-    .replace(
-      '#include <common>',
-      `#include <common>
-varying vec3 vGWorld;
-varying float vGNy;
-float gHash( vec2 p ) {
-  p = fract( p * vec2( 0.1031, 0.1030 ) );
-  p += dot( p, p.yx + 33.33 );
-  return fract( ( p.x + p.y ) * p.x );
-}
-float gVNoise( vec2 p ) {
-  vec2 i = floor( p );
-  vec2 f = fract( p );
-  f = f * f * ( 3.0 - 2.0 * f );
-  return mix( mix( gHash( i ), gHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( gHash( i + vec2( 0.0, 1.0 ) ), gHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
-}`,
-    )
-    .replace(
-      '#include <color_fragment>',
-      `#include <color_fragment>
-  if ( vGNy > 0.5 ) {
-    float gn = ( gVNoise( vGWorld.xz / 8.0 ) * 0.6 + gVNoise( vGWorld.xz / 32.0 ) * 0.4 ) * 2.0 - 1.0;
-    vec3 gc = diffuseColor.rgb;
-    float gk = ( gc.g > gc.r * 1.1 && gc.g > gc.b * 1.1 ) ? 0.12 : 0.06;
-    diffuseColor.rgb *= 1.0 + gk * gn;
-  }`,
-    );
-}
-
 const EMPTY_EDGE = new Uint8Array(REGION).fill(DEFAULT_GROUND_H);
 
 export class WorldStreamer {
@@ -175,7 +138,7 @@ export class WorldStreamer {
     this.scene = scene;
     this.manifest = manifest;
     this.viewRadius = opts.viewRadius ?? 640;
-    this.material.onBeforeCompile = groundNoise;
+    this.material.onBeforeCompile = facadeShader;
     this.ownsWaterMaterial = opts.waterMaterial === undefined;
     this.waterMaterial = opts.waterMaterial ?? new THREE.MeshBasicMaterial({ color: 0x3b78b8 });
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
@@ -473,6 +436,7 @@ export class WorldStreamer {
       this.emptyGeometry = g;
     }
     const m = new THREE.Mesh(this.emptyGeometry, this.material);
+    m.receiveShadow = true;
     m.position.set(rx * REGION_M, 0, rz * REGION_M);
     m.matrixAutoUpdate = false;
     m.updateMatrix();
@@ -638,6 +602,7 @@ export class WorldStreamer {
     g.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     g.setAttribute('color', new THREE.BufferAttribute(mesh.colors, 3));
+    g.setAttribute('aWall', new THREE.BufferAttribute(mesh.walls, 4));
     g.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     g.computeBoundingSphere();
     return g;
@@ -651,6 +616,8 @@ export class WorldStreamer {
       chunk.mesh.geometry = geometry;
     } else {
       const m = new THREE.Mesh(geometry, this.material);
+      m.castShadow = true;
+      m.receiveShadow = true;
       m.position.set(entry.rx * REGION_M, 0, entry.rz * REGION_M);
       m.matrixAutoUpdate = false;
       m.updateMatrix();

@@ -12,6 +12,7 @@ import { Grid, DEFAULT_CELLS } from "./bake/grid.ts";
 import { buildOverview } from "./bake/overview.ts";
 import { loadOsm, type OsmData, type Tags } from "./bake/osm.ts";
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
+import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
 
 const INPUT = process.argv[2] ?? "data/osm/kherson.json.gz";
 const OUT_DIR = process.argv[3] ?? "public/world";
@@ -22,16 +23,6 @@ function stage(name: string): void {
   const now = Date.now();
   console.log(`[${((now - t0) / 1000).toFixed(1)}s] ${name} (+${((now - tLast) / 1000).toFixed(1)}s)`);
   tLast = now;
-}
-
-function hash(a: number, b = 0): number {
-  let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul((b | 0) + 0x7f4a7c15, 0x85ebca6b);
-  h ^= h >>> 15;
-  h = Math.imul(h, 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return h >>> 0;
 }
 
 const has = (v: string | undefined): boolean => v !== undefined && v !== "no";
@@ -176,43 +167,6 @@ const SIDEWALK_ROAD = new Set([
 
 const TREE_LINED = new Set(["residential", "living_street", "tertiary", "secondary", "primary"]);
 
-function parseNum(v: string | undefined): number | null {
-  if (!v) return null;
-  const n = parseFloat(v.replace(",", "."));
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-function buildingSpec(id: number, t: Tags): { h: number; wall: number; roof: number } {
-  const b = t.building!;
-  const worship = b === "church" || b === "cathedral" || b === "chapel" || t.amenity === "place_of_worship";
-  const houseLike = b === "house" || b === "detached" || b === "semidetached_house" || b === "bungalow" || b === "terrace" || b === "farm";
-  let hm = parseNum(t.height);
-  if (hm === null) {
-    const lv = parseNum(t["building:levels"]);
-    if (lv !== null) hm = lv * 3 + 1;
-  }
-  if (hm === null) {
-    if (worship) hm = 18;
-    else if (houseLike || b === "residential") hm = 7;
-    else if (b === "apartments") hm = 15;
-    else if (b === "industrial" || b === "warehouse") hm = 8;
-    else if (b === "garage" || b === "garages" || b === "shed" || b === "roof") hm = 3;
-    else hm = 9;
-  }
-  const h = Math.max(1, Math.min(120, Math.round(hm / VOXEL)));
-  let wall: number = MAT.WALL_PUBLIC;
-  if (worship) wall = MAT.WALL_CHURCH;
-  else if (houseLike) wall = MAT.WALL_HOUSE;
-  else if (b === "apartments" || b === "residential") wall = MAT.WALL_APART;
-  else if (b === "industrial" || b === "warehouse" || b === "garage" || b === "garages") wall = MAT.WALL_INDUSTRIAL;
-  const hh = hash(id);
-  let roof: number;
-  if (worship) roof = hh & 1 ? MAT.ROOF_GOLD : MAT.ROOF_GREEN;
-  else if (b === "house" || b === "detached" || b === "semidetached_house" || b === "bungalow") roof = MAT.ROOF_RED;
-  else roof = hh & 1 ? MAT.ROOF_GREY : MAT.ROOF_DARK;
-  return { h, wall, roof };
-}
-
 // ---------------------------------------------------------------- main
 
 async function main(): Promise<void> {
@@ -324,10 +278,24 @@ async function main(): Promise<void> {
   stage(`roads: ${stats.roads}, rails: ${stats.rails}, bridge decks: ${stats.bridgeDecks}`);
 
   // d. buildings
+  const places = collectPlaces(osm, areas, lines);
+  stage(`places: ${places.length}`);
+  const centre = findCentre(places, areas);
+  const styleCounts = new Map<string, number>();
   for (const a of areas) {
     const t = a.tags;
     if (!has(t.building)) continue;
-    const spec = buildingSpec(a.id, t);
+    const r0 = a.rings[0]!;
+    let bx = 0, bz = 0;
+    for (const p of r0) { bx += p[0]; bz += p[1]; }
+    const dist = Math.hypot((bx / r0.length) * VOXEL - centre[0], (bz / r0.length) * VOXEL - centre[1]);
+    let area2 = 0;
+    for (let i = 0; i < r0.length; i++) {
+      const p = r0[i]!, q = r0[(i + 1) % r0.length]!;
+      area2 += p[0] * q[1] - q[0] * p[1];
+    }
+    const spec = buildingSpec(a.id, t, dist, (Math.abs(area2) / 2) * VOXEL * VOXEL);
+    styleCounts.set(spec.style, (styleCounts.get(spec.style) ?? 0) + 1);
     let n = 0;
     const put = (cx: number, cz: number): void => {
       if (!grid.inside(cx, cz) || grid.get(F_GROUND_MAT, cx, cz) === MAT.WATER) return;
@@ -346,6 +314,7 @@ async function main(): Promise<void> {
     stats.buildings++;
   }
   stage(`buildings: ${stats.buildings}`);
+  console.log("building styles: " + [...styleCounts].sort((p, q) => q[1] - p[1]).map(([n, c]) => `${n}=${c}`).join(" "));
 
   // e. vegetation
   const S = SPECIES;
@@ -556,12 +525,8 @@ async function main(): Promise<void> {
     "species: " + [...speciesCount].sort((p, q) => p[0] - q[0]).map(([id, n]) => `${speciesName.get(id)}=${n}`).join(" "),
   );
 
-  // places
-  const places = collectPlaces(osm, areas, lines);
-  stage(`places: ${places.length}`);
-
   // spawn
-  const spawn = findSpawn(places, grid, areas);
+  const spawn = findSpawn(centre, grid);
   stage(`spawn: ${spawn[0].toFixed(1)}, ${spawn[1].toFixed(1)}`);
 
   // write
@@ -673,24 +638,27 @@ function collectPlaces(osm: OsmData, areas: Area[], lines: { id: number; tags: T
   return out;
 }
 
-function findSpawn(places: Place[], grid: Grid, areas: Area[]): [number, number] {
+/** Centre of the city (Freedom Square, else the building bbox centre), world metres. Also the historic-radius origin. */
+function findCentre(places: Place[], areas: Area[]): [number, number] {
   const re = /Свобод|Svobod|Freedom/i;
   const cand =
     places.find((p) => p.kind === "square" && (re.test(p.name) || re.test(p.nameEn ?? ""))) ??
     places.find((p) => re.test(p.name) || re.test(p.nameEn ?? ""));
-  let x: number, z: number;
   if (cand) {
-    x = cand.x; z = cand.z;
-    console.log(`spawn from place "${cand.name}" (${cand.kind})`);
-  } else {
-    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-    for (const a of areas) {
-      if (!has(a.tags.building)) continue;
-      for (const p of a.rings[0]!) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
-    }
-    x = ((x0 + x1) / 2) * VOXEL; z = ((z0 + z1) / 2) * VOXEL;
-    console.log("spawn from building bbox centre (no Freedom Square found)");
+    console.log(`centre from place "${cand.name}" (${cand.kind})`);
+    return [cand.x, cand.z];
   }
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const a of areas) {
+    if (!has(a.tags.building)) continue;
+    for (const p of a.rings[0]!) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+  }
+  console.log("centre from building bbox centre (no Freedom Square found)");
+  return [((x0 + x1) / 2) * VOXEL, ((z0 + z1) / 2) * VOXEL];
+}
+
+function findSpawn(centre: [number, number], grid: Grid): [number, number] {
+  const [x, z] = centre;
   // move to nearest walkable (non-building, non-water) cell
   const walk = (cx: number, cz: number): boolean => {
     const g = grid.get(F_GROUND_MAT, cx, cz);

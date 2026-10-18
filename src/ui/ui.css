@@ -168,3 +168,12 @@
   padding: 8px 10px;
   font-size: 18px;
 }
+
+/* Quality toggle sits left of the mute button. */
+.vk-btn.vk-quality {
+  right: 288px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}

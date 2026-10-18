@@ -1,3 +1,4 @@
+import { getQuality, setQuality } from './quality.ts';
 import { translit, type Place } from './ui/places.ts';
 
 export type Lang = 'uk' | 'en';
@@ -21,6 +22,8 @@ const STRINGS = {
     switchTo: 'Switch to English',
     mute: 'Вимкнути звук',
     unmute: 'Увімкнути звук',
+    qualityHigh: 'Якість: висока (натисніть, щоб знизити)',
+    qualityLow: 'Якість: низька (натисніть, щоб підвищити)',
   },
   en: {
     title: 'Voxel Kherson',
@@ -39,6 +42,8 @@ const STRINGS = {
     switchTo: 'Перемкнути на українську',
     mute: 'Mute sound',
     unmute: 'Unmute sound',
+    qualityHigh: 'Quality: high (click to lower)',
+    qualityLow: 'Quality: low (click to raise)',
   },
 } as const;
 
@@ -152,6 +157,30 @@ export function createLangSwitcher(parent: HTMLElement): HTMLButtonElement {
     btn.setAttribute('aria-label', t('switchTo'));
   };
   btn.addEventListener('click', () => setLang(current === 'uk' ? 'en' : 'uk'));
+  onLangChange(render);
+  render();
+  parent.appendChild(btn);
+  return btn;
+}
+
+/** "HQ"/"LQ" toggle next to the mute button; saving the choice reloads the page to apply it. */
+export function createQualityButton(parent: HTMLElement): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'vk-btn vk-quality';
+  const render = (): void => {
+    const high = getQuality() === 'high';
+    btn.textContent = high ? 'HQ' : 'LQ';
+    const label = t(high ? 'qualityHigh' : 'qualityLow');
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  };
+  btn.addEventListener('click', () => {
+    setQuality(getQuality() === 'high' ? 'low' : 'high');
+    const url = new URL(location.href);
+    url.searchParams.delete('quality'); // a ?quality= override would defeat the new choice
+    location.replace(url.toString());
+  });
   onLangChange(render);
   render();
   parent.appendChild(btn);

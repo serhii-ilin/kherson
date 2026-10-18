@@ -40,7 +40,14 @@ export function edgeTops(neighbour: Uint8Array, key: EdgeKey): Uint8Array {
 export interface ChunkMesh {
   positions: Float32Array;
   normals: Float32Array;
+  /** Per-vertex colour with vertex ambient occlusion already multiplied in. */
   colors: Float32Array;
+  /**
+   * 4 floats per vertex: material id (building wall style, or asphalt/sidewalk/plaza on upward
+   * faces, else 0), then for side faces top y (m), base y (m), contact flag (1 where the base meets
+   * neighbouring ground); zeros elsewhere.
+   */
+  walls: Float32Array;
   indices: Uint32Array;
 }
 
@@ -59,12 +66,22 @@ export interface ChunkMeshResult extends ChunkMesh {
 const PLANE = REGION * REGION;
 const SIDE_SHADE = 0.8;
 const BOTTOM_SHADE = 0.65;
+/** Brightness for AO level 0 (fully enclosed corner) .. 3 (open). */
+export const AO_LEVEL = [0.55, 0.7, 0.85, 1.0] as const;
+/** Packed AO (2 bits per corner, corner 0 lowest) with every corner open. */
+export const AO_OPEN = 0xff;
+/** First and last wall material ids that get facade styling. */
+const WALL_MAT_MIN = 20;
+const WALL_MAT_MAX = 39;
 
 /** Growable quad buffer producing the final typed arrays. */
 export class QuadBuilder {
   private pos = new Float32Array(1024 * 12);
   private nor = new Float32Array(1024 * 12);
   private col = new Float32Array(1024 * 12);
+  private wal = new Float32Array(1024 * 16);
+  /** Per quad: 1 when the triangulation diagonal is v1-v3 instead of v0-v2 (AO anisotropy fix). */
+  private flip = new Uint8Array(1024);
   quads = 0;
 
   private grow(): void {
@@ -74,6 +91,12 @@ export class QuadBuilder {
       a.set(this[k]);
       this[k] = a;
     }
+    const w = new Float32Array(this.wal.length * 2);
+    w.set(this.wal);
+    this.wal = w;
+    const f = new Uint8Array(this.flip.length * 2);
+    f.set(this.flip);
+    this.flip = f;
   }
 
   /** Vertices must be counter-clockwise seen from the outside. */
@@ -84,6 +107,7 @@ export class QuadBuilder {
     x3: number, y3: number, z3: number,
     nx: number, ny: number, nz: number,
     mat: number, shade: number,
+    ao = AO_OPEN, wTop = 0, wBase = 0, wContact = 0,
   ): void {
     if ((this.quads + 1) * 12 > this.pos.length) this.grow();
     const o = this.quads * 12;
@@ -95,17 +119,31 @@ export class QuadBuilder {
     const r = (PALETTE[mat * 3]! / 255) * shade;
     const g = (PALETTE[mat * 3 + 1]! / 255) * shade;
     const b = (PALETTE[mat * 3 + 2]! / 255) * shade;
+    // building walls get their style id; upward faces of asphalt/sidewalk/plaza get the ground id
+    const isWall = mat >= WALL_MAT_MIN && mat <= WALL_MAT_MAX && wTop > 0
+      ? mat
+      : ny > 0.5 && (mat === MAT.ASPHALT || mat === MAT.SIDEWALK || mat === MAT.PLAZA) ? mat : 0;
+    const w = this.wal;
+    const a0 = AO_LEVEL[ao & 3]!;
+    const a1 = AO_LEVEL[(ao >> 2) & 3]!;
+    const a2 = AO_LEVEL[(ao >> 4) & 3]!;
+    const a3 = AO_LEVEL[(ao >> 6) & 3]!;
     for (let v = 0; v < 4; v++) {
       const i = o + v * 3;
+      const k = v === 0 ? a0 : v === 1 ? a1 : v === 2 ? a2 : a3;
       this.nor[i] = nx; this.nor[i + 1] = ny; this.nor[i + 2] = nz;
-      this.col[i] = r; this.col[i + 1] = g; this.col[i + 2] = b;
+      this.col[i] = r * k; this.col[i + 1] = g * k; this.col[i + 2] = b * k;
+      const wi = this.quads * 16 + v * 4;
+      w[wi] = isWall; w[wi + 1] = wTop; w[wi + 2] = wBase; w[wi + 3] = wContact;
     }
+    // split along the diagonal joining the brighter pair
+    this.flip[this.quads] = a1 + a3 > a0 + a2 ? 1 : 0;
     this.quads++;
   }
 
   /** Top face; xa..xb, za..zb in metres. */
-  top(xa: number, xb: number, y: number, za: number, zb: number, mat: number): void {
-    this.quad(xa, y, zb, xb, y, zb, xb, y, za, xa, y, za, 0, 1, 0, mat, y === 0 ? BOTTOM_SHADE : 1);
+  top(xa: number, xb: number, y: number, za: number, zb: number, mat: number, ao = AO_OPEN): void {
+    this.quad(xa, y, zb, xb, y, zb, xb, y, za, xa, y, za, 0, 1, 0, mat, y === 0 ? BOTTOM_SHADE : 1, ao);
   }
 
   bottom(xa: number, xb: number, y: number, za: number, zb: number, mat: number): void {
@@ -113,17 +151,19 @@ export class QuadBuilder {
   }
 
   /** Wall facing +X/-X at plane x, spanning y and z ranges. */
-  wallX(x: number, ya: number, yb: number, za: number, zb: number, positive: boolean, mat: number): void {
+  wallX(x: number, ya: number, yb: number, za: number, zb: number, positive: boolean, mat: number, contact = false): void {
     const s = ya === 0 ? BOTTOM_SHADE : SIDE_SHADE;
-    if (positive) this.quad(x, ya, zb, x, ya, za, x, yb, za, x, yb, zb, 1, 0, 0, mat, s);
-    else this.quad(x, ya, za, x, ya, zb, x, yb, zb, x, yb, za, -1, 0, 0, mat, s);
+    const c = contact ? 1 : 0;
+    if (positive) this.quad(x, ya, zb, x, ya, za, x, yb, za, x, yb, zb, 1, 0, 0, mat, s, AO_OPEN, yb, ya, c);
+    else this.quad(x, ya, za, x, ya, zb, x, yb, zb, x, yb, za, -1, 0, 0, mat, s, AO_OPEN, yb, ya, c);
   }
 
   /** Wall facing +Z/-Z at plane z, spanning x and y ranges. */
-  wallZ(z: number, ya: number, yb: number, xa: number, xb: number, positive: boolean, mat: number): void {
+  wallZ(z: number, ya: number, yb: number, xa: number, xb: number, positive: boolean, mat: number, contact = false): void {
     const s = ya === 0 ? BOTTOM_SHADE : SIDE_SHADE;
-    if (positive) this.quad(xa, ya, z, xb, ya, z, xb, yb, z, xa, yb, z, 0, 0, 1, mat, s);
-    else this.quad(xb, ya, z, xa, ya, z, xa, yb, z, xb, yb, z, 0, 0, -1, mat, s);
+    const c = contact ? 1 : 0;
+    if (positive) this.quad(xa, ya, z, xb, ya, z, xb, yb, z, xa, yb, z, 0, 0, 1, mat, s, AO_OPEN, yb, ya, c);
+    else this.quad(xb, ya, z, xa, ya, z, xa, yb, z, xb, yb, z, 0, 0, -1, mat, s, AO_OPEN, yb, ya, c);
   }
 
   /** Axis-aligned box in metres; sides and top always, bottom optional. */
@@ -146,13 +186,19 @@ export class QuadBuilder {
     for (let i = 0; i < q; i++) {
       const v = i * 4;
       const o = i * 6;
-      indices[o] = v; indices[o + 1] = v + 1; indices[o + 2] = v + 2;
-      indices[o + 3] = v; indices[o + 4] = v + 2; indices[o + 5] = v + 3;
+      if (this.flip[i]) {
+        indices[o] = v + 1; indices[o + 1] = v + 2; indices[o + 2] = v + 3;
+        indices[o + 3] = v + 1; indices[o + 4] = v + 3; indices[o + 5] = v;
+      } else {
+        indices[o] = v; indices[o + 1] = v + 1; indices[o + 2] = v + 2;
+        indices[o + 3] = v; indices[o + 4] = v + 2; indices[o + 5] = v + 3;
+      }
     }
     return {
       positions: this.pos.slice(0, q * 12),
       normals: this.nor.slice(0, q * 12),
       colors: this.col.slice(0, q * 12),
+      walls: this.wal.slice(0, q * 16),
       indices,
     };
   }
@@ -166,7 +212,42 @@ function soilFor(groundMat: number): number {
 
 const topKey = new Int32Array(CHUNK * CHUNK);
 
-function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): void {
+/** Column top (voxels) at a cell, reaching into the neighbour-region edge rows; 0 when unknown. */
+function columnTop(cells: Uint8Array, edges: RegionEdges | undefined, cx: number, cz: number): number {
+  if (cx >= 0 && cx < REGION && cz >= 0 && cz < REGION) {
+    const i = cz * REGION + cx;
+    return cells[PLANE * F_GROUND_H + i]! + cells[PLANE * F_STRUCT_H + i]!;
+  }
+  if (!edges) return 0;
+  if (cz >= 0 && cz < REGION) {
+    const e = cx < 0 ? edges.nx : cx >= REGION ? edges.px : undefined;
+    return e ? e[cz]! : 0;
+  }
+  if (cx >= 0 && cx < REGION) {
+    const e = cz < 0 ? edges.nz : cz >= REGION ? edges.pz : undefined;
+    return e ? e[cx]! : 0;
+  }
+  return 0; // diagonal region neighbours are not available
+}
+
+/**
+ * Classic voxel AO for the top face of cell (cx, cz) at height `h` voxels, packed 2 bits per corner
+ * in the vertex order of QuadBuilder.top: (-x,+z), (+x,+z), (+x,-z), (-x,-z). 3 = open, 0 = enclosed.
+ */
+export function topAO(cells: Uint8Array, edges: RegionEdges | undefined, cx: number, cz: number, h: number): number {
+  let packed = 0;
+  for (let v = 0; v < 4; v++) {
+    const sx = v === 0 || v === 3 ? -1 : 1;
+    const sz = v < 2 ? 1 : -1;
+    const s1 = columnTop(cells, edges, cx + sx, cz) > h ? 1 : 0;
+    const s2 = columnTop(cells, edges, cx, cz + sz) > h ? 1 : 0;
+    const c = columnTop(cells, edges, cx + sx, cz + sz) > h ? 1 : 0;
+    packed |= (s1 && s2 ? 0 : 3 - (s1 + s2 + c)) << (v * 2);
+  }
+  return packed;
+}
+
+function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined): void {
   for (let lz = 0; lz < CHUNK; lz++) {
     for (let lx = 0; lx < CHUNK; lx++) {
       const i = (z0 + lz) * REGION + x0 + lx;
@@ -178,7 +259,9 @@ function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): vo
       } else {
         mat = cells[PLANE * F_GROUND_MAT + i]!;
       }
-      topKey[lz * CHUNK + lx] = sh === 0 && mat === MAT.WATER ? -1 : ((gh + sh) << 8) | mat;
+      topKey[lz * CHUNK + lx] = sh === 0 && mat === MAT.WATER
+        ? -1
+        : (topAO(cells, edges, x0 + lx, z0 + lz, gh + sh) << 16) | ((gh + sh) << 8) | mat;
     }
   }
   const used = new Uint8Array(CHUNK * CHUNK);
@@ -188,20 +271,28 @@ function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number): vo
       const s = lz * CHUNK + lx;
       if (used[s]) continue;
       const key = topKey[s]!;
+      // Cells merge only with identical AO, and only along an axis in which their AO does not vary
+      // (bilinear interpolation across a merged quad stays exact then).
+      const ao = key >> 16;
+      const a0 = ao & 3, a1 = (ao >> 2) & 3, a2 = (ao >> 4) & 3, a3 = (ao >> 6) & 3;
+      const alongX = a0 === a1 && a3 === a2;
+      const alongZ = a0 === a3 && a1 === a2;
       let w = 1;
-      while (lx + w < CHUNK && !used[s + w] && topKey[s + w] === key) w++;
+      if (alongX) while (lx + w < CHUNK && !used[s + w] && topKey[s + w] === key) w++;
       let h = 1;
-      outer: while (lz + h < CHUNK) {
-        const row = s + h * CHUNK;
-        for (let k = 0; k < w; k++) {
-          if (used[row + k] || topKey[row + k] !== key) break outer;
+      if (alongZ) {
+        outer: while (lz + h < CHUNK) {
+          const row = s + h * CHUNK;
+          for (let k = 0; k < w; k++) {
+            if (used[row + k] || topKey[row + k] !== key) break outer;
+          }
+          h++;
         }
-        h++;
       }
       for (let dz = 0; dz < h; dz++) used.fill(1, s + dz * CHUNK, s + dz * CHUNK + w);
       b.top(
-        (x0 + lx) * VOXEL, (x0 + lx + w) * VOXEL, (key >> 8) * VOXEL,
-        (z0 + lz) * VOXEL, (z0 + lz + h) * VOXEL, key & 255,
+        (x0 + lx) * VOXEL, (x0 + lx + w) * VOXEL, ((key >> 8) & 255) * VOXEL,
+        (z0 + lz) * VOXEL, (z0 + lz + h) * VOXEL, key & 255, ao,
       );
     }
   }
@@ -225,10 +316,12 @@ function meshSides(
         let runY0 = 0;
         let runY1 = 0;
         let runMat = 0;
+        let runContact = false;
         for (let bi = 0; bi <= CHUNK; bi++) {
           let y0 = 0;
           let y1 = 0;
           let mat = 0;
+          let contact = false;
           if (bi < CHUNK) {
             const cx = alongX ? x0 + bi : x0 + a;
             const cz = alongX ? z0 + a : z0 + bi;
@@ -256,19 +349,21 @@ function meshSides(
               mat = cells[PLANE * F_STRUCT_MAT + i]! || soilFor(gm);
             }
             if (y1 <= y0) y1 = y0 = 0;
+            // the wall base rests on the neighbouring column's top (AO darkens this edge in the shader)
+            contact = y0 > 0 && y0 === nTop;
           }
           const continues =
-            runStart >= 0 && y1 > y0 && y0 === runY0 && y1 === runY1 && mat === runMat;
+            runStart >= 0 && y1 > y0 && y0 === runY0 && y1 === runY1 && mat === runMat && contact === runContact;
           if (!continues) {
             if (runStart >= 0) {
               const ya = runY0 * VOXEL;
               const yb = runY1 * VOXEL;
               if (alongX) {
                 const z = (z0 + a + (positive ? 1 : 0)) * VOXEL;
-                b.wallZ(z, ya, yb, (x0 + runStart) * VOXEL, (x0 + bi) * VOXEL, positive, runMat);
+                b.wallZ(z, ya, yb, (x0 + runStart) * VOXEL, (x0 + bi) * VOXEL, positive, runMat, runContact);
               } else {
                 const x = (x0 + a + (positive ? 1 : 0)) * VOXEL;
-                b.wallX(x, ya, yb, (z0 + runStart) * VOXEL, (z0 + bi) * VOXEL, positive, runMat);
+                b.wallX(x, ya, yb, (z0 + runStart) * VOXEL, (z0 + bi) * VOXEL, positive, runMat, runContact);
               }
               runStart = -1;
             }
@@ -277,6 +372,7 @@ function meshSides(
               runY0 = y0;
               runY1 = y1;
               runMat = mat;
+              runContact = contact;
             }
           }
         }
@@ -427,7 +523,7 @@ export function meshChunk(region: RegionData, cx: number, cz: number, edges?: Re
   const b = new QuadBuilder();
   const x0 = cx * CHUNK;
   const z0 = cz * CHUNK;
-  meshTops(b, region.cells, x0, z0);
+  meshTops(b, region.cells, x0, z0, edges);
   meshSides(b, region.cells, x0, z0, edges);
   meshFeatures(b, region, x0, z0);
   return { ...b.build(), water: meshWater(region.cells, x0, z0, edges) };

@@ -211,7 +211,7 @@ Parallel agents never share files. Each spec names its files, interfaces and acc
 | Step | Status |
 |---|---|
 | 0. Plan document and constitution amendment | done |
-| 1. Light and facades | not started |
+| 1. Light and facades | done (AO, shadows, ACES, sky, facade styles + shader, quality toggle) |
 | 2. Fine tier engine and streets | not started |
 | 3. Buildings at 0.2 m, signs and detail | not started |
 | 4. 10× everywhere near | not started |
