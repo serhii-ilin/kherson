@@ -188,10 +188,4 @@ Parallel agents never share files. Each spec names its files, interfaces and acc
 
 ## Progress
 
-| Step | Status |
-|---|---|
-| 0. Plan document and constitution amendment | done |
-| 1. Light and facades | done (AO, shadows, ACES, sky, facade styles + shader, quality toggle) |
-| 2. Fine tier engine and streets | done (vector tiles 1.7 MB, 0.2 m ground: roads, kerbs, markings, zebras, tracks; coarse ground stays underneath to cover T-junction cracks; bridges still coarse) |
-| 3. Buildings and bridges as 1 m blocks, signs and detail | blocks and bridges done (250 m, 128 m merged tiles, carved windows, balconies, cornices, roofs, piers); shop signs still to do |
-| 4. 10× everywhere near | not started |
+Tracked in [PROGRESS.md](PROGRESS.md): phases, open tasks and known issues.

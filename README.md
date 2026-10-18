@@ -110,6 +110,7 @@ tools/
 tests/                  Vitest unit tests
 docs/DEPLOYMENT.md      build, deploy and data-refresh guide
 docs/REALISM_PLAN.md    realism and 10× resolution roadmap
+docs/PROGRESS.md        progress tracker: phases, open tasks, issues
 CONSTITUTION.md         project principles, budgets and working rules
 ```
 
@@ -117,6 +118,7 @@ CONSTITUTION.md         project principles, budgets and working rules
 
 - [Deployment](docs/DEPLOYMENT.md): GitHub Pages, CI, refreshing map data, troubleshooting.
 - [Constitution](CONSTITUTION.md): principles, performance budgets, code and contribution rules.
+- [Progress](docs/PROGRESS.md): phase status, open tasks and known issues.
 - [Realism plan](docs/REALISM_PLAN.md): roadmap for lighting, facades, streets and 0.2 m near-camera detail.
 
 ## Data and attribution
