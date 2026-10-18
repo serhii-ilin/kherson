@@ -27,12 +27,17 @@ export const OSM_LANDMARK_DATA = {
   squareSteps: [
     [46.6404799, 32.6155587], [46.6405196, 32.6156988], [46.6405319, 32.6157481],
   ] satisfies readonly LatLon[],
-  // Pre-war hardscape boundary recovered from the brief/photos and clipped to the
-  // administration and mapped-road edges; this intentionally does not use the later
-  // >1.1e9 grass/pedestrian ways as historical paving.
+  // Derived pre-war hardscape boundary. The three squareRoads runs are the
+  // mapped perimeter-road centre lines. Their long straight segments have a
+  // dominant x/z direction of about -22 degrees. In that local frame this is
+  // the rectangle a=-95..0, c=-83..32: the road-to-road strip inset by 5 m
+  // from the centre lines, ending at the administration's west frontage. The
+  // administration footprint (including its inner courtyard void) is excluded
+  // at build time. This deliberately does not use the later >1.1e9
+  // grass/pedestrian ways as historical paving.
   forecourtPaving: [
-    [46.6399121, 32.6157478], [46.6401808, 32.6159167], [46.640306, 32.6158425], [46.6405319, 32.6157481],
-    [46.6408588, 32.6155221], [46.6409797, 32.6152601], [46.640701, 32.6142855], [46.63969, 32.6149033],
+    [46.640673766, 32.614290208], [46.640996061, 32.615442673],
+    [46.640031639, 32.616007042], [46.639709344, 32.614854576],
   ] satisfies readonly LatLon[],
   squareRoads: [
     [[46.6409797, 32.6152601], [46.6409578, 32.6151842], [46.640701, 32.6142855], [46.6406474, 32.6141005], [46.6405945, 32.6139099]],

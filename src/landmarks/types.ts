@@ -28,6 +28,11 @@ export interface LandmarkPropExclusion {
 
 export interface LandmarkReport {
   pavedAreaM2: number;
+  pavedAreaBeforeM2?: number;
+  pavedAreaAfterM2?: number;
+  forecourtAreaM2?: number;
+  forecourtPavedAreaM2?: number;
+  orientationDeg?: number;
   lamps: number;
   benches: number;
   deckRoot?: [number, number];

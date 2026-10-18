@@ -2,25 +2,52 @@ import { buildProp, PROP } from '../fine/prop-models.ts';
 import { fromLatLon } from './geo.ts';
 import { OSM_LANDMARK_DATA, type LatLon } from './data.ts';
 import {
-  buildResult, LandmarkMeshBuilder, pointInPolygon, rgb,
+  buildResult, LandmarkMeshBuilder, pointInPolygon, polygonArea, rgb,
   type Landmark, type LandmarkBuildContext, type LandmarkSurface,
 } from './types.ts';
 import type { Bbox } from '../world/manifest.ts';
 
-const PAVE = rgb(0x989993);
-const PAVE_ALT = rgb(0xa9a79f);
-const PAVE_DARK = rgb(0x747873);
+const PAVE = rgb(0x9a9b95);
+const PAVE_ALT = rgb(0x777b78);
+const PAVE_DARK = rgb(0x777b78);
 const JOINT = rgb(0x5f625e);
-const GRANITE = rgb(0x8d918c);
-const GRANITE_DARK = rgb(0x5f6562);
+const GRANITE = rgb(0x9a9b95);
+const GRANITE_DARK = rgb(0x5f625e);
 const METAL = rgb(0x303735);
-const FLOWER = rgb(0xc75b48);
+const FLOWER = rgb(0x8a5c52);
 const FOLIAGE = rgb(0x3c713e);
 const WATER = rgb(0x6e9aa0);
 const FLAG_BLUE = rgb(0x1c6db2);
 const FLAG_YELLOW = rgb(0xf0c72e);
 
-type Point = [number, number];
+export type Point = [number, number];
+
+export interface FreedomSquareBasis {
+  x: number;
+  z: number;
+  ux: number;
+  uz: number;
+  vx: number;
+  vz: number;
+  angleDeg: number;
+}
+
+export interface FreedomPlinthLayout {
+  center: Point;
+  basis: FreedomSquareBasis;
+  length: number;
+  width: number;
+  angleDeg: number;
+}
+
+export interface FreedomSquareLayout {
+  basis: FreedomSquareBasis;
+  polygon: Point[];
+  administration: Point[];
+  administrationInner: Point[];
+  plinth: FreedomPlinthLayout;
+  localBounds: { a0: number; a1: number; c0: number; c1: number };
+}
 
 function project(bbox: Bbox, points: readonly LatLon[]): Point[] {
   return points.map(([lat, lon]) => {
@@ -29,123 +56,250 @@ function project(bbox: Bbox, points: readonly LatLon[]): Point[] {
   });
 }
 
-function yAt(ctx: LandmarkBuildContext, x: number, z: number, fallback: number): number {
-  const y = ctx.groundAt(x, z);
-  return y !== null && Number.isFinite(y) ? y : fallback;
-}
-
 function centroid(poly: readonly Point[]): Point {
   let x = 0, z = 0;
   for (const p of poly) { x += p[0]; z += p[1]; }
   return [x / poly.length, z / poly.length];
 }
 
-function segmentDistance(x: number, z: number, a: Point, b: Point): number {
-  const dx = b[0] - a[0], dz = b[1] - a[1];
-  const d2 = dx * dx + dz * dz;
-  const t = d2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / d2));
-  const px = a[0] + dx * t, pz = a[1] + dz * t;
-  return Math.hypot(x - px, z - pz);
+function local(b: FreedomSquareBasis, a: number, c: number): Point {
+  return [b.x + b.ux * a + b.vx * c, b.z + b.uz * a + b.vz * c];
 }
 
-function nearRoad(x: number, z: number, roads: readonly Point[][]): boolean {
+function toLocal(b: FreedomSquareBasis, p: Point): Point {
+  const dx = p[0] - b.x, dz = p[1] - b.z;
+  return [dx * b.ux + dz * b.uz, dx * b.vx + dz * b.vz];
+}
+
+function yAt(ctx: LandmarkBuildContext, x: number, z: number, fallback: number): number {
+  const y = ctx.groundAt(x, z);
+  return y !== null && Number.isFinite(y) ? y : fallback;
+}
+
+function dominantRoadAngle(roads: readonly Point[][]): number {
+  let xx = 0, xz = 0;
   for (const road of roads) for (let i = 1; i < road.length; i++) {
-    if (segmentDistance(x, z, road[i - 1]!, road[i]!) < 3.8) return true;
+    const dx = road[i]![0] - road[i - 1]![0], dz = road[i]![1] - road[i - 1]![1];
+    const length = Math.hypot(dx, dz);
+    if (length < 20) continue;
+    const nx = dx / length, nz = dz / length;
+    xx += length * (nx * nx - nz * nz);
+    xz += length * 2 * nx * nz;
   }
-  return false;
+  let angle = Math.atan2(xz, xx) * 0.5;
+  const preferred = roads[1]![2]![0] - roads[1]![1]![0];
+  const preferredZ = roads[1]![2]![1] - roads[1]![1]![1];
+  if (Math.cos(angle) * preferred + Math.sin(angle) * preferredZ < 0) angle += Math.PI;
+  return angle;
 }
 
-function addSegmentBox(b: LandmarkMeshBuilder, a: Point, c: Point, width: number, y: number, height: number, color: readonly [number, number, number]): void {
-  const dx = c[0] - a[0], dz = c[1] - a[1], len = Math.hypot(dx, dz) || 1;
-  const px = -dz / len * width * 0.5, pz = dx / len * width * 0.5;
-  b.box(Math.min(a[0] + px, c[0] - px), y, Math.min(a[1] + pz, c[1] - pz), Math.max(a[0] + px, c[0] - px), y + height, Math.max(a[1] + pz, c[1] - pz), color);
+function basisAt(origin: Point, angle: number): FreedomSquareBasis {
+  return {
+    x: origin[0], z: origin[1], ux: Math.cos(angle), uz: Math.sin(angle),
+    vx: -Math.sin(angle), vz: Math.cos(angle), angleDeg: angle * 180 / Math.PI,
+  };
 }
 
-function addPaving(
-  b: LandmarkMeshBuilder, polygon: readonly Point[], admin: readonly Point[], roads: readonly Point[][],
-  ctx: LandmarkBuildContext, fallback: number, quality: 'high' | 'low',
+function orientedBox(
+  b: LandmarkMeshBuilder, basis: FreedomSquareBasis, a0: number, a1: number, c0: number, c1: number,
+  y0: number, y1: number, color: readonly [number, number, number], bottom = true,
+): void {
+  const p = (a: number, c: number, y: number) => {
+    const point = local(basis, a, c);
+    return { x: point[0], y, z: point[1] };
+  };
+  const q = (a: number, c: number, y: number, nx: number, ny: number, nz: number) => ({ ...p(a, c, y), nx, ny, nz });
+  b.addQuad([q(a0, c1, y1, 0, 1, 0), q(a1, c1, y1, 0, 1, 0), q(a1, c0, y1, 0, 1, 0), q(a0, c0, y1, 0, 1, 0)], color);
+  if (bottom) b.addQuad([q(a0, c0, y0, 0, -1, 0), q(a1, c0, y0, 0, -1, 0), q(a1, c1, y0, 0, -1, 0), q(a0, c1, y0, 0, -1, 0)], color);
+  b.addQuad([q(a0, c1, y0, basis.vx, 0, basis.vz), q(a1, c1, y0, basis.vx, 0, basis.vz), q(a1, c1, y1, basis.vx, 0, basis.vz), q(a0, c1, y1, basis.vx, 0, basis.vz)], color);
+  b.addQuad([q(a1, c0, y0, -basis.vx, 0, -basis.vz), q(a0, c0, y0, -basis.vx, 0, -basis.vz), q(a0, c0, y1, -basis.vx, 0, -basis.vz), q(a1, c0, y1, -basis.vx, 0, -basis.vz)], color);
+  b.addQuad([q(a1, c1, y0, basis.ux, 0, basis.uz), q(a1, c0, y0, basis.ux, 0, basis.uz), q(a1, c0, y1, basis.ux, 0, basis.uz), q(a1, c1, y1, basis.ux, 0, basis.uz)], color);
+  b.addQuad([q(a0, c0, y0, -basis.ux, 0, -basis.uz), q(a0, c1, y0, -basis.ux, 0, -basis.uz), q(a0, c1, y1, -basis.ux, 0, -basis.uz), q(a0, c0, y1, -basis.ux, 0, -basis.uz)], color);
+}
+
+function orientedTopQuad(
+  b: LandmarkMeshBuilder, basis: FreedomSquareBasis, a0: number, a1: number, c0: number, c1: number, y: number,
+  color: readonly [number, number, number],
+): void {
+  const p = (a: number, c: number) => {
+    const point = local(basis, a, c);
+    return { x: point[0], y, z: point[1], nx: 0, ny: 1, nz: 0 };
+  };
+  b.addQuad([p(a0, c1), p(a1, c1), p(a1, c0), p(a0, c0)], color);
+}
+
+function sampleGroundMax(
+  ctx: LandmarkBuildContext, basis: FreedomSquareBasis, a0: number, a1: number, c0: number, c1: number, fallback: number,
 ): number {
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const [x, z] of polygon) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
-  const tile = quality === 'high' ? 0.95 : 1.7;
-  const half = tile * 0.44;
+  let highest = fallback;
+  for (const [a, c] of [[a0, c0], [a0, c1], [a1, c0], [a1, c1]] as const) {
+    const [x, z] = local(basis, a, c);
+    highest = Math.max(highest, yAt(ctx, x, z, fallback));
+  }
+  return highest;
+}
+
+function derivePlinthLayout(squareBasis: FreedomSquareBasis, polygon: readonly Point[]): FreedomPlinthLayout {
+  const center = centroid(polygon);
+  let longest = 0, ux = squareBasis.ux, uz = squareBasis.uz;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!, c = polygon[(i + 1) % polygon.length]!;
+    const dx = c[0] - a[0], dz = c[1] - a[1], length = Math.hypot(dx, dz);
+    if (length > longest) { longest = length; ux = dx / length; uz = dz / length; }
+  }
+  if (ux * squareBasis.ux + uz * squareBasis.uz < 0) { ux = -ux; uz = -uz; }
+  const basis = basisAt(center, Math.atan2(uz, ux));
+  let length = 0, width = 0;
+  for (const point of polygon) {
+    const [a, c] = toLocal(basis, point);
+    length = Math.max(length, Math.abs(a));
+    width = Math.max(width, Math.abs(c));
+  }
+  return { center, basis, length: length * 2, width: width * 2, angleDeg: basis.angleDeg };
+}
+
+/** Derives the oriented square envelope from the mapped perimeter roads and OSM footprints. */
+export function resolveFreedomSquareLayout(bbox: Bbox): FreedomSquareLayout {
+  const polygon = project(bbox, OSM_LANDMARK_DATA.forecourtPaving);
+  const administration = project(bbox, OSM_LANDMARK_DATA.administrationOuter);
+  const administrationInner = project(bbox, OSM_LANDMARK_DATA.administrationInner);
+  const roads = OSM_LANDMARK_DATA.squareRoads.map((road) => project(bbox, road));
+  const anchor = fromLatLon(bbox, 46.6403, 32.61585);
+  const basis = basisAt([anchor.x, anchor.z], dominantRoadAngle(roads));
+  let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+  for (const point of polygon) {
+    const [a, c] = toLocal(basis, point);
+    a0 = Math.min(a0, a); a1 = Math.max(a1, a); c0 = Math.min(c0, c); c1 = Math.max(c1, c);
+  }
+  return {
+    basis, polygon, administration, administrationInner,
+    plinth: derivePlinthLayout(basis, project(bbox, OSM_LANDMARK_DATA.formerPlinth)),
+    localBounds: { a0, a1, c0, c1 },
+  };
+}
+
+function addOrientedPaving(
+  b: LandmarkMeshBuilder, layout: FreedomSquareLayout, ctx: LandmarkBuildContext, fallback: number, quality: 'high' | 'low',
+): number {
+  const { basis, polygon, administration, administrationInner, localBounds } = layout;
+  const tile = quality === 'high' ? 2 : 3;
+  const joint = 0.06;
   let area = 0;
-  for (let z = minZ + tile * 0.5; z < maxZ; z += tile) for (let x = minX + tile * 0.5; x < maxX; x += tile) {
-    if (!pointInPolygon(polygon, x, z) || pointInPolygon(admin, x, z) || nearRoad(x, z, roads)) continue;
-    const y = yAt(ctx, x, z, fallback);
-    const shade = (Math.floor(x * 1.7) + Math.floor(z * 1.3)) % 7;
-    // mortar bed under the joints, so the ground (often grass in the post-war OSM) never shows through
-    b.topQuad(x - tile / 2, z - tile / 2, x + tile / 2, z + tile / 2, y + 0.015, JOINT);
-    b.box(x - half, y + 0.015, z - half, x + half, y + 0.065, z + half, shade === 0 ? PAVE_DARK : shade < 3 ? PAVE_ALT : PAVE, false);
-    area += tile * tile;
+  for (let a0 = localBounds.a0; a0 < localBounds.a1 - 1e-6; a0 += tile) for (let c0 = localBounds.c0; c0 < localBounds.c1 - 1e-6; c0 += tile) {
+    const a1 = Math.min(a0 + tile, localBounds.a1), c1 = Math.min(c0 + tile, localBounds.c1);
+    const ac = (a0 + a1) * 0.5, cc = (c0 + c1) * 0.5;
+    const [x, z] = local(basis, ac, cc);
+    if (!pointInPolygon(polygon, x, z) || pointInPolygon(administration, x, z) || pointInPolygon(administrationInner, x, z)) continue;
+    const ground = sampleGroundMax(ctx, basis, a0, a1, c0, c1, fallback);
+    const bed = ground + 0.02;
+    // The mortar quad fills the complete cell. The inset slab is a partial edge
+    // tile where the rectangle ends, so the outer edge remains a straight line.
+    orientedTopQuad(b, basis, a0, a1, c0, c1, bed, JOINT);
+    const shade = (Math.floor(ac / tile) + Math.floor(cc / tile)) % 9;
+    const colour = shade === 0 ? PAVE_DARK : shade < 3 ? PAVE_ALT : PAVE;
+    orientedBox(b, basis, a0 + joint, a1 - joint, c0 + joint, c1 - joint, bed, bed + 0.06, colour, false);
+    area += (a1 - a0) * (c1 - c0);
   }
   return area;
 }
 
-function pavingSurface(polygon: readonly Point[], admin: readonly Point[], roads: readonly Point[][], ctx: LandmarkBuildContext, lift: number): LandmarkSurface {
-  return { heightAt: (x, z) => pointInPolygon(polygon, x, z) && !pointInPolygon(admin, x, z) && !nearRoad(x, z, roads) ? (ctx.groundAt(x, z) ?? 0) + lift : null };
+function pavingSurface(layout: FreedomSquareLayout, ctx: LandmarkBuildContext): LandmarkSurface {
+  return { heightAt: (x, z) => {
+    if (!pointInPolygon(layout.polygon, x, z) || pointInPolygon(layout.administration, x, z) || pointInPolygon(layout.administrationInner, x, z)) return null;
+    return (ctx.groundAt(x, z) ?? 0) + 0.08;
+  } };
 }
 
-function addFlag(b: LandmarkMeshBuilder, x: number, z: number, y: number): void {
+function addFlag(b: LandmarkMeshBuilder, basis: FreedomSquareBasis, a: number, c: number, y: number): void {
+  const [x, z] = local(basis, a, c);
   b.cylinder(x, y, z, 0.045, 9, METAL, 8);
-  b.box(x + 0.05, y + 7.2, z - 0.02, x + 1.85, y + 7.7, z + 0.02, FLAG_BLUE);
-  b.box(x + 0.05, y + 7.7, z - 0.02, x + 1.85, y + 8.2, z + 0.02, FLAG_YELLOW);
+  const [x1, z1] = local(basis, a + 1.85, c);
+  const [x2, z2] = local(basis, a + 0.05, c);
+  b.addQuad([
+    { x: x2, y: y + 7.2, z: z2, nx: 0, ny: 0, nz: 1 }, { x: x1, y: y + 7.2, z: z1, nx: 0, ny: 0, nz: 1 },
+    { x: x1, y: y + 7.7, z: z1, nx: 0, ny: 0, nz: 1 }, { x: x2, y: y + 7.7, z: z2, nx: 0, ny: 0, nz: 1 },
+  ], FLAG_BLUE);
+  b.addQuad([
+    { x: x2, y: y + 7.7, z: z2, nx: 0, ny: 0, nz: 1 }, { x: x1, y: y + 7.7, z: z1, nx: 0, ny: 0, nz: 1 },
+    { x: x1, y: y + 8.2, z: z1, nx: 0, ny: 0, nz: 1 }, { x: x2, y: y + 8.2, z: z2, nx: 0, ny: 0, nz: 1 },
+  ], FLAG_YELLOW);
+}
+
+function addFlowerBed(b: LandmarkMeshBuilder, basis: FreedomSquareBasis, a: number, c: number, y: number): void {
+  const [x, z] = local(basis, a, c);
+  b.cylinder(x, y + 0.04, z, 1.3, 0.18, GRANITE, 12);
+  b.cylinder(x, y + 0.22, z, 1.02, 0.16, FOLIAGE, 12);
+  for (let i = 0; i < 6; i++) b.cylinder(x + Math.cos(i * 2.4) * 0.62, y + 0.35, z + Math.sin(i * 2.4) * 0.62, 0.11, 0.18, FLOWER, 6);
 }
 
 export function createFreedomSquare(bbox: Bbox): Landmark {
-  const forecourt = project(bbox, OSM_LANDMARK_DATA.forecourtPaving);
-  const admin = project(bbox, OSM_LANDMARK_DATA.administrationOuter);
-  const roads = OSM_LANDMARK_DATA.squareRoads.map((road) => project(bbox, road));
-  const plinthPoly = project(bbox, OSM_LANDMARK_DATA.formerPlinth);
-  const fountainPoly = project(bbox, OSM_LANDMARK_DATA.fountain);
+  const layout = resolveFreedomSquareLayout(bbox);
+  const { basis, polygon, plinth, localBounds } = layout;
   const steps = project(bbox, OSM_LANDMARK_DATA.squareSteps);
-  const anchor = centroid(forecourt);
-  const plinth = centroid(plinthPoly);
-  const fountain = centroid(fountainPoly);
-  const propExclusions = [{ polygon: forecourt, kinds: [PROP.LAMP, PROP.BENCH, PROP.BIN] }];
+  const fountain = centroid(project(bbox, OSM_LANDMARK_DATA.fountain));
+  const propExclusions = [{ polygon, kinds: [PROP.LAMP, PROP.BENCH, PROP.BIN] }];
+  const anchor = centroid(polygon);
+  // Measured from the previous guessed-polygon/0.95 m grid (11649 cells).
+  const legacyPavedArea = 10_513.2225;
   return {
     id: 'freedom-square',
     name: 'Площа Свободи',
     anchor: { lat: 46.6403, lon: 32.61585, x: anchor[0], z: anchor[1] },
-    footprint: forecourt,
+    footprint: polygon,
     propExclusions,
-    vegetationExclusions: [forecourt],
+    vegetationExclusions: [polygon],
     build: (ctx) => {
       const baseY = yAt(ctx, anchor[0], anchor[1], 0);
       const opaque = new LandmarkMeshBuilder();
       const lamp = new LandmarkMeshBuilder();
       const water = new LandmarkMeshBuilder();
-      const surfaces: LandmarkSurface[] = [pavingSurface(forecourt, admin, roads, ctx, 0.08)];
+      const surfaces: LandmarkSurface[] = [pavingSurface(layout, ctx)];
       const quality = ctx.quality === 'high' ? 'high' : 'low';
-      let pavedArea = addPaving(opaque, forecourt, admin, roads, ctx, baseY, quality);
+      const forecourtPavedArea = addOrientedPaving(opaque, layout, ctx, baseY, quality);
+      let pavedArea = forecourtPavedArea;
 
-      for (let i = 0; i < forecourt.length; i++) addSegmentBox(opaque, forecourt[i]!, forecourt[(i + 1) % forecourt.length]!, 0.28, yAt(ctx, forecourt[i]![0], forecourt[i]![1], baseY) + 0.04, 0.12, GRANITE_DARK);
+      // Four continuous local-frame kerbs keep the road-to-road rectangle straight.
+      const edgeY = sampleGroundMax(ctx, basis, localBounds.a0, localBounds.a1, localBounds.c0, localBounds.c1, baseY) + 0.02;
+      orientedBox(opaque, basis, localBounds.a0, localBounds.a1, localBounds.c0 - 0.18, localBounds.c0 + 0.18, edgeY, edgeY + 0.12, GRANITE_DARK);
+      orientedBox(opaque, basis, localBounds.a0, localBounds.a1, localBounds.c1 - 0.18, localBounds.c1 + 0.18, edgeY, edgeY + 0.12, GRANITE_DARK);
+      orientedBox(opaque, basis, localBounds.a0 - 0.18, localBounds.a0 + 0.18, localBounds.c0, localBounds.c1, edgeY, edgeY + 0.12, GRANITE_DARK);
+      orientedBox(opaque, basis, localBounds.a1 - 0.18, localBounds.a1 + 0.18, localBounds.c0, localBounds.c1, edgeY, edgeY + 0.12, GRANITE_DARK);
 
-      // Empty former Lenin pad: stepped granite and neutral blank panels, never a statue.
-      const plinthY = yAt(ctx, plinth[0], plinth[1], baseY) + 0.08;
-      opaque.box(plinth[0] - 7.4, plinthY, plinth[1] - 5.8, plinth[0] + 7.4, plinthY + 0.22, plinth[1] + 5.8, GRANITE);
-      opaque.box(plinth[0] - 6.3, plinthY + 0.22, plinth[1] - 4.8, plinth[0] + 6.3, plinthY + 0.43, plinth[1] + 4.8, GRANITE_DARK);
-      opaque.box(plinth[0] - 4.8, plinthY + 0.43, plinth[1] - 3.5, plinth[0] + 4.8, plinthY + 0.78, plinth[1] + 3.5, GRANITE);
-      opaque.box(plinth[0] - 3.2, plinthY + 0.78, plinth[1] - 2.1, plinth[0] + 3.2, plinthY + 0.95, plinth[1] + 2.1, GRANITE_DARK);
-      for (const dx of [-5.2, 5.2]) opaque.box(plinth[0] + dx - 0.7, plinthY + 0.5, plinth[1] + 3.9, plinth[0] + dx + 0.7, plinthY + 1.2, plinth[1] + 4.02, GRANITE);
-      surfaces.push({ heightAt: (x, z) => Math.abs(x - plinth[0]) < 3.3 && Math.abs(z - plinth[1]) < 2.2 ? plinthY + 0.95 : null });
+      // Restrained axial bands and a short entrance axis, all in square-local coordinates.
+      const bandY = edgeY + 0.125;
+      orientedBox(opaque, basis, localBounds.a0, localBounds.a1, -1.3, 1.3, bandY, bandY + 0.012, PAVE_ALT, false);
+      orientedBox(opaque, basis, -1.3, 1.3, localBounds.c0, localBounds.c1, bandY, bandY + 0.012, PAVE_ALT, false);
+      orientedBox(opaque, basis, -31, -24, localBounds.c0, 1.3, bandY, bandY + 0.012, FLOWER, false);
 
-      // Only the mapped steps way is reconstructed; there is no invented square stair flight.
-      const stepDX = steps[steps.length - 1]![0] - steps[0]![0], stepDZ = steps[steps.length - 1]![1] - steps[0]![1];
-      const stepLen = Math.hypot(stepDX, stepDZ) || 1, ux = stepDX / stepLen, uz = stepDZ / stepLen, vx = -uz, vz = ux;
-      const stepCount = quality === 'high' ? 8 : 5;
-      for (let i = 0; i < stepCount; i++) {
-        const a0 = stepLen * i / stepCount, a1 = stepLen * (i + 1) / stepCount;
-        const cx = steps[0]![0] + ux * (a0 + a1) * 0.5, cz = steps[0]![1] + uz * (a0 + a1) * 0.5;
-        const y = yAt(ctx, cx, cz, baseY) + 0.03;
-        opaque.box(Math.min(cx + vx * -1.5 - ux * (a1 - a0) * 0.5, cx + vx * 1.5 + ux * (a1 - a0) * 0.5), y - 0.14, Math.min(cz + vz * -1.5 - uz * (a1 - a0) * 0.5, cz + vz * 1.5 + uz * (a1 - a0) * 0.5), Math.max(cx + vx * -1.5 - ux * (a1 - a0) * 0.5, cx + vx * 1.5 + ux * (a1 - a0) * 0.5), y, Math.max(cz + vz * -1.5 - uz * (a1 - a0) * 0.5, cz + vz * 1.5 + uz * (a1 - a0) * 0.5), PAVE_DARK);
-      }
+      // Empty former-Lenin pad: its own OSM rectangle supplies centre and angle.
+      const padY = yAt(ctx, plinth.center[0], plinth.center[1], baseY) + 0.08;
+      const pb = plinth.basis;
+      orientedBox(opaque, pb, -plinth.length / 2, plinth.length / 2, -plinth.width / 2, plinth.width / 2, padY, padY + 0.22, GRANITE);
+      orientedBox(opaque, pb, -plinth.length / 2 + 1.1, plinth.length / 2 - 1.1, -plinth.width / 2 + 1.0, plinth.width / 2 - 1.0, padY + 0.22, padY + 0.43, GRANITE_DARK);
+      orientedBox(opaque, pb, -4.8, 4.8, -3.5, 3.5, padY + 0.43, padY + 0.78, GRANITE);
+      orientedBox(opaque, pb, -3.2, 3.2, -2.1, 2.1, padY + 0.78, padY + 0.95, GRANITE_DARK);
       surfaces.push({ heightAt: (x, z) => {
-        const a = (x - steps[0]![0]) * ux + (z - steps[0]![1]) * uz, c = (x - steps[0]![0]) * vx + (z - steps[0]![1]) * vz;
-        return a >= 0 && a <= stepLen && Math.abs(c) <= 1.5 ? yAt(ctx, x, z, baseY) + 0.03 : null;
+        const [a, c] = toLocal(pb, [x, z]);
+        return Math.abs(a) <= 3.2 && Math.abs(c) <= 2.1 ? padY + 0.95 : null;
       } });
 
-      // Pushkin-square fountain follows the mapped fountain way and has a coping ring plus low jets.
+      // Mapped steps are aligned to the same local u axis as the square.
+      const stepLocal = steps.map((point) => toLocal(basis, point));
+      const stepA0 = Math.min(...stepLocal.map((point) => point[0])), stepA1 = Math.max(...stepLocal.map((point) => point[0]));
+      const stepC = stepLocal.reduce((sum, point) => sum + point[1], 0) / stepLocal.length;
+      const stepCount = quality === 'high' ? 8 : 5;
+      for (let i = 0; i < stepCount; i++) {
+        const a0 = stepA0 + (stepA1 - stepA0) * i / stepCount, a1 = stepA0 + (stepA1 - stepA0) * (i + 1) / stepCount;
+        const [x, z] = local(basis, (a0 + a1) * 0.5, stepC);
+        const y = yAt(ctx, x, z, baseY) + 0.03;
+        orientedBox(opaque, basis, a0, a1 + 0.06, stepC - 1.5, stepC + 1.5, y - 0.14, y, PAVE_DARK);
+      }
+      surfaces.push({ heightAt: (x, z) => {
+        const [a, c] = toLocal(basis, [x, z]);
+        return a >= stepA0 && a <= stepA1 && Math.abs(c - stepC) <= 1.5 ? yAt(ctx, x, z, baseY) + 0.03 : null;
+      } });
+
+      // Pushkin/Fontannyi fountain is outside the forecourt but stays in the same derived frame.
       const fy = yAt(ctx, fountain[0], fountain[1], baseY) + 0.08;
       opaque.cylinder(fountain[0], fy, fountain[1], 4.25, 0.28, GRANITE, 32);
       opaque.cylinder(fountain[0], fy + 0.28, fountain[1], 3.75, 0.14, GRANITE_DARK, 32);
@@ -159,23 +313,34 @@ export function createFreedomSquare(bbox: Bbox): Landmark {
       pavedArea += Math.PI * 4.25 * 4.25;
 
       const lampModel = buildProp(PROP.LAMP, 1), benchModel = buildProp(PROP.BENCH, 1), binModel = buildProp(PROP.BIN, 0);
-      const lampPoints: Point[] = [[anchor[0] - 24, anchor[1] - 17], [anchor[0] + 24, anchor[1] - 17], [anchor[0] - 27, anchor[1] + 13], [anchor[0] + 27, anchor[1] + 13], [fountain[0] - 12, fountain[1] - 10], [fountain[0] + 12, fountain[1] + 10]];
-      for (const [x, z] of lampPoints) lamp.addProp(lampModel, x, yAt(ctx, x, z, baseY), z, 0);
-      const benchPoints: Point[] = [[anchor[0] - 18, anchor[1] - 12], [anchor[0] + 18, anchor[1] - 12], [fountain[0] - 12, fountain[1] + 10], [fountain[0] + 12, fountain[1] - 10]];
-      for (const [x, z] of benchPoints) opaque.addProp(benchModel, x, yAt(ctx, x, z, baseY), z, 0);
-      for (const [x, z] of [[anchor[0] - 21, anchor[1] - 10], [anchor[0] + 21, anchor[1] - 10], [fountain[0] - 10, fountain[1] + 9], [fountain[0] + 10, fountain[1] - 9]] as Point[]) opaque.addProp(binModel, x, yAt(ctx, x, z, baseY), z, 0);
-
-      for (const [x, z] of [[anchor[0] - 34, anchor[1] + 15], [anchor[0] + 34, anchor[1] + 15], [fountain[0] - 13, fountain[1] - 13], [fountain[0] + 13, fountain[1] + 13]] as Point[]) {
-        const y = yAt(ctx, x, z, baseY);
-        opaque.cylinder(x, y + 0.04, z, 1.35, 0.18, GRANITE, 12);
-        opaque.cylinder(x, y + 0.22, z, 1.05, 0.16, FOLIAGE, 12);
-        for (let i = 0; i < 7; i++) opaque.cylinder(x + Math.cos(i * 2.4) * 0.65, y + 0.35, z + Math.sin(i * 2.4) * 0.65, 0.11, 0.18, FLOWER, 6);
+      const lampLocal: Point[] = [[-78, localBounds.c0 + 4], [-43, localBounds.c0 + 4], [-8, localBounds.c0 + 4], [-76, localBounds.c1 - 4], [-40, localBounds.c1 - 4], [-5, localBounds.c1 - 4]];
+      const yaw = basis.angleDeg * Math.PI / 180;
+      for (const [a, c] of lampLocal) {
+        const [x, z] = local(basis, a, c);
+        lamp.addProp(lampModel, x, yAt(ctx, x, z, baseY), z, yaw);
       }
-      addFlag(opaque, anchor[0] + 27, anchor[1] - 18, yAt(ctx, anchor[0] + 27, anchor[1] - 18, baseY));
-      addFlag(opaque, anchor[0] + 32, anchor[1] - 18, yAt(ctx, anchor[0] + 32, anchor[1] - 18, baseY));
+      const benchLocal: Point[] = [[-60, localBounds.c0 + 5], [-27, localBounds.c0 + 5], [-58, localBounds.c1 - 5], [-25, localBounds.c1 - 5]];
+      for (const [a, c] of benchLocal) {
+        const [x, z] = local(basis, a, c);
+        opaque.addProp(benchModel, x, yAt(ctx, x, z, baseY), z, yaw);
+      }
+      for (const [a, c] of [[-45, localBounds.c0 + 5], [-12, localBounds.c0 + 5], [-43, localBounds.c1 - 5], [-10, localBounds.c1 - 5]] as Point[]) {
+        const [x, z] = local(basis, a, c);
+        opaque.addProp(binModel, x, yAt(ctx, x, z, baseY), z, yaw);
+      }
+      for (const [a, c] of [[-83, localBounds.c0 + 2], [-45, localBounds.c1 - 2], [-12, localBounds.c0 + 2], [-12, localBounds.c1 - 2]] as Point[]) addFlowerBed(opaque, basis, a, c, yAt(ctx, ...local(basis, a, c), baseY));
+      addFlag(opaque, basis, -2, -1, yAt(ctx, ...local(basis, -2, -1), baseY));
+      addFlag(opaque, basis, -2, 7, yAt(ctx, ...local(basis, -2, 7), baseY));
 
       return buildResult([opaque.finish('opaque'), lamp.finish('lamp'), water.finish('water')], surfaces, propExclusions, {
-        pavedAreaM2: pavedArea, lamps: lampPoints.length, benches: benchPoints.length,
+        pavedAreaM2: pavedArea,
+        pavedAreaBeforeM2: legacyPavedArea,
+        pavedAreaAfterM2: forecourtPavedArea,
+        forecourtAreaM2: polygonArea(polygon),
+        forecourtPavedAreaM2: forecourtPavedArea,
+        orientationDeg: basis.angleDeg,
+        lamps: lampLocal.length,
+        benches: benchLocal.length,
       });
     },
   };

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { DEFAULT_BBOX, fromLatLon, toLatLon } from '../src/landmarks/geo';
-import { createFreedomSquare } from '../src/landmarks/freedom-square';
+import { createFreedomSquare, resolveFreedomSquareLayout } from '../src/landmarks/freedom-square';
+import { OSM_LANDMARK_DATA } from '../src/landmarks/data';
+import { pointInPolygon, polygonArea } from '../src/landmarks/types';
 import { createPier, resolvePierLayout } from '../src/landmarks/pier';
 import { createLandmarks } from '../src/landmarks';
 import { LandmarkLayer } from '../src/landmarks/layer';
@@ -88,6 +90,52 @@ describe('landmark geometry', () => {
     const ys = new Set<number>();
     for (let i = 1; i < paver.positions.length; i += 12) ys.add(Math.round(paver.positions[i]! * 100));
     expect(ys.size).toBeGreaterThan(1);
+  });
+
+  it('derives a square-local frame parallel to the dominant perimeter-road direction', () => {
+    const layout = resolveFreedomSquareLayout(DEFAULT_BBOX);
+    const road = OSM_LANDMARK_DATA.squareRoads[1]!;
+    const roadA = fromLatLon(DEFAULT_BBOX, ...road[2]!);
+    const roadB = fromLatLon(DEFAULT_BBOX, ...road[7]!);
+    const roadAngle = Math.atan2(roadB.z - roadA.z, roadB.x - roadA.x) * 180 / Math.PI;
+    const angleDistance = (a: number, b: number) => Math.abs(((a - b + 90) % 180 + 180) % 180 - 90);
+    expect(angleDistance(layout.basis.angleDeg, roadAngle)).toBeLessThanOrEqual(2);
+    for (let i = 0; i < layout.polygon.length; i++) {
+      const a = layout.polygon[i]!, b = layout.polygon[(i + 1) % layout.polygon.length]!;
+      const edgeAngle = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+      expect(Math.min(angleDistance(edgeAngle, layout.basis.angleDeg), angleDistance(edgeAngle, layout.basis.angleDeg + 90))).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('keeps paver centres inside straight boundaries and covers the whole derived forecourt', () => {
+    const layout = resolveFreedomSquareLayout(DEFAULT_BBOX);
+    const built = createFreedomSquare(DEFAULT_BBOX).build(freedomContext);
+    const mesh = built.meshes[0]!;
+    const paverArea = built.report!.forecourtPavedAreaM2!;
+    expect(paverArea / polygonArea(layout.polygon)).toBeGreaterThanOrEqual(0.95);
+    const tileVertexCount = 24;
+    for (let i = 0; i < Math.round(paverArea / 4) * tileVertexCount; i += tileVertexCount) {
+      const centre = [
+        (mesh.positions[i * 3]! + mesh.positions[(i + 1) * 3]! + mesh.positions[(i + 2) * 3]! + mesh.positions[(i + 3) * 3]!) / 4,
+        (mesh.positions[i * 3 + 2]! + mesh.positions[(i + 1) * 3 + 2]! + mesh.positions[(i + 2) * 3 + 2]! + mesh.positions[(i + 3) * 3 + 2]!) / 4,
+      ] as [number, number];
+      expect(pointInPolygon(layout.polygon, centre[0], centre[1])).toBe(true);
+    }
+  });
+
+  it('centres and rotates the empty plinth pad from its OSM polygon', () => {
+    const layout = resolveFreedomSquareLayout(DEFAULT_BBOX);
+    const source = OSM_LANDMARK_DATA.formerPlinth.map(([lat, lon]) => fromLatLon(DEFAULT_BBOX, lat, lon));
+    const centre = source.reduce((out, p) => [out[0] + p.x / source.length, out[1] + p.z / source.length], [0, 0]);
+    expect(Math.hypot(layout.plinth.center[0] - centre[0], layout.plinth.center[1] - centre[1])).toBeLessThanOrEqual(1);
+    let longest = 0, sourceAngle = 0;
+    for (let i = 0; i < source.length; i++) {
+      const a = source[i]!, b = source[(i + 1) % source.length]!;
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      if (length > longest) { longest = length; sourceAngle = Math.atan2(b.z - a.z, b.x - a.x) * 180 / Math.PI; }
+    }
+    const difference = Math.abs(((layout.plinth.angleDeg - sourceAngle + 90) % 180 + 180) % 180 - 90);
+    expect(difference).toBeLessThanOrEqual(2);
   });
 });
 
