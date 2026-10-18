@@ -85,11 +85,13 @@ data/osm/kherson.json.gz  ──bake──►  public/world/            ──�
                                      r_<rx>_<rz>.bin  (RLE)        mesher workers (greedy meshing)
                                      overview.bin                  Overview LOD, Vegetation, Water,
                                      places.json                   Birds, Ambience, Player, UI
+                                     v_<rx>_<rz>.bin  (vectors)    FineStreamer (0.2 m ground near the camera)
 ```
 
 - **World grid:** 1 voxel is 2 m. A chunk is 32 × 32 cells (64 m); a region is 8 × 8 chunks (512 m), giving 36 × 31 regions.
 - **Cells (2.5D columns):** each cell stores 5 bytes: ground material, ground height, structure height, wall material and roof material.
 - **Features:** region files also carry a list of features (trees, bushes, bridge decks), each with a species and a seed. Vegetation is rendered with instancing, separately from the voxel grid.
+- **Fine tier:** within 150 m of the camera (High quality), workers rebuild the ground at 0.2 m from per-region vector tiles: real road widths, raised sidewalks with kerbs, lane markings, zebra crossings and tram rails.
 - **Determinism:** the bake is deterministic. Every random choice is a hash of the coordinates or the OSM id, so the same snapshot always yields the same world.
 
 ### Project layout

@@ -61,6 +61,11 @@ export interface WaterMesh {
 
 export interface ChunkMeshResult extends ChunkMesh {
   water: WaterMesh | null;
+  /**
+   * Indices [0, groundIndexCount) are ground (tops of cells without structure, soil side steps);
+   * the rest are structures (roofs, walls, bridge decks). The fine tier hides the ground part.
+   */
+  groundIndexCount: number;
 }
 
 const PLANE = REGION * REGION;
@@ -73,6 +78,12 @@ export const AO_OPEN = 0xff;
 /** First and last wall material ids that get facade styling. */
 const WALL_MAT_MIN = 20;
 const WALL_MAT_MAX = 39;
+
+/** Ground materials whose upward faces carry their id in `walls.x` for shader detail. */
+function hasGroundDetail(mat: number): boolean {
+  return mat === MAT.ASPHALT || mat === MAT.SIDEWALK || mat === MAT.PLAZA || mat === MAT.RAIL
+    || mat === MAT.MARKING || mat === MAT.STEEL || mat === MAT.PAVING;
+}
 
 /** Growable quad buffer producing the final typed arrays. */
 export class QuadBuilder {
@@ -119,10 +130,10 @@ export class QuadBuilder {
     const r = (PALETTE[mat * 3]! / 255) * shade;
     const g = (PALETTE[mat * 3 + 1]! / 255) * shade;
     const b = (PALETTE[mat * 3 + 2]! / 255) * shade;
-    // building walls get their style id; upward faces of asphalt/sidewalk/plaza get the ground id
+    // building walls get their style id; upward faces of detailed ground materials get the ground id
     const isWall = mat >= WALL_MAT_MIN && mat <= WALL_MAT_MAX && wTop > 0
       ? mat
-      : ny > 0.5 && (mat === MAT.ASPHALT || mat === MAT.SIDEWALK || mat === MAT.PLAZA) ? mat : 0;
+      : ny > 0.5 && hasGroundDetail(mat) ? mat : 0;
     const w = this.wal;
     const a0 = AO_LEVEL[ao & 3]!;
     const a1 = AO_LEVEL[(ao >> 2) & 3]!;
@@ -247,7 +258,10 @@ export function topAO(cells: Uint8Array, edges: RegionEdges | undefined, cx: num
   return packed;
 }
 
-function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined): void {
+/** Tops of cells without structure (`structure` false) or of cells with structure (roofs). */
+function meshTops(
+  b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined, structure: boolean,
+): void {
   for (let lz = 0; lz < CHUNK; lz++) {
     for (let lx = 0; lx < CHUNK; lx++) {
       const i = (z0 + lz) * REGION + x0 + lx;
@@ -259,7 +273,7 @@ function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edg
       } else {
         mat = cells[PLANE * F_GROUND_MAT + i]!;
       }
-      topKey[lz * CHUNK + lx] = sh === 0 && mat === MAT.WATER
+      topKey[lz * CHUNK + lx] = (sh > 0) !== structure || (sh === 0 && mat === MAT.WATER)
         ? -1
         : (topAO(cells, edges, x0 + lx, z0 + lz, gh + sh) << 16) | ((gh + sh) << 8) | mat;
     }
@@ -301,79 +315,77 @@ function meshTops(b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edg
 /**
  * Side faces. dir: 0=+X, 1=-X, 2=+Z, 3=-Z. Walls are merged along the run axis
  * (z for X-facing walls, x for Z-facing walls). Layer 0 is the soil part below
- * the ground top, layer 1 the structure part above it.
+ * the ground top, layer 1 the structure part above it; one layer per call.
  */
 function meshSides(
-  b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined,
+  b: QuadBuilder, cells: Uint8Array, x0: number, z0: number, edges: RegionEdges | undefined, layer: 0 | 1,
 ): void {
   for (let dir = 0; dir < 4; dir++) {
     const alongX = dir >= 2; // run axis is x for Z-facing walls
     const step = dir === 0 || dir === 2 ? 1 : -1;
     const positive = step === 1;
-    for (let layer = 0; layer < 2; layer++) {
-      for (let a = 0; a < CHUNK; a++) {
-        let runStart = -1;
-        let runY0 = 0;
-        let runY1 = 0;
-        let runMat = 0;
-        let runContact = false;
-        for (let bi = 0; bi <= CHUNK; bi++) {
-          let y0 = 0;
-          let y1 = 0;
-          let mat = 0;
-          let contact = false;
-          if (bi < CHUNK) {
-            const cx = alongX ? x0 + bi : x0 + a;
-            const cz = alongX ? z0 + a : z0 + bi;
-            const i = cz * REGION + cx;
-            const gh = cells[PLANE * F_GROUND_H + i]!;
-            const top = gh + cells[PLANE * F_STRUCT_H + i]!;
-            const nx = alongX ? cx : cx + step;
-            const nz = alongX ? cz + step : cz;
-            let nTop = gh;
-            if (nx >= 0 && nx < REGION && nz >= 0 && nz < REGION) {
-              const ni = nz * REGION + nx;
-              nTop = cells[PLANE * F_GROUND_H + ni]! + cells[PLANE * F_STRUCT_H + ni]!;
-            } else if (edges) {
-              const e = nx >= REGION ? edges.px : nx < 0 ? edges.nx : nz >= REGION ? edges.pz : edges.nz;
-              if (e) nTop = e[alongX ? cx : cz]!;
-            }
-            const gm = cells[i]!;
-            if (layer === 0) {
-              y0 = nTop;
-              y1 = Math.min(top, gh);
-              mat = soilFor(gm);
-            } else {
-              y0 = Math.max(nTop, gh);
-              y1 = top;
-              mat = cells[PLANE * F_STRUCT_MAT + i]! || soilFor(gm);
-            }
-            if (y1 <= y0) y1 = y0 = 0;
-            // the wall base rests on the neighbouring column's top (AO darkens this edge in the shader)
-            contact = y0 > 0 && y0 === nTop;
+    for (let a = 0; a < CHUNK; a++) {
+      let runStart = -1;
+      let runY0 = 0;
+      let runY1 = 0;
+      let runMat = 0;
+      let runContact = false;
+      for (let bi = 0; bi <= CHUNK; bi++) {
+        let y0 = 0;
+        let y1 = 0;
+        let mat = 0;
+        let contact = false;
+        if (bi < CHUNK) {
+          const cx = alongX ? x0 + bi : x0 + a;
+          const cz = alongX ? z0 + a : z0 + bi;
+          const i = cz * REGION + cx;
+          const gh = cells[PLANE * F_GROUND_H + i]!;
+          const top = gh + cells[PLANE * F_STRUCT_H + i]!;
+          const nx = alongX ? cx : cx + step;
+          const nz = alongX ? cz + step : cz;
+          let nTop = gh;
+          if (nx >= 0 && nx < REGION && nz >= 0 && nz < REGION) {
+            const ni = nz * REGION + nx;
+            nTop = cells[PLANE * F_GROUND_H + ni]! + cells[PLANE * F_STRUCT_H + ni]!;
+          } else if (edges) {
+            const e = nx >= REGION ? edges.px : nx < 0 ? edges.nx : nz >= REGION ? edges.pz : edges.nz;
+            if (e) nTop = e[alongX ? cx : cz]!;
           }
-          const continues =
-            runStart >= 0 && y1 > y0 && y0 === runY0 && y1 === runY1 && mat === runMat && contact === runContact;
-          if (!continues) {
-            if (runStart >= 0) {
-              const ya = runY0 * VOXEL;
-              const yb = runY1 * VOXEL;
-              if (alongX) {
-                const z = (z0 + a + (positive ? 1 : 0)) * VOXEL;
-                b.wallZ(z, ya, yb, (x0 + runStart) * VOXEL, (x0 + bi) * VOXEL, positive, runMat, runContact);
-              } else {
-                const x = (x0 + a + (positive ? 1 : 0)) * VOXEL;
-                b.wallX(x, ya, yb, (z0 + runStart) * VOXEL, (z0 + bi) * VOXEL, positive, runMat, runContact);
-              }
-              runStart = -1;
+          const gm = cells[i]!;
+          if (layer === 0) {
+            y0 = nTop;
+            y1 = Math.min(top, gh);
+            mat = soilFor(gm);
+          } else {
+            y0 = Math.max(nTop, gh);
+            y1 = top;
+            mat = cells[PLANE * F_STRUCT_MAT + i]! || soilFor(gm);
+          }
+          if (y1 <= y0) y1 = y0 = 0;
+          // the wall base rests on the neighbouring column's top (AO darkens this edge in the shader)
+          contact = y0 > 0 && y0 === nTop;
+        }
+        const continues =
+          runStart >= 0 && y1 > y0 && y0 === runY0 && y1 === runY1 && mat === runMat && contact === runContact;
+        if (!continues) {
+          if (runStart >= 0) {
+            const ya = runY0 * VOXEL;
+            const yb = runY1 * VOXEL;
+            if (alongX) {
+              const z = (z0 + a + (positive ? 1 : 0)) * VOXEL;
+              b.wallZ(z, ya, yb, (x0 + runStart) * VOXEL, (x0 + bi) * VOXEL, positive, runMat, runContact);
+            } else {
+              const x = (x0 + a + (positive ? 1 : 0)) * VOXEL;
+              b.wallX(x, ya, yb, (z0 + runStart) * VOXEL, (z0 + bi) * VOXEL, positive, runMat, runContact);
             }
-            if (y1 > y0) {
-              runStart = bi;
-              runY0 = y0;
-              runY1 = y1;
-              runMat = mat;
-              runContact = contact;
-            }
+            runStart = -1;
+          }
+          if (y1 > y0) {
+            runStart = bi;
+            runY0 = y0;
+            runY1 = y1;
+            runMat = mat;
+            runContact = contact;
           }
         }
       }
@@ -523,8 +535,12 @@ export function meshChunk(region: RegionData, cx: number, cz: number, edges?: Re
   const b = new QuadBuilder();
   const x0 = cx * CHUNK;
   const z0 = cz * CHUNK;
-  meshTops(b, region.cells, x0, z0, edges);
-  meshSides(b, region.cells, x0, z0, edges);
+  // ground first so the fine tier can hide it with a draw range, then the structures
+  meshTops(b, region.cells, x0, z0, edges, false);
+  meshSides(b, region.cells, x0, z0, edges, 0);
+  const groundIndexCount = b.quads * 6;
+  meshTops(b, region.cells, x0, z0, edges, true);
+  meshSides(b, region.cells, x0, z0, edges, 1);
   meshFeatures(b, region, x0, z0);
-  return { ...b.build(), water: meshWater(region.cells, x0, z0, edges) };
+  return { ...b.build(), water: meshWater(region.cells, x0, z0, edges), groundIndexCount };
 }

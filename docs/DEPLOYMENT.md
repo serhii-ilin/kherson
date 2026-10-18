@@ -98,8 +98,8 @@ git push
 
 | Limit | GitHub Pages | Current |
 |---|---|---|
-| Published site | 1 GB | about 20 MB |
-| Single file | 100 MB | `overview.bin` is about 3.4 MB; region files are 60 KB or less |
+| Published site | 1 GB | about 22 MB |
+| Single file | 100 MB | `overview.bin` is about 3.4 MB; region files are 60 KB or less; vector tiles (`v_*.bin`, 1.7 MB in total) are 15 KB or less |
 | Snapshot in git | (keep it small) | `kherson.json.gz` is about 4 MB |
 
 ## 5. Troubleshooting

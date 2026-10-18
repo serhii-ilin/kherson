@@ -17,4 +17,6 @@ export interface Manifest {
   regions: Record<string, string>;
   /** World x, z in metres. */
   spawn: [number, number];
+  /** True when the bake wrote `v_<rx>_<rz>.bin` vector tiles; a region without items has no file (404 = empty). */
+  vectors?: boolean;
 }

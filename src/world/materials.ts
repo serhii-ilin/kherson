@@ -10,6 +10,15 @@ export const MAT = {
   PARK: 8,
   FOREST: 9,
   PLAZA: 10,
+  // fine-tier ground (0.2 m micro-voxels, src/fine/); ids 11..19 are reserved for ground
+  /** Painted road markings: white, slightly worn. */
+  MARKING: 11,
+  /** Rail / tram steel. */
+  STEEL: 12,
+  /** Concrete kerb side faces. */
+  KERB: 13,
+  /** Footway / cycleway paving. */
+  PAVING: 14,
   WALL_HOUSE: 20,
   WALL_APART: 21,
   WALL_INDUSTRIAL: 22,
@@ -53,6 +62,10 @@ const COLORS: Record<number, number> = {
   [MAT.PARK]: 0x4f9a3c,
   [MAT.FOREST]: 0x2f6b32,
   [MAT.PLAZA]: 0xd2c9b4,
+  [MAT.MARKING]: 0xe9e8e1,
+  [MAT.STEEL]: 0x8d9298,
+  [MAT.KERB]: 0xa9a79f,
+  [MAT.PAVING]: 0xa59f96,
   [MAT.WALL_HOUSE]: 0xe8dcc0,
   [MAT.WALL_APART]: 0xc9c4bb,
   [MAT.WALL_INDUSTRIAL]: 0x9a9fa3,

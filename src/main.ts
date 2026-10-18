@@ -3,6 +3,7 @@ import { toLatLon } from './world/geo.ts';
 import { Overview, parseOverview } from './world/lod.ts';
 import type { Manifest } from './world/manifest.ts';
 import { WorldStreamer } from './world/streamer.ts';
+import { FineStreamer } from './fine/streamer.ts';
 import { createSky } from './world/sky.ts';
 import { createWaterMaterial, updateWater } from './nature/water.ts';
 import { Vegetation } from './nature/vegetation.ts';
@@ -104,11 +105,22 @@ async function start(): Promise<void> {
   const streamer = new WorldStreamer(scene, manifest, { viewRadius, waterMaterial });
   const vegetation = new Vegetation(scene, { nearRadius: isMobile ? 150 : 250, farRadius: viewRadius });
   streamer.onRegionData = (rx, rz, data) => vegetation.setRegion(rx, rz, data ? data.features : null, data?.cells);
+  const q = new URLSearchParams(location.search);
+  // Fine tier (0.2 m ground near the camera): High quality + baked vector tiles; ?fine=0|1 overrides.
+  const fineParam = q.get('fine');
+  const fineOn = fineParam === '0' ? false : fineParam === '1' ? true : quality === 'high' && manifest.vectors === true;
+  const fine = fineOn
+    ? new FineStreamer(scene, streamer, manifest, {
+      radius: isMobile ? 70 : 150,
+      workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
+    })
+    : null;
+  /** Physics world: coarse heights plus fine kerbs where a fine chunk is loaded. */
+  const physics = fine !== null ? fine.world : streamer;
   const input = new Input();
   input.attach(renderer.domElement);
   const player = new PlayerController(camera, input);
   // ?x=&z= (metres) jumps to a spot; add y/yaw/pitch (degrees) and mode=fly for an exact view.
-  const q = new URLSearchParams(location.search);
   const num = (k: string): number | null => (q.has(k) && Number.isFinite(Number(q.get(k))) ? Number(q.get(k)) : null);
   const sx = num('x') ?? manifest.spawn[0];
   const sz = num('z') ?? manifest.spawn[1];
@@ -173,7 +185,7 @@ async function start(): Promise<void> {
     audioScene.waterDistance = streamer.isWater(x, z) ? 0 : water;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, input, birds, ambience, vegetation, renderer } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { player, streamer, fine, input, birds, ambience, vegetation, renderer } });
 
   let overview: Overview | null = null;
   fetch(`${base}world/overview.bin`)
@@ -203,9 +215,10 @@ async function start(): Promise<void> {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
 
-    player.update(dt, streamer);
+    player.update(dt, physics);
     if (shadowsOn) updateShadowFrustum(camera.position.x, 0, camera.position.z);
     streamer.update(camera.position.x, camera.position.z);
+    fine?.update(camera.position.x, camera.position.z);
     vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
       if (!overview.done) overview.build(4);
@@ -249,7 +262,10 @@ async function start(): Promise<void> {
         `${t('regions')} ${streamer.loadedRegions} · ${t('chunks')} ${streamer.chunkCount} · ${t('jobs')} ${streamer.inflightJobs} · ` +
         `${(streamer.triangles / 1000).toFixed(0)} ${t('tris')}\n` +
         (import.meta.env.DEV
-          ? `veg ${vegetation.stats.instances} (${vegetation.stats.near} near) · ${renderer.info.render.triangles} tris · ${renderer.info.render.calls} calls\n`
+          ? `veg ${vegetation.stats.instances} (${vegetation.stats.near} near) · ${renderer.info.render.triangles} tris · ${renderer.info.render.calls} calls\n` +
+            (fine !== null
+              ? `fine ${fine.chunkCount} chunks · ${fine.inflightJobs} jobs · ${(fine.triangles / 1000).toFixed(1)}k tris\n`
+              : 'fine off\n')
           : '') +
         (isMobile ? t('hintTouch') : t('hintDesktop'));
     }

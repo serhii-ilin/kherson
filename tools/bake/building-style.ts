@@ -25,6 +25,8 @@ export const STALIN_RADIUS = 2200;
 
 export interface BuildingSpec {
   h: number;
+  /** Exact height in metres (before voxel rounding). */
+  hm: number;
   wall: number;
   roof: number;
   /** Style name, for bake statistics. */
@@ -133,5 +135,5 @@ export function buildingSpec(id: number, t: Tags, centreDist = Infinity, areaM2 
   if (worship) roof = hh & 1 ? MAT.ROOF_GOLD : MAT.ROOF_GREEN;
   else if (b === "house" || b === "detached" || b === "semidetached_house" || b === "bungalow") roof = MAT.ROOF_RED;
   else roof = hh & 1 ? MAT.ROOF_GREY : MAT.ROOF_DARK;
-  return { h, wall, roof, style };
+  return { h, hm, wall, roof, style };
 }

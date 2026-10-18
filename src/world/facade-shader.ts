@@ -1,6 +1,7 @@
 /**
  * Procedural detail for the coarse tier, injected into the chunk MeshLambertMaterial:
- *  - upward faces: world-space value noise, asphalt grain, sidewalk tile grid, plaza paving;
+ *  - upward faces: world-space value noise, asphalt grain, sidewalk tile grid, plaza paving, plus the
+ *    fine-tier ground (ballast, worn road markings, rail steel, footway slabs, grass speckle);
  *  - building walls: windows, bays, plinth, cornice, shop fronts, entrances, lit windows, per style,
  *    keyed by the `aWall` vertex attribute (wall material id, top y, base y, ground-contact flag);
  *  - wall-base contact AO.
@@ -82,7 +83,29 @@ vec4 fStyle( float m ) {
     vec2 gw = vGWorld.xz;
     float px = max( fwidth( gw.x ), fwidth( gw.y ) );
     float fine = gFade * ( 1.0 - smoothstep( 0.15, 0.6, px ) );
-    if ( vWall.x > 2.5 && vWall.x < 3.5 ) {
+    // 0.2 m blades-of-grass speckle on green ground (matters for the fine tier only; fades with distance)
+    if ( gk > 0.1 ) diffuseColor.rgb *= 1.0 + 0.08 * fine * ( gHash( floor( gw * 5.0 ) ) - 0.5 );
+    if ( vWall.x > 6.5 && vWall.x < 7.5 ) {
+      // rail ballast: coarse gravel
+      float gv = gHash( floor( gw * 8.0 ) ) * 0.65 + gHash( floor( gw * 23.0 ) ) * 0.35;
+      diffuseColor.rgb *= 1.0 + 0.30 * fine * ( gv - 0.5 );
+    } else if ( vWall.x > 10.5 && vWall.x < 11.5 ) {
+      // road marking: flat white, chipped and dirtied by wear noise
+      float wear = gVNoise( gw * 7.0 ) * 0.6 + gVNoise( gw * 29.0 ) * 0.4;
+      float worn = smoothstep( 0.52, 0.78, wear ) * 0.45;
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.38, 0.39, 0.40 ), worn * mix( 0.35, 1.0, fine ) );
+      diffuseColor.rgb *= 1.0 + 0.06 * fine * ( gHash( floor( gw * 5.0 ) ) - 0.5 );
+    } else if ( vWall.x > 11.5 && vWall.x < 12.5 ) {
+      // steel rail head: faint brushed variation
+      diffuseColor.rgb *= 1.0 + 0.16 * fine * ( gHash( floor( gw * 12.0 ) ) - 0.5 );
+    } else if ( vWall.x > 13.5 && vWall.x < 14.5 ) {
+      // footway paving: 0.4 m slabs
+      vec2 pv = gw / 0.4;
+      vec2 pf2 = fract( pv );
+      float pline = 1.0 - ( fBox( pf2.x, 0.03, 0.97, 0.06 ) * fBox( pf2.y, 0.03, 0.97, 0.06 ) );
+      diffuseColor.rgb *= 1.0 - 0.12 * fine * pline;
+      diffuseColor.rgb *= 1.0 + 0.06 * fine * ( gHash( floor( pv ) ) - 0.5 );
+    } else if ( vWall.x > 2.5 && vWall.x < 3.5 ) {
       // asphalt: fine grain
       float gr = gHash( floor( gw * 6.0 ) );
       diffuseColor.rgb *= 1.0 + 0.10 * fine * ( gr - 0.5 );

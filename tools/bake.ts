@@ -13,6 +13,9 @@ import { buildOverview } from "./bake/overview.ts";
 import { loadOsm, type OsmData, type Tags } from "./bake/osm.ts";
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
 import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
+import { buildVectorTiles } from "./bake/vectors.ts";
+import { encodeVectorTile } from "../src/world/vector-format.ts";
+import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./bake/classes.ts";
 
 const INPUT = process.argv[2] ?? "data/osm/kherson.json.gz";
 const OUT_DIR = process.argv[3] ?? "public/world";
@@ -35,7 +38,15 @@ interface Area {
   rings: Pt[][];
 }
 
-function main_(osm: OsmData): { areas: Area[]; lines: { id: number; tags: Tags; pts: Pt[] }[] } {
+interface Line {
+  id: number;
+  tags: Tags;
+  pts: Pt[];
+  /** OSM node id of each point of `pts` (same length). */
+  nodeIds: number[];
+}
+
+function main_(osm: OsmData): { areas: Area[]; lines: Line[]; barriers: Line[] } {
   const { nodes, ways, relations } = osm;
   const ptsOf = (ids: number[]): Pt[] => {
     const out: Pt[] = [];
@@ -46,8 +57,22 @@ function main_(osm: OsmData): { areas: Area[]; lines: { id: number; tags: Tags; 
     return out;
   };
 
+  const ptsIdsOf = (ids: number[]): { pts: Pt[]; nodeIds: number[] } => {
+    const pts: Pt[] = [];
+    const nodeIds: number[] = [];
+    for (const id of ids) {
+      const i = nodes.find(id);
+      if (i >= 0) {
+        pts.push([nodes.xs[i]!, nodes.zs[i]!]);
+        nodeIds.push(id);
+      }
+    }
+    return { pts, nodeIds };
+  };
+
   const areas: Area[] = [];
-  const lines: { id: number; tags: Tags; pts: Pt[] }[] = [];
+  const lines: Line[] = [];
+  const barriers: Line[] = []; // vector tiles only; the coarse bake ignores barrier ways
 
   const areaKeys = ["building", "landuse", "natural", "leisure", "water", "place"];
   for (const w of ways.values()) {
@@ -61,8 +86,9 @@ function main_(osm: OsmData): { areas: Area[]; lines: { id: number; tags: Tags; 
       if (t.place && t.place !== "square") isArea = !!(t.landuse || t.natural || t.leisure || t.building);
     }
     if (isArea) areas.push({ id: w.id, tags: t, rings: [ptsOf(w.nodes)] });
+    if (t.barrier) barriers.push({ id: w.id, tags: t, ...ptsIdsOf(w.nodes) });
     if (t.highway || t.railway || t.waterway) {
-      if (!(isArea && (t.highway || t.waterway === "riverbank"))) lines.push({ id: w.id, tags: t, pts: ptsOf(w.nodes) });
+      if (!(isArea && (t.highway || t.waterway === "riverbank"))) lines.push({ id: w.id, tags: t, ...ptsIdsOf(w.nodes) });
     } else if (t.bridge && t.name) {
       // named bridge without highway tag: only used for places
     }
@@ -88,7 +114,7 @@ function main_(osm: OsmData): { areas: Area[]; lines: { id: number; tags: Tags; 
     const rings: Pt[][] = [...outers, ...inners].map(ptsOf).filter((r) => r.length >= 3);
     if (rings.length) areas.push({ id: rel.id, tags: t, rings });
   }
-  return { areas, lines };
+  return { areas, lines, barriers };
 }
 
 /** Join way segments (node id lists) into closed rings by matching endpoints. */
@@ -133,38 +159,6 @@ function joinRings(segs: number[][]): number[][] {
 
 // ---------------------------------------------------------------- classification
 
-function groundClass(t: Tags): { mat: number; prio: number } | null {
-  if (t.place === "square" || (t.highway === "pedestrian" && t.area === "yes")) return { mat: MAT.PLAZA, prio: 5 };
-  const lu = t.landuse;
-  if (lu === "forest") return { mat: MAT.FOREST, prio: 1 };
-  if (lu === "industrial" || lu === "railway" || lu === "quarry" || lu === "construction" || lu === "brownfield" || lu === "landfill")
-    return { mat: MAT.DIRT, prio: 1 };
-  if (lu === "recreation_ground" || lu === "village_green") return { mat: MAT.PARK, prio: 1 };
-  const nat = t.natural;
-  if (nat === "wood" || nat === "scrub") return { mat: MAT.FOREST, prio: 2 };
-  if (nat === "beach" || nat === "sand") return { mat: MAT.SAND, prio: 2 };
-  const le = t.leisure;
-  if (le === "park" || le === "garden" || le === "common" || le === "nature_reserve") return { mat: MAT.PARK, prio: 3 };
-  return null;
-}
-
-function isWater(t: Tags): boolean {
-  return (
-    t.natural === "water" || t.waterway === "riverbank" || t.landuse === "reservoir" || t.landuse === "basin" ||
-    (t.water !== undefined && t.natural === undefined && !t.waterway && !t.highway && !t.building)
-  );
-}
-
-const HW: Record<string, number> = {
-  motorway: 8, motorway_link: 6, trunk: 8, trunk_link: 6, primary: 8, primary_link: 6, secondary: 7, secondary_link: 5,
-  tertiary: 6, tertiary_link: 4, residential: 4, unclassified: 4, living_street: 4, service: 2.5,
-  pedestrian: 1.2, footway: 1.2, path: 1.2, cycleway: 1.2, steps: 1.2, track: 2,
-};
-const SIDEWALK_ROAD = new Set([
-  "motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary", "secondary_link",
-  "tertiary", "tertiary_link", "residential", "unclassified", "living_street",
-]);
-
 const TREE_LINED = new Set(["residential", "living_street", "tertiary", "secondary", "primary"]);
 
 // ---------------------------------------------------------------- main
@@ -173,7 +167,7 @@ async function main(): Promise<void> {
   if (!fs.existsSync(INPUT)) throw new Error(`missing ${INPUT}`);
   const osm = await loadOsm(INPUT);
   stage(`loaded ${osm.counts.nodes} nodes, ${osm.counts.ways} ways, ${osm.counts.relations} relations`);
-  const { areas, lines } = main_(osm);
+  const { areas, lines, barriers } = main_(osm);
   stage(`geometry: ${areas.length} areas, ${lines.length} lines`);
 
   const cellsX = Math.ceil(WORLD_W / VOXEL);
@@ -315,6 +309,12 @@ async function main(): Promise<void> {
   }
   stage(`buildings: ${stats.buildings}`);
   console.log("building styles: " + [...styleCounts].sort((p, q) => q[1] - p[1]).map(([n, c]) => `${n}=${c}`).join(" "));
+
+  // d2. vector tiles (built here, written with the rest)
+  const vec = buildVectorTiles({
+    areas, lines, barriers, taggedNodes: osm.taggedNodes, regionsX: grid.regionsX, regionsZ: grid.regionsZ, centre,
+  });
+  stage(`vector tiles: ${vec.tiles.size}`);
 
   // e. vegetation
   const S = SPECIES;
@@ -553,6 +553,15 @@ async function main(): Promise<void> {
       if (buf.length > largest.size) largest = { name, size: buf.length };
     }
   }
+  for (const f of fs.readdirSync(OUT_DIR)) if (/^v_.*\.bin$/.test(f)) fs.unlinkSync(path.join(OUT_DIR, f));
+  let vecBytes = 0, vecLargest = { name: "", size: 0 };
+  for (const tile of vec.tiles.values()) {
+    const buf = encodeVectorTile(tile);
+    const name = `v_${tile.rx}_${tile.rz}.bin`;
+    fs.writeFileSync(path.join(OUT_DIR, name), buf);
+    vecBytes += buf.length;
+    if (buf.length > vecLargest.size) vecLargest = { name, size: buf.length };
+  }
   const manifest = {
     version: 1,
     voxel: VOXEL,
@@ -564,6 +573,7 @@ async function main(): Promise<void> {
     origin: "NW",
     regions: manifestRegions,
     spawn,
+    vectors: true,
   };
   fs.writeFileSync(path.join(OUT_DIR, "manifest.json"), JSON.stringify(manifest));
   fs.writeFileSync(path.join(OUT_DIR, "places.json"), JSON.stringify(places));
@@ -573,6 +583,10 @@ async function main(): Promise<void> {
   console.log(
     `regions: ${grid.regionsX}x${grid.regionsZ}=${grid.regionsX * grid.regionsZ}, written ${written}, empty ${empty}, ` +
       `bytes ${totalBytes}, largest ${largest.name} ${largest.size}`,
+  );
+  console.log(
+    `vectors: files ${vec.tiles.size}, bytes ${vecBytes}, largest ${vecLargest.name} ${vecLargest.size}; ` +
+      Object.entries(vec.stats).map(([k, v]) => `${k}=${v}`).join(" "),
   );
   console.log("stats", JSON.stringify(stats));
   console.log(`spawn world (m): ${spawn[0].toFixed(1)}, ${spawn[1].toFixed(1)}; total ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -597,7 +611,7 @@ function placeKind(t: Tags, isBridge: boolean): string | null {
   return null;
 }
 
-function collectPlaces(osm: OsmData, areas: Area[], lines: { id: number; tags: Tags; pts: Pt[] }[]): Place[] {
+function collectPlaces(osm: OsmData, areas: Area[], lines: Line[]): Place[] {
   const raw: Place[] = [];
   const push = (t: Tags, kind: string | null, cx: number, cz: number): void => {
     const name = t.name;

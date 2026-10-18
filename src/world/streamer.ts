@@ -73,6 +73,8 @@ interface Chunk {
   gcz: number;
   mesh: THREE.Mesh | null;
   water: THREE.Mesh | null;
+  /** Index count of the ground part of `mesh` (see ChunkMeshResult.groundIndexCount). */
+  groundIndexCount: number;
   /** DIR_* bits whose neighbour edge info was used for the current mesh. */
   edgeMask: number;
   busy: boolean;
@@ -109,6 +111,8 @@ export class WorldStreamer {
   /** chunk key -> flat [x, z, x, z, ...] of tree trunk centres (metres). */
   private readonly trunks = new Map<number, Float32Array>();
   private readonly chunks = new Map<number, Chunk>();
+  /** Chunk keys whose ground is replaced by the fine tier; honoured by every (re)mesh. */
+  private readonly groundHidden = new Set<number>();
   private readonly emptyQuads = new Map<number, THREE.Mesh>();
   private emptyGeometry: THREE.BufferGeometry | null = null;
 
@@ -213,6 +217,39 @@ export class WorldStreamer {
     if (e.data === null) return null;
     const i = (Math.floor(z / VOXEL) - rz * REGION) * REGION + Math.floor(x / VOXEL) - rx * REGION;
     return e.data.cells[PLANE * F_GROUND_MAT + i]!;
+  }
+
+  /**
+   * Region data for the fine tier: the decoded region, `null` for an all-default (empty) region,
+   * or `undefined` while it is not available (not loaded yet, evicted, outside the world).
+   */
+  regionData(rx: number, rz: number): RegionData | null | undefined {
+    const e = this.getEntry(rx, rz);
+    if (e === null) return undefined;
+    if (e.state === 'empty') return null;
+    if (e.state !== 'loaded' || e.data === null) return undefined;
+    e.lastUsed = this.tick;
+    return e.data;
+  }
+
+  /**
+   * Hides (or shows) the ground part of a coarse chunk by moving the draw range past it, so the
+   * fine tier can replace it without an extra draw call. Chunk coordinates are global.
+   */
+  setGroundHidden(gcx: number, gcz: number, hidden: boolean): void {
+    const key = chunkKey(gcx, gcz);
+    if (hidden) this.groundHidden.add(key);
+    else this.groundHidden.delete(key);
+    const c = this.chunks.get(key);
+    if (c !== undefined && c.mesh !== null) this.applyDrawRange(c, hidden);
+  }
+
+  isGroundHidden(gcx: number, gcz: number): boolean {
+    return this.groundHidden.has(chunkKey(gcx, gcz));
+  }
+
+  private applyDrawRange(c: Chunk, hidden: boolean): void {
+    c.mesh!.geometry.setDrawRange(hidden ? c.groundIndexCount : 0, Infinity);
   }
 
   dispose(): void {
@@ -507,7 +544,7 @@ export class WorldStreamer {
         continue;
       }
       if (chunk === undefined) {
-        chunk = { key, gcx: ref.gcx, gcz: ref.gcz, mesh: null, water: null, edgeMask: 0, busy: false, disposed: false };
+        chunk = { key, gcx: ref.gcx, gcz: ref.gcz, mesh: null, water: null, groundIndexCount: 0, edgeMask: 0, busy: false, disposed: false };
         this.chunks.set(key, chunk);
       }
       if (!this.dispatch(chunk, entry, avail) && chunk.mesh === null) this.addPending(ref);
@@ -608,7 +645,9 @@ export class WorldStreamer {
     return g;
   }
 
-  private setChunkMesh(chunk: Chunk, mesh: ChunkMesh & { water: WaterMesh | null }, entry: Entry, mask: number): void {
+  private setChunkMesh(
+    chunk: Chunk, mesh: ChunkMesh & { water: WaterMesh | null; groundIndexCount: number }, entry: Entry, mask: number,
+  ): void {
     const geometry = this.geometryFrom(mesh);
     if (chunk.mesh !== null) {
       this.triCount -= chunk.mesh.geometry.index!.count / 3;
@@ -626,6 +665,8 @@ export class WorldStreamer {
       this.meshCount++;
     }
     this.triCount += mesh.indices.length / 3;
+    chunk.groundIndexCount = mesh.groundIndexCount;
+    if (this.groundHidden.has(chunk.key)) this.applyDrawRange(chunk, true);
     this.setChunkWater(chunk, mesh.water, entry);
     chunk.edgeMask = mask;
   }

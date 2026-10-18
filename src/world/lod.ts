@@ -115,7 +115,8 @@ export function buildOverviewTile(
     const m = wb.build();
     water = { positions: m.positions, shore: new Float32Array(m.positions.length / 3).fill(1), indices: m.indices };
   }
-  return { ...b.build(), water };
+  const mesh = b.build();
+  return { ...mesh, water, groundIndexCount: mesh.indices.length };
 }
 
 /** Far terrain: tiled meshes built incrementally, with a circular hole around the camera. */
