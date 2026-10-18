@@ -93,10 +93,10 @@ The project is built with AI agents under a cost-aware division of labour:
 | Role | Model | Responsibilities |
 |---|---|---|
 | Architect and reviewer | Claude Opus | plans, specs and interfaces; reviewing every diff; verification (tests, screenshots, perf); tricky bugs; commits and deploys |
-| Implementer | Claude Sonnet | medium-complexity systems (engine, streaming, mesher, water, birds, audio, vegetation) |
-| Boilerplate | Claude Haiku | self-contained modules from precise specs (scaffolding, UI widgets, small tools, model generators) |
+| Implementer | Codex `gpt-5.6-luna`, reasoning high | features from Opus specs (`codex exec`), one run at a time; leaves changes uncommitted for review |
+| Fallback | Claude Sonnet / Haiku | when a Codex run stalls or fails twice |
 
-Free opencode models were used for boilerplate until 2026-10-18; after repeated stalls the owner moved all delegation to Anthropic models.
+Free opencode models were used for boilerplate until 2026-10-18; after repeated stalls the owner moved all delegation to Anthropic models. From 2026-10-18 the owner chose Codex `gpt-5.6-luna` (high) as the implementer, with every diff reviewed by Claude Opus.
 
 Working rules:
 1. **Specs first:** every delegated task gets a self-contained spec naming the files it owns, the interfaces, conventions and acceptance commands.
