@@ -69,8 +69,8 @@ export interface ChunkMeshResult extends ChunkMesh {
 }
 
 const PLANE = REGION * REGION;
-const SIDE_SHADE = 0.8;
-const BOTTOM_SHADE = 0.65;
+export const SIDE_SHADE = 0.8;
+export const BOTTOM_SHADE = 0.65;
 /** Brightness for AO level 0 (fully enclosed corner) .. 3 (open). */
 export const AO_LEVEL = [0.55, 0.7, 0.85, 1.0] as const;
 /** Packed AO (2 bits per corner, corner 0 lowest) with every corner open. */
@@ -118,7 +118,7 @@ export class QuadBuilder {
     x3: number, y3: number, z3: number,
     nx: number, ny: number, nz: number,
     mat: number, shade: number,
-    ao = AO_OPEN, wTop = 0, wBase = 0, wContact = 0,
+    ao = AO_OPEN, wTop = 0, wBase = 0, wContact = 0, wMat = -1,
   ): void {
     if ((this.quads + 1) * 12 > this.pos.length) this.grow();
     const o = this.quads * 12;
@@ -131,9 +131,11 @@ export class QuadBuilder {
     const g = (PALETTE[mat * 3 + 1]! / 255) * shade;
     const b = (PALETTE[mat * 3 + 2]! / 255) * shade;
     // building walls get their style id; upward faces of detailed ground materials get the ground id
-    const isWall = mat >= WALL_MAT_MIN && mat <= WALL_MAT_MAX && wTop > 0
-      ? mat
-      : ny > 0.5 && hasGroundDetail(mat) ? mat : 0;
+    // (`wMat` >= 0 overrides the id: the block mesher tags glass faces for the shader this way)
+    const isWall = wMat >= 0 ? wMat
+      : mat >= WALL_MAT_MIN && mat <= WALL_MAT_MAX && wTop > 0
+        ? mat
+        : ny > 0.5 && hasGroundDetail(mat) ? mat : 0;
     const w = this.wal;
     const a0 = AO_LEVEL[ao & 3]!;
     const a1 = AO_LEVEL[(ao >> 2) & 3]!;

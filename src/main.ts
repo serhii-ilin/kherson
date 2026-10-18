@@ -109,9 +109,13 @@ async function start(): Promise<void> {
   // Fine tier (0.2 m ground near the camera): High quality + baked vector tiles; ?fine=0|1 overrides.
   const fineParam = q.get('fine');
   const fineOn = fineParam === '0' ? false : fineParam === '1' ? true : quality === 'high' && manifest.vectors === true;
+  // Block tier (1 m buildings and bridges within 250 m, 100 m on phones): High quality; ?blocks=0|1 overrides.
+  const blocksParam = q.get('blocks');
+  const blocksOn = blocksParam === '0' ? false : blocksParam === '1' ? true : quality === 'high';
   const fine = fineOn
     ? new FineStreamer(scene, streamer, manifest, {
       radius: isMobile ? 70 : 150,
+      blockRadius: blocksOn ? (isMobile ? 100 : 250) : 0,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
     })
     : null;
@@ -264,7 +268,10 @@ async function start(): Promise<void> {
         (import.meta.env.DEV
           ? `veg ${vegetation.stats.instances} (${vegetation.stats.near} near) · ${renderer.info.render.triangles} tris · ${renderer.info.render.calls} calls\n` +
             (fine !== null
-              ? `fine ${fine.chunkCount} chunks · ${fine.inflightJobs} jobs · ${(fine.triangles / 1000).toFixed(1)}k tris\n`
+              ? `fine ${fine.chunkCount} chunks · ${fine.inflightJobs} jobs · ${(fine.triangles / 1000).toFixed(1)}k tris\n` +
+                (fine.blockRadius > 0
+                  ? `blocks ${fine.blockChunks} chunks · ${fine.blockJobs} jobs · ${(fine.blockTriangles / 1000).toFixed(1)}k tris\n`
+                  : 'blocks off\n')
               : 'fine off\n')
           : '') +
         (isMobile ? t('hintTouch') : t('hintDesktop'));

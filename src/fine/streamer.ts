@@ -5,12 +5,16 @@ import type { WorldStreamer } from '../world/streamer.ts';
 import { CHUNK_M, chunkKey, distToChunk, neededChunks, regionKey, type ChunkRef } from '../world/stream-math.ts';
 import type { FineRequest, FineResponse, TileRef } from './fine.worker.ts';
 import type { FineMesh } from './mesh.ts';
+import { buildBlockInput } from './block-input.ts';
+import type { BlockMesh } from './generate.ts';
 import { buildPatch } from './patch.ts';
 import { FineWorld } from './world.ts';
 
 export interface FineStreamerOptions {
   /** Chunks whose nearest point is within this many metres are generated (150 desktop, 70 phone). */
   radius: number;
+  /** Radius of the 1 m block tier (buildings, bridges): 250 desktop, 100 phone; 0 or omitted = off. */
+  blockRadius?: number;
   /** Fine workers (1 or 2). */
   workers?: number;
 }
@@ -22,6 +26,10 @@ const MAX_JOBS_PER_WORKER = 2;
 const RETRY_MS = 10000;
 const WAIT_RETRY_MS = 400;
 const MAGIC = [0x56, 0x4b, 0x56, 0x31]; // "VKV1"
+const EMPTY_PATCH = new Uint8Array(0);
+/** Block meshes are merged per 2x2 chunks (128 m) to keep draw calls (and shadow-pass calls) down. */
+const TILE_CHUNKS = 2;
+const TILE_FLUSHES_PER_FRAME = 2;
 
 type TileState = 'idle' | 'loading' | 'loaded' | 'none' | 'failed';
 
@@ -41,10 +49,17 @@ interface FChunk {
   key: number;
   gcx: number;
   gcz: number;
+  kind: 'ground' | 'blocks';
   mesh: THREE.Mesh | null;
   tris: number;
   busy: boolean;
   disposed: boolean;
+  /** Block chunks: the generated mesh until it is merged into its tile; then null. */
+  data: BlockMesh | null;
+  /** Block chunks: physics column tops (see FineWorld.setBlocks). */
+  tops: Uint8Array | null;
+  /** Block chunks: merged into a tile (structures hidden, physics registered). */
+  installed: boolean;
 }
 
 interface Job {
@@ -52,7 +67,28 @@ interface Job {
   chunk: FChunk;
   worker: number;
   patch: Uint8Array;
+  win: Uint8Array | null;
   tiles: Tile[];
+}
+
+/** A block chunk's slice of its tile's merged geometry. */
+interface Part {
+  chunk: FChunk;
+  v: number;
+  vn: number;
+  i: number;
+  in: number;
+}
+
+/** 2x2 block chunks merged into one mesh: one draw call (and one shadow-pass call) per tile. */
+interface BlockTile {
+  key: number;
+  tx: number;
+  tz: number;
+  mesh: THREE.Mesh | null;
+  parts: Part[];
+  pending: FChunk[];
+  tris: number;
 }
 
 /**
@@ -62,6 +98,7 @@ interface Job {
 export class FineStreamer {
   readonly world: FineWorld;
   readonly radius: number;
+  readonly blockRadius: number;
 
   private readonly scene: THREE.Scene;
   private readonly coarse: WorldStreamer;
@@ -78,8 +115,13 @@ export class FineStreamer {
   private readonly workerLoad: number[] = [];
   private readonly tiles = new Map<number, Tile>();
   private readonly chunks = new Map<number, FChunk>();
+  private readonly bchunks = new Map<number, FChunk>();
+  private readonly btiles = new Map<number, BlockTile>();
+  private readonly dirtyTiles = new Set<BlockTile>();
   private readonly jobs = new Map<number, Job>();
   private need: ChunkRef[] = [];
+  private bneed: ChunkRef[] = [];
+  private readonly needed: Tile[] = [];
   private nextJobId = 1;
   private inflight = 0;
   private fetchActive = 0;
@@ -95,6 +137,9 @@ export class FineStreamer {
   private lastTry = 0;
   private meshCount = 0;
   private triCount = 0;
+  private blockCount = 0;
+  private blockTris = 0;
+  private blockInflight = 0;
 
   constructor(scene: THREE.Scene, coarse: WorldStreamer, manifest: Manifest, opts: FineStreamerOptions) {
     const cm = coarse.material;
@@ -108,6 +153,7 @@ export class FineStreamer {
     this.coarse = coarse;
     this.manifest = manifest;
     this.radius = opts.radius;
+    this.blockRadius = opts.blockRadius ?? 0;
     this.world = new FineWorld(coarse);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     this.chunksX = manifest.regionsX * REGION_CHUNKS;
@@ -124,6 +170,10 @@ export class FineStreamer {
   get chunkCount(): number { return this.meshCount; }
   get inflightJobs(): number { return this.inflight; }
   get triangles(): number { return this.triCount; }
+  /** Installed block chunks, in-flight block jobs, block triangles (dev HUD). */
+  get blockChunks(): number { return this.blockCount; }
+  get blockJobs(): number { return this.blockInflight; }
+  get blockTriangles(): number { return this.blockTris; }
 
   /** Call once per frame; does real work only on a chunk-boundary crossing, new data, or a retry tick. */
   update(x: number, z: number): void {
@@ -139,12 +189,17 @@ export class FineStreamer {
     } else if (this.dirty || (this.waiting && performance.now() - this.lastTry > WAIT_RETRY_MS)) {
       this.pump();
     }
+    if (this.dirtyTiles.size > 0) this.flushTiles();
   }
 
   dispose(): void {
     for (const w of this.workers) w.terminate();
     for (const c of [...this.chunks.values()]) this.drop(c);
     this.chunks.clear();
+    for (const c of [...this.bchunks.values()]) this.dropBlocks(c);
+    this.bchunks.clear();
+    for (const t of this.btiles.values()) this.flushTile(t);
+    this.dirtyTiles.clear();
     this.material.dispose();
   }
 
@@ -222,6 +277,16 @@ export class FineStreamer {
         this.drop(c);
       }
     }
+    if (this.blockRadius > 0) {
+      this.bneed = neededChunks(this.camX, this.camZ, this.blockRadius, this.chunksX, this.chunksZ);
+      const bkeep = this.blockRadius + HYSTERESIS;
+      for (const c of [...this.bchunks.values()]) {
+        if (distToChunk(this.camX, this.camZ, c.gcx, c.gcz) > bkeep) {
+          this.bchunks.delete(c.key);
+          this.dropBlocks(c);
+        }
+      }
+    }
     this.dirty = true;
   }
 
@@ -231,11 +296,18 @@ export class FineStreamer {
     this.lastTry = performance.now();
     this.tick++;
     const maxJobs = this.workers.length * MAX_JOBS_PER_WORKER;
-    const needed: Tile[] = [];
-    for (const ref of this.need) {
+    // the 0.2 m ground first (cheap, close), then the block tier
+    if (this.scan(this.need, this.chunks, 'ground', maxJobs)) return;
+    if (this.blockRadius > 0) this.scan(this.bneed, this.bchunks, 'blocks', maxJobs);
+  }
+
+  /** Dispatches jobs for the missing chunks of `list`, nearest first; true when the job slots are full. */
+  private scan(list: ChunkRef[], map: Map<number, FChunk>, kind: 'ground' | 'blocks', maxJobs: number): boolean {
+    const needed = this.needed;
+    for (const ref of list) {
       const key = chunkKey(ref.gcx, ref.gcz);
-      if (this.chunks.has(key)) continue;
-      if (this.inflight >= maxJobs) { this.waiting = true; break; }
+      if (map.has(key)) continue;
+      if (this.inflight >= maxJobs) { this.waiting = true; return true; }
       const rx = Math.floor(ref.gcx / REGION_CHUNKS);
       const rz = Math.floor(ref.gcz / REGION_CHUNKS);
       needed.length = 0;
@@ -250,17 +322,27 @@ export class FineStreamer {
           needed.push(t);
         }
       }
-      const patch = blocked ? null : buildPatch(
-        ref.gcx, ref.gcz, this.manifest.regionsX, this.manifest.regionsZ,
-        (x, z) => this.coarse.regionData(x, z),
-      );
+      let patch: Uint8Array | null = EMPTY_PATCH;
+      let win: Uint8Array | null = null;
+      if (!blocked) {
+        const getRegion = (x: number, z: number): ReturnType<WorldStreamer['regionData']> => this.coarse.regionData(x, z);
+        if (kind === 'ground') {
+          patch = buildPatch(ref.gcx, ref.gcz, this.manifest.regionsX, this.manifest.regionsZ, getRegion);
+        } else {
+          win = buildBlockInput(ref.gcx, ref.gcz, this.manifest.regionsX, this.manifest.regionsZ, getRegion);
+          if (win === null) patch = null;
+        }
+      }
       if (blocked || patch === null) { this.waiting = true; continue; }
       const worker = this.pickWorker(needed);
-      if (worker < 0) { this.waiting = true; break; }
-      const chunk: FChunk = { key, gcx: ref.gcx, gcz: ref.gcz, mesh: null, tris: 0, busy: true, disposed: false };
-      this.chunks.set(key, chunk);
-      this.send({ id: this.nextJobId++, chunk, worker, patch, tiles: needed.slice() }, false);
+      if (worker < 0) { this.waiting = true; return true; }
+      const chunk: FChunk = {
+        key, gcx: ref.gcx, gcz: ref.gcz, kind, mesh: null, tris: 0, busy: true, disposed: false, data: null, tops: null, installed: false,
+      };
+      map.set(key, chunk);
+      this.send({ id: this.nextJobId++, chunk, worker, patch, win, tiles: needed.slice() }, false);
     }
+    return false;
   }
 
   private pickWorker(tiles: Tile[]): number {
@@ -290,9 +372,14 @@ export class FineStreamer {
       }
     }
     const req: FineRequest = { id: job.id, gcx: job.chunk.gcx, gcz: job.chunk.gcz, patch: job.patch, tiles: refs };
+    if (job.chunk.kind === 'blocks') {
+      req.kind = 'blocks';
+      req.win = job.win!;
+    }
     this.jobs.set(job.id, job);
     this.workerLoad[job.worker]!++;
     this.inflight++;
+    if (job.chunk.kind === 'blocks') this.blockInflight++;
     this.workers[job.worker]!.postMessage(req);
   }
 
@@ -303,6 +390,9 @@ export class FineStreamer {
     this.workerLoad[wi]!--;
     this.inflight--;
     const chunk = job.chunk;
+    const blocks = chunk.kind === 'blocks';
+    if (blocks) this.blockInflight--;
+    const map = blocks ? this.bchunks : this.chunks;
     if (msg.missing !== undefined) {
       for (const t of job.tiles) if (msg.missing.includes(t.key)) t.sentMask &= ~(1 << wi);
       if (!chunk.disposed && this.workerLoad[wi]! < MAX_JOBS_PER_WORKER && job.tiles.every((t) => t.state === 'none' || t.buffer !== null)) {
@@ -311,14 +401,17 @@ export class FineStreamer {
         return;
       }
       chunk.busy = false;
-      if (this.chunks.get(chunk.key) === chunk) this.chunks.delete(chunk.key);
+      if (map.get(chunk.key) === chunk) map.delete(chunk.key);
       chunk.disposed = true;
     } else if (msg.mesh !== undefined) {
       chunk.busy = false;
       if (!chunk.disposed) this.install(chunk, msg.mesh);
+    } else if (msg.blocks !== undefined) {
+      chunk.busy = false;
+      if (!chunk.disposed) this.queueBlocks(chunk, msg.blocks);
     } else {
       // generation failed: keep an empty record so the chunk is not retried until it is dropped
-      console.warn(`fine chunk ${chunk.gcx},${chunk.gcz} failed: ${msg.error ?? 'unknown'}`);
+      console.warn(`${chunk.kind} chunk ${chunk.gcx},${chunk.gcz} failed: ${msg.error ?? 'unknown'}`);
       chunk.busy = false;
     }
     this.dirty = true;
@@ -360,5 +453,156 @@ export class FineStreamer {
     c.mesh = null;
     this.triCount -= c.tris;
     this.meshCount--;
+  }
+
+  // ---------------------------------------------------------------- block tier
+
+  private queueBlocks(chunk: FChunk, data: BlockMesh): void {
+    chunk.data = data;
+    chunk.tops = data.tops;
+    const tile = this.blockTile(chunk);
+    tile.pending.push(chunk);
+    this.dirtyTiles.add(tile);
+  }
+
+  private blockTile(chunk: FChunk): BlockTile {
+    const tx = Math.floor(chunk.gcx / TILE_CHUNKS);
+    const tz = Math.floor(chunk.gcz / TILE_CHUNKS);
+    const key = chunkKey(tx, tz);
+    let t = this.btiles.get(key);
+    if (t === undefined) {
+      t = { key, tx, tz, mesh: null, parts: [], pending: [], tris: 0 };
+      this.btiles.set(key, t);
+    }
+    return t;
+  }
+
+  private flushTiles(): void {
+    let n = 0;
+    for (const t of this.dirtyTiles) {
+      this.dirtyTiles.delete(t);
+      this.flushTile(t);
+      if (++n >= TILE_FLUSHES_PER_FRAME) break;
+    }
+  }
+
+  /**
+   * Rebuilds a tile's merged geometry from its kept parts and newly arrived chunks. New chunks get
+   * their coarse structures hidden and their physics columns registered only now, when the blocks are
+   * in the scene; removed chunks were unhidden when dropped.
+   */
+  private flushTile(tile: BlockTile): void {
+    const keep = tile.parts.filter((p) => !p.chunk.disposed);
+    const add = tile.pending.filter((c) => !c.disposed && c.data !== null);
+    tile.pending.length = 0;
+    let tv = 0;
+    let ti = 0;
+    for (const p of keep) { tv += p.vn; ti += p.in; }
+    for (const c of add) { tv += c.data!.positions.length / 3; ti += c.data!.indices.length; }
+    const old = tile.mesh;
+    if (tv === 0) {
+      if (old !== null) {
+        this.scene.remove(old);
+        old.geometry.dispose();
+        tile.mesh = null;
+      }
+      this.blockTris -= tile.tris;
+      tile.tris = 0;
+      tile.parts = [];
+    } else {
+      const positions = new Float32Array(tv * 3);
+      const normals = new Float32Array(tv * 3);
+      const colors = new Float32Array(tv * 3);
+      const walls = new Float32Array(tv * 4);
+      const indices = new Uint32Array(ti);
+      const parts: Part[] = [];
+      let vo = 0;
+      let io = 0;
+      if (old !== null) {
+        const g = old.geometry;
+        const op = g.getAttribute('position').array as Float32Array;
+        const on = g.getAttribute('normal').array as Float32Array;
+        const oc = g.getAttribute('color').array as Float32Array;
+        const ow = g.getAttribute('aWall').array as Float32Array;
+        const oi = g.index!.array as Uint32Array;
+        for (const p of keep) {
+          positions.set(op.subarray(p.v * 3, (p.v + p.vn) * 3), vo * 3);
+          normals.set(on.subarray(p.v * 3, (p.v + p.vn) * 3), vo * 3);
+          colors.set(oc.subarray(p.v * 3, (p.v + p.vn) * 3), vo * 3);
+          walls.set(ow.subarray(p.v * 4, (p.v + p.vn) * 4), vo * 4);
+          const shift = vo - p.v;
+          for (let k = 0; k < p.in; k++) indices[io + k] = oi[p.i + k]! + shift;
+          parts.push({ chunk: p.chunk, v: vo, vn: p.vn, i: io, in: p.in });
+          vo += p.vn;
+          io += p.in;
+        }
+      }
+      for (const c of add) {
+        const d = c.data!;
+        const vn = d.positions.length / 3;
+        const ox = (c.gcx - tile.tx * TILE_CHUNKS) * CHUNK_M;
+        const oz = (c.gcz - tile.tz * TILE_CHUNKS) * CHUNK_M;
+        for (let k = 0; k < vn; k++) {
+          positions[(vo + k) * 3] = d.positions[k * 3]! + ox;
+          positions[(vo + k) * 3 + 1] = d.positions[k * 3 + 1]!;
+          positions[(vo + k) * 3 + 2] = d.positions[k * 3 + 2]! + oz;
+        }
+        normals.set(d.normals, vo * 3);
+        colors.set(d.colors, vo * 3);
+        walls.set(d.walls, vo * 4);
+        for (let k = 0; k < d.indices.length; k++) indices[io + k] = d.indices[k]! + vo;
+        parts.push({ chunk: c, v: vo, vn, i: io, in: d.indices.length });
+        vo += vn;
+        io += d.indices.length;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      g.setAttribute('aWall', new THREE.BufferAttribute(walls, 4));
+      g.setIndex(new THREE.BufferAttribute(indices, 1));
+      g.computeBoundingSphere();
+      if (old !== null) {
+        old.geometry.dispose();
+        old.geometry = g;
+      } else {
+        // the coarse chunk material (same program as the coarse chunks, no polygon offset)
+        const m = new THREE.Mesh(g, this.coarse.material);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        m.position.set(tile.tx * TILE_CHUNKS * CHUNK_M, 0, tile.tz * TILE_CHUNKS * CHUNK_M);
+        m.matrixAutoUpdate = false;
+        m.updateMatrix();
+        this.scene.add(m);
+        tile.mesh = m;
+      }
+      this.blockTris += indices.length / 3 - tile.tris;
+      tile.tris = indices.length / 3;
+      tile.parts = parts;
+    }
+    for (const c of add) {
+      c.data = null;
+      c.installed = true;
+      this.blockCount++;
+    }
+    for (const c of add) {
+      this.coarse.setStructuresHidden(c.gcx, c.gcz, true);
+      this.world.setBlocks(c.gcx, c.gcz, c.tops);
+    }
+    if (tile.mesh === null && tile.parts.length === 0 && tile.pending.length === 0) this.btiles.delete(tile.key);
+  }
+
+  private dropBlocks(c: FChunk): void {
+    c.disposed = true;
+    if (c.installed) {
+      // unhide the coarse structures first, so there is never a frame without the building
+      this.coarse.setStructuresHidden(c.gcx, c.gcz, false);
+      this.world.setBlocks(c.gcx, c.gcz, null);
+      this.blockCount--;
+      c.installed = false;
+    }
+    c.data = null;
+    const tile = this.btiles.get(chunkKey(Math.floor(c.gcx / TILE_CHUNKS), Math.floor(c.gcz / TILE_CHUNKS)));
+    if (tile !== undefined) this.dirtyTiles.add(tile);
   }
 }

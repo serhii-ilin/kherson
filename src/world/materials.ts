@@ -46,6 +46,19 @@ export const MAT = {
   ROOF_DARK: 42,
   ROOF_GOLD: 43,
   ROOF_GREEN: 44,
+  // 1 m building/bridge blocks (src/fine/volume.ts); ids 45..59 are reserved for block details
+  /** Window glass at the back of a carved opening (the facade shader adds reflections, lit windows). */
+  GLASS: 45,
+  /** Light stone/plaster trim: sills, cornices, plinths, window surrounds. */
+  TRIM: 46,
+  /** Bare concrete: bridge piers, balcony slabs, panel-block plinths. */
+  CONCRETE: 47,
+  /** Painted metal: railings, balcony rails, canopies. */
+  METAL: 48,
+  /** Entrance doors. */
+  DOOR: 49,
+  /** Shop-front glass (larger, darker than residential windows). */
+  SHOPFRONT: 50,
   LEAVES: 60,
   TRUNK: 61,
   BRIDGE: 62,
@@ -93,6 +106,12 @@ const COLORS: Record<number, number> = {
   [MAT.LEAVES]: 0x3e8e3a,
   [MAT.TRUNK]: 0x6b4a2b,
   [MAT.BRIDGE]: 0x9b9486,
+  [MAT.GLASS]: 0x3d5266,
+  [MAT.TRIM]: 0xe6e0d2,
+  [MAT.CONCRETE]: 0xa3a19b,
+  [MAT.METAL]: 0x4a5258,
+  [MAT.DOOR]: 0x5a3f2c,
+  [MAT.SHOPFRONT]: 0x2c3a44,
 };
 
 /** RGB bytes, 3 per material id; unknown ids are magenta. */

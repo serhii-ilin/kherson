@@ -4,6 +4,8 @@
  *    fine-tier ground (ballast, worn road markings, rail steel, footway slabs, grass speckle);
  *  - building walls: windows, bays, plinth, cornice, shop fronts, entrances, lit windows, per style,
  *    keyed by the `aWall` vertex attribute (wall material id, top y, base y, ground-contact flag);
+ *    1 m block-tier faces (w >= 2) keep only tint and per-block variation, and glass blocks (ids 45, 50)
+ *    get sky reflection, lit panes and frames;
  *  - wall-base contact AO.
  * All detail fades out by ~400 m (and with fwidth) to avoid moire.
  */
@@ -136,13 +138,49 @@ vec4 fStyle( float m ) {
     float hy = vGWorld.y - wallBase;
     float totalH = max( wallTop - wallBase, 0.5 );
     // contact AO at the wall base, fading over ~2 m
-    float gcontact = vWall.w * ( 1.0 - smoothstep( 0.0, 2.2, hy ) );
+    // aWall.w: ground-contact flag, +2 on 1 m block faces whose windows, doors and trims are real geometry
+    bool carved = vWall.w > 1.5;
+    float gcontact = ( vWall.w - 2.0 * step( 1.5, vWall.w ) ) * ( 1.0 - smoothstep( 0.0, 2.2, hy ) );
     vec3 base = diffuseColor.rgb;
-    if ( styleId > 19.5 ) {
+    if ( styleId > 44.5 && styleId < 59.5 ) {
+      // ---- block-tier details: glass (45), shop glass (50), trims, concrete, metal, doors
+      vec3 bcell = floor( vGWorld - vGN * 0.5 );
+      float bh = gHash( bcell.xz + bcell.y * 17.0 );
+      float fu = fract( ax ? vGWorld.z : vGWorld.x );
+      float fyb = fract( vGWorld.y );
+      float bpx = max( fwidth( u ), fwidth( vGWorld.y ) );
+      float bdetail = gFade * ( 1.0 - smoothstep( 0.3, 0.9, bpx ) );
+      vec3 bcol = base * ( 1.0 + 0.10 * gFade * ( bh - 0.5 ) );
+      if ( styleId > 44.5 && styleId < 45.5 || styleId > 49.5 && styleId < 50.5 ) {
+        bool shopGlass = styleId > 49.5;
+        // sky-gradient reflection, a little different per pane
+        float gv = shopGlass ? 0.45 : 1.0;
+        vec3 glassLow = vec3( 0.12, 0.16, 0.21 );
+        vec3 glassHigh = vec3( 0.46, 0.58, 0.70 ) * gv;
+        vec3 glass = mix( glassLow, glassHigh, fyb * fyb * ( 3.0 - 2.0 * fyb ) * ( 0.7 + 0.3 * bh ) );
+        // about one pane in twenty is lit
+        float lit = step( 0.95, gHash( bcell.xz * 1.37 + bcell.y * 5.3 + 3.1 ) );
+        glass = mix( glass, vec3( 0.95, 0.80, 0.50 ), lit * ( shopGlass ? 0.25 : 0.55 ) );
+        // thin white frame around each ordinary pane, mullions on shop fronts
+        float fw = max( fwidth( fu ), fwidth( fyb ) ) + 1e-4;
+        float inner = fBox( fu, 0.07, 0.93, fw ) * fBox( fyb, 0.07, 0.93, fw );
+        vec3 frame = shopGlass ? vec3( 0.20, 0.22, 0.24 ) : vec3( 0.90, 0.89, 0.86 );
+        float frameAmt = ( 1.0 - inner ) * bdetail * ( shopGlass ? 0.7 : 0.85 );
+        bcol = mix( glass, frame, frameAmt );
+        bcol = mix( glass * 0.9, bcol, bdetail );
+      }
+      diffuseColor.rgb = bcol;
+    } else if ( styleId > 19.5 && styleId < 39.5 ) {
       vec2 bid = vec2( plane, floor( u / 24.0 ) );
       float r = gHash( bid + 7.3 );
       float r2 = gHash( bid + 1.7 );
       float r3 = gHash( bid + 4.1 );
+      if ( carved ) {
+        // geometry carries the windows: keep the tint and a faint per-block variation
+        vec3 bcell = floor( vGWorld - vGN * 0.5 );
+        float bh = gHash( bcell.xz + bcell.y * 17.0 );
+        diffuseColor.rgb = base * ( 0.94 + 0.12 * r3 ) * ( 1.0 + 0.07 * gFade * ( bh - 0.5 ) );
+      } else {
       vec4 st = fStyle( styleId );
       bool garage = styleId > 28.5 && styleId < 29.5;
       bool stalin = styleId > 26.5 && styleId < 27.5;
@@ -254,6 +292,7 @@ vec4 fStyle( float m ) {
       // far away fall back to the averaged tint (windows darken the wall a little)
       vec3 avg = wall * mix( 0.9, 0.84, clamp( st.z * st.w * 4.0, 0.0, 1.0 ) );
       diffuseColor.rgb = mix( avg, col, detail );
+      }
     }
     diffuseColor.rgb *= 1.0 - 0.32 * gcontact;
   }`,

@@ -91,7 +91,7 @@ data/osm/kherson.json.gz  ──bake──►  public/world/            ──�
 - **World grid:** 1 voxel is 2 m. A chunk is 32 × 32 cells (64 m); a region is 8 × 8 chunks (512 m), giving 36 × 31 regions.
 - **Cells (2.5D columns):** each cell stores 5 bytes: ground material, ground height, structure height, wall material and roof material.
 - **Features:** region files also carry a list of features (trees, bushes, bridge decks), each with a species and a seed. Vegetation is rendered with instancing, separately from the voxel grid.
-- **Fine tier:** within 150 m of the camera (High quality), workers rebuild the ground at 0.2 m from per-region vector tiles: real road widths, raised sidewalks with kerbs, lane markings, zebra crossings and tram rails.
+- **Fine tier:** within 150 m of the camera (High quality), workers rebuild the ground at 0.2 m from per-region vector tiles: real road widths, raised sidewalks with kerbs, lane markings, zebra crossings and tram rails. Within 250 m, buildings and bridges are rebuilt as 1 m blocks with carved windows, entrances, balconies, cornices, pitched roofs, domes, decks, railings and piers.
 - **Determinism:** the bake is deterministic. Every random choice is a hash of the coordinates or the OSM id, so the same snapshot always yields the same world.
 
 ### Project layout

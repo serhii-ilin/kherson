@@ -113,6 +113,8 @@ export class WorldStreamer {
   private readonly chunks = new Map<number, Chunk>();
   /** Chunk keys whose ground is replaced by the fine tier; honoured by every (re)mesh. */
   private readonly groundHidden = new Set<number>();
+  /** Chunk keys whose structures (walls, roofs, bridge decks) are replaced by the block tier. */
+  private readonly structuresHidden = new Set<number>();
   private readonly emptyQuads = new Map<number, THREE.Mesh>();
   private emptyGeometry: THREE.BufferGeometry | null = null;
 
@@ -198,12 +200,21 @@ export class WorldStreamer {
    * Water cells return groundH * VOXEL; query isWater() for the flag.
    */
   heightAt(x: number, z: number, refY?: number): number | null {
-    const h = this.sample(x, z, refY);
+    const h = this.sample(x, z, refY, false);
+    return h === UNKNOWN ? null : h;
+  }
+
+  /**
+   * Like heightAt, but building structures are ignored (ground and bridge decks only): the block tier
+   * replaces the coarse 2 m building cells with its own 1 m columns.
+   */
+  groundHeightAt(x: number, z: number, refY?: number): number | null {
+    const h = this.sample(x, z, refY, true);
     return h === UNKNOWN ? null : h;
   }
 
   isWater(x: number, z: number, refY?: number): boolean {
-    return this.sample(x, z, refY) !== UNKNOWN && this.sampleWater;
+    return this.sample(x, z, refY, false) !== UNKNOWN && this.sampleWater;
   }
 
   /** Ground material of the cell at (x, z), or null when not loaded. */
@@ -241,15 +252,36 @@ export class WorldStreamer {
     if (hidden) this.groundHidden.add(key);
     else this.groundHidden.delete(key);
     const c = this.chunks.get(key);
-    if (c !== undefined && c.mesh !== null) this.applyDrawRange(c, hidden);
+    if (c !== undefined && c.mesh !== null) this.applyDrawRange(c);
   }
 
   isGroundHidden(gcx: number, gcz: number): boolean {
     return this.groundHidden.has(chunkKey(gcx, gcz));
   }
 
-  private applyDrawRange(c: Chunk, hidden: boolean): void {
-    c.mesh!.geometry.setDrawRange(hidden ? c.groundIndexCount : 0, Infinity);
+  /**
+   * Hides (or shows) the structures of a coarse chunk (everything after the ground part: walls, roofs,
+   * bridge decks) by cutting the draw range to the ground part. The block tier draws them as 1 m
+   * blocks instead. Remembered for chunks meshed later. Chunk coordinates are global.
+   */
+  setStructuresHidden(gcx: number, gcz: number, hidden: boolean): void {
+    const key = chunkKey(gcx, gcz);
+    if (hidden) this.structuresHidden.add(key);
+    else this.structuresHidden.delete(key);
+    const c = this.chunks.get(key);
+    if (c !== undefined && c.mesh !== null) this.applyDrawRange(c);
+  }
+
+  isStructuresHidden(gcx: number, gcz: number): boolean {
+    return this.structuresHidden.has(chunkKey(gcx, gcz));
+  }
+
+  private applyDrawRange(c: Chunk): void {
+    const g = this.groundHidden.has(c.key);
+    const s = this.structuresHidden.has(c.key);
+    const start = g ? c.groundIndexCount : 0;
+    const count = s ? (g ? 0 : c.groundIndexCount) : Infinity;
+    c.mesh!.geometry.setDrawRange(start, count);
   }
 
   dispose(): void {
@@ -266,7 +298,7 @@ export class WorldStreamer {
   // ---------------------------------------------------------------- sampling
 
   /** Returns UNKNOWN (-1) when not loaded; sets sampleWater. */
-  private sample(x: number, z: number, refY: number | undefined): number {
+  private sample(x: number, z: number, refY: number | undefined, noStructures: boolean): number {
     this.sampleWater = false;
     if (x < 0 || z < 0) return UNKNOWN;
     const rx = Math.floor(x / REGION_M);
@@ -286,7 +318,7 @@ export class WorldStreamer {
     const cells = data.cells;
     const gh = cells[PLANE * F_GROUND_H + i]!;
     const sh = cells[PLANE * F_STRUCT_H + i]!;
-    const base = (gh + sh) * VOXEL;
+    const base = (noStructures ? gh : gh + sh) * VOXEL;
     const deck = e.decks !== null ? e.decks.get(i) : undefined;
     if (deck !== undefined) {
       const top = deck * VOXEL;
@@ -666,7 +698,7 @@ export class WorldStreamer {
     }
     this.triCount += mesh.indices.length / 3;
     chunk.groundIndexCount = mesh.groundIndexCount;
-    if (this.groundHidden.has(chunk.key)) this.applyDrawRange(chunk, true);
+    if (this.groundHidden.has(chunk.key) || this.structuresHidden.has(chunk.key)) this.applyDrawRange(chunk);
     this.setChunkWater(chunk, mesh.water, entry);
     chunk.edgeMask = mask;
   }

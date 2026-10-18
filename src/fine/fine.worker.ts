@@ -1,5 +1,5 @@
 import { decodeVectorTile, type VectorTile } from '../world/vector-format.ts';
-import { generateFineChunk } from './generate.ts';
+import { generateBlockChunk, generateFineChunk, type BlockMesh } from './generate.ts';
 import type { FineMesh } from './mesh.ts';
 
 /** One vector tile of a job: `data` carries bytes the worker may not have cached yet. */
@@ -14,9 +14,13 @@ export interface TileRef {
 
 export interface FineRequest {
   id: number;
+  /** 'blocks' generates the 1 m building/bridge blocks (from `win`), otherwise the 0.2 m ground (from `patch`). */
+  kind?: 'blocks';
   gcx: number;
   gcz: number;
   patch: Uint8Array;
+  /** Coarse window for the block tier (see block-input.ts). */
+  win?: Uint8Array;
   tiles: TileRef[];
 }
 
@@ -25,6 +29,7 @@ export interface FineResponse {
   /** Keys of 'cached' tiles this worker no longer holds; the streamer resends them with data. */
   missing?: number[];
   mesh?: FineMesh;
+  blocks?: BlockMesh;
   error?: string;
 }
 
@@ -39,7 +44,7 @@ const CACHE_MAX = 24;
 const cache = new Map<number, VectorTile>();
 
 scope.onmessage = (e) => {
-  const { id, gcx, gcz, patch, tiles } = e.data;
+  const { id, kind, gcx, gcz, patch, win, tiles } = e.data;
   const missing: number[] = [];
   const decoded: VectorTile[] = [];
   try {
@@ -61,6 +66,18 @@ scope.onmessage = (e) => {
     }
     if (missing.length > 0) {
       scope.postMessage({ id, missing } satisfies FineResponse);
+      return;
+    }
+    if (kind === 'blocks') {
+      const blocks = generateBlockChunk({ gcx, gcz, win: win!, tiles: decoded });
+      scope.postMessage({ id, blocks } satisfies FineResponse, [
+        blocks.positions.buffer,
+        blocks.normals.buffer,
+        blocks.colors.buffer,
+        blocks.walls.buffer,
+        blocks.indices.buffer,
+        blocks.tops.buffer,
+      ]);
       return;
     }
     const mesh = generateFineChunk({ gcx, gcz, patch, tiles: decoded });
