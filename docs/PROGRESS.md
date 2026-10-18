@@ -26,6 +26,11 @@ _Last updated: 2026-10-18_
 
 ## Open tasks
 
+### Next
+- ⬜ Minimap: zoom in / zoom out buttons (no way to change its scale now).
+- ⬜ Minimap: click (tap) a point to move the player there.
+- ⬜ Minimap: drag the player marker to a new spot to move the player there.
+
 ### Later
 - ⬜ Bollards along plaza edges (optional prop, not placed yet).
 - ⬜ Light pools under street lamps at night (needs per-lamp data in the shader).
