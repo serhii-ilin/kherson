@@ -36,11 +36,9 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | # | P | Issue | Notes / proposed fix |
 |---|---|---|---|
-| 17 | P3 | Few pines: OSM forests lack `leaf_type` | owner decision below |
-| 18 | P2 | Coarse world uses `THREE.BatchedMesh`; browsers without `WEBGL_multi_draw` (possibly older Safari) fall back to one draw per chunk | check on Safari/iOS; keep per-chunk meshes as a fallback if needed |
-| 19 | P3 | Above 300 m the sun-shadow map freezes (a fixed 200 m patch); it is redrawn when the time changes | acceptable at that height |
+| 26 | P3 | Banks of water that exists only as an OSM line (e.g. Koshova by the Ostrivske bridge) still follow the 2 m grid; the shoreline smoothing needs a water polygon | trace polygons from the line buffers in the bake |
+| 27 | P3 | 1 m khrushchevka is 3,720 triangles (test bound 3,800): further facade detail needs trimming elsewhere | |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
-| 23 | P3 | 1 m khrushchevka is 3,962 triangles against the 4,000 test bound: little headroom for more facade detail | trim elsewhere before adding detail |
 
 ## Waiting on the owner
 
@@ -49,19 +47,24 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 - ⛔ **Phone default**: phones start in LQ, so they don't see the 0.2 m ground and 1 m blocks unless switched to HQ. The owner's phone runs HQ at 60–90 fps; switch the phone default to HQ?
 - ⛔ **Landmarks removed by the city cut**: bring back the Antonivskyi bridge and/or the Karantynnyi island entry?
 - ⛔ **Ambient sound**: owner's listening feedback.
-- ⛔ **Pines**: make left-bank forests pine?
 
 ## Done (recent fixes)
 
 | Fix | Commit |
 |---|---|
+| Codex-round review: coarse ground backing sinks only where the 0.2 m bank dips below it or meets water (keeps crack cover on streets); tall drops into the river drawn as an embankment wall | VAL |
+| #17 Pines on sandy forest ground (23 → 1,300) | `f0e8018` |
+| #18 `BatchedMesh` without `WEBGL_multi_draw` verified: three falls back to one draw per chunk (same as before batching); `?nomultidraw=1` dev flag | `f0e8018` |
+| #19 Shadows fade out between 250 and 320 m and stop above; no frozen patch | `f0e8018` |
+| #23 Block mesher merges better: khrushchevka 3,962 → 3,720 triangles, other styles 5–37% fewer | `f0e8018` |
+| Places: one «Херсон» entry; piers («причал») and the river port searchable; places nudged onto walkable ground | `f0e8018` |
 | #4 Whole-building block-tier assignment across the 250 m edge; #12 per-building coarse tint; #13 facade run boundaries | `f0e8018` |
 | #5 Fine AO uses the 1 m footprint raster; #7 polygon-based 0.2 m shoreline and sandy banks | `f0e8018` |
 | #6 Vegetation positions are checked against vector roads/buildings; bake nudged 22,742 and dropped 2,853 placements | `f0e8018` |
 | #8 Bridge-deck lane markings; #9 continuous multi-piece bridge profiles | `f0e8018` |
 | #10 Floodplain reeds, wetland and meadow treatment on the left bank | `f0e8018` |
 | #11 1 m bridge deck/rail physics, including walking under decks | `f0e8018` |
-| #16 Concave/multi-ring vector-area clipping at the city boundary | `f0e8018` |
+| #16 Built-up areas straddling the city boundary are left out of the vector tiles (the 2 m ground covers them); multi-ring area bounds fixed | `f0e8018` |
 | #20 OSM traffic-light direction; #21 free-standing shop signs; #22 worker-prioritized vegetation LOD builds | `f0e8018` |
 | #25 Narrow-phone settings menu layout | `f0e8018` |
 | #2 Draw calls at altitude 409/576 → 135/99: 0.2 m and 1 m tiers off above 250 m, shadows frozen above 300 m | `418796d` |

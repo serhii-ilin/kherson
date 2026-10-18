@@ -16,6 +16,11 @@ import { CM_PER_VOXEL, FINE_CELL, FINE_N, FINE_PER_COARSE, NO_GROUND, type FineG
 export interface FineMesh extends ChunkMesh {
   /** Absolute top height in cm per fine cell (row-major, NO_GROUND where the cell has no fine ground). */
   raster: Uint16Array;
+  /**
+   * True when some cell lies below the coarse ground (lowered bank) or a side face drops into water: the
+   * coarse backing must sink, or its 2 m side faces fight the fine bank.
+   */
+  lowered: boolean;
 }
 
 /** Side-face material below a ground cell of material `m`. */
@@ -110,6 +115,11 @@ let fmat = 0;
  * Side face of cell (cx, cz) towards neighbour (nx, nz) (either may be outside the chunk by one
  * cell): sets fy0/fy1 (cm) and fmat and returns true when the cell is higher than the neighbour.
  */
+/** Drops into water taller than this (cm) are drawn as an embankment wall. */
+const EMBANKMENT_MIN_CM = 60;
+/** Set by faceFor when a side face drops into coarse water (the coarse backing must then sink too). */
+let meetsWater = false;
+
 function faceFor(g: FineGrid, patch: Uint8Array, cx: number, cz: number, nx: number, nz: number): boolean {
   const i = cz * FINE_N + cx;
   let top: number;
@@ -125,13 +135,18 @@ function faceFor(g: FineGrid, patch: Uint8Array, cx: number, cz: number, nx: num
     mat = gm === MAT.GRASS || gm === MAT.PARK || gm === MAT.FOREST ? MAT.DIRT : gm;
   }
   let nTop: number;
+  let nWater = false;
   if (nx >= 0 && nx < FINE_N && nz >= 0 && nz < FINE_N && g.mat[nz * FINE_N + nx] !== 0) {
     nTop = g.hcm[nz * FINE_N + nx]!;
   } else {
     const pi = (Math.floor(nz / FINE_PER_COARSE) + 1) * PATCH_W + Math.floor(nx / FINE_PER_COARSE) + 1;
     nTop = (patch[P_GH * PATCH_PLANE + pi]! + patch[P_SH * PATCH_PLANE + pi]!) * CM_PER_VOXEL;
+    nWater = patch[P_MAT * PATCH_PLANE + pi] === MAT.WATER;
   }
+  if (nWater && top > nTop) meetsWater = true;
   if (top <= nTop) return false;
+  // a tall drop into the river is an embankment wall: one stone colour, not the dithered bank soil/sand
+  if (nWater && top - nTop > EMBANKMENT_MIN_CM) mat = MAT.CONCRETE;
   fy0 = nTop;
   fy1 = top;
   fmat = mat;
@@ -181,10 +196,11 @@ function meshSides(b: QuadBuilder, g: FineGrid, patch: Uint8Array): void {
 /** Meshes a rasterised chunk and extracts the physics height raster. */
 export function meshFineGround(g: FineGrid, patch: Uint8Array): FineMesh {
   const b = new QuadBuilder();
+  meetsWater = false;
   meshTops(b, g);
   meshSides(b, g, patch);
   meshDeckMarks(b, g);
   const raster = new Uint16Array(FINE_N * FINE_N);
   for (let i = 0; i < raster.length; i++) raster[i] = g.mat[i] === 0 ? NO_GROUND : g.hcm[i]!;
-  return { ...b.buildNoRuns(), raster };
+  return { ...b.buildNoRuns(), raster, lowered: g.lowered || meetsWater };
 }

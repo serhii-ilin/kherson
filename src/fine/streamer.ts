@@ -79,6 +79,12 @@ interface FChunk {
   snap: Uint8Array | null;
   /** Ground chunks: the coarse ground under it is sunk. */
   sunk?: boolean;
+  /**
+   * Ground chunks: the fine ground dips below the coarse ground somewhere (a lowered river bank). Only then
+   * is the coarse backing sunk; elsewhere it stays in place, since a sunk backing lets low-angle rays slip
+   * through T-junction cracks under the neighbouring chunks and show the sky.
+   */
+  lowered?: boolean;
   /** Block chunks: the tier changed under this chunk's buildings; regenerate. */
   stale: boolean;
   /** Dither-in state while the chunk fades over the tier underneath (null when done). */
@@ -597,6 +603,7 @@ export class FineStreamer {
   // ---------------------------------------------------------------- meshes
 
   private install(chunk: FChunk, mesh: FineMesh): void {
+    chunk.lowered = mesh.lowered;
     if (mesh.indices.length > 0) {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
@@ -625,7 +632,7 @@ export class FineStreamer {
 
   /** Sinks / restores the coarse ground under a fine ground chunk (see WorldStreamer.setGroundSunk). */
   private sinkCoarse(c: FChunk, on: boolean): void {
-    if (c.kind !== 'ground' || c.sunk === on || (on && (c.mesh === null || c.disposed))) return;
+    if (c.kind !== 'ground' || c.sunk === on || (on && (c.mesh === null || c.disposed || !c.lowered))) return;
     c.sunk = on;
     this.coarse.setGroundSunk(c.gcx, c.gcz, on && !this.high);
   }

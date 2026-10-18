@@ -674,7 +674,10 @@ function paintWater(g: FineGrid, patch: Uint8Array, tiles: readonly VectorTile[]
       if (c === C_CARVE) {
         if (g.mat[i] === 0) continue;
         const h = lvl + BANK_ABOVE_CM;
-        if (h < g.hcm[i]!) g.hcm[i] = h;
+        if (h < g.hcm[i]!) {
+          g.hcm[i] = h;
+          g.lowered = true;
+        }
         g.mat[i] = MAT.SAND;
         continue;
       }

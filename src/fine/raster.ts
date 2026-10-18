@@ -34,6 +34,8 @@ export class FineGrid {
    * lift so the quads sit just above the deck top.
    */
   deckH: Uint16Array | null = null;
+  /** Set when the water pass lowered land below its coarse height (a bank inside a water polygon). */
+  lowered = false;
 }
 
 function clampCell(v: number): number {
