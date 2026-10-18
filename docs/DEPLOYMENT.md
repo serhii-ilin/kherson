@@ -91,15 +91,16 @@ git push
 ```
 
 - **Tile cache:** `fetch-osm` caches each tile in `data/osm/tiles/`, which is gitignored. A rerun after a failure resumes from the cached tiles. Delete the folder to force a full refresh.
+- **City boundary:** the bake keeps only the city inside OSM relation 2175078 (`CITY_RELATION` in `tools/bake/config.ts`, dilated by 20 m); water and natural land cover stay outside it. The bake fails if the relation is missing from a refreshed snapshot.
 - **Bbox:** it lives in `tools/bake/config.ts`. Changing it moves the world origin, so it changes every world coordinate, including shared URL poses.
-- **Review the bake stats before committing.** Counts of buildings, roads, water, trees and bushes per species, and the total size, should be close to the previous snapshot. A sudden drop usually means a partial download.
+- **Review the bake stats before committing.** Counts of buildings, roads, water, trees and bushes per species, and the total size, should be close to the previous snapshot (currently about 10,100 buildings, 905 region files, 800 vector tiles, 296k trees, 185k bushes, about 16 MB in total). A sudden drop usually means a partial download.
 
 ### Size limits
 
 | Limit | GitHub Pages | Current |
 |---|---|---|
-| Published site | 1 GB | about 22 MB |
-| Single file | 100 MB | `overview.bin` is about 3.4 MB; region files are 60 KB or less; vector tiles (`v_*.bin`, 1.7 MB in total) are 15 KB or less |
+| Published site | 1 GB | about 19 MB |
+| Single file | 100 MB | `overview.bin` is about 3.4 MB; region files are 60 KB or less; vector tiles (`v_*.bin`, 1.3 MB in total) are 15 KB or less |
 | Snapshot in git | (keep it small) | `kherson.json.gz` is about 4 MB |
 
 ## 5. Troubleshooting

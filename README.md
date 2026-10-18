@@ -14,7 +14,7 @@ The interface is Ukrainian by default, with English available.
 
 ## Features
 
-- **The whole city**, about 18 × 15 km: 12,900 buildings, the road and tram network, the Dnipro, Koshova and the islands, parks and landuse. It is rasterised from OSM at 2 m per voxel.
+- **The city of Kherson only**, limited to its OSM boundary (relation 2175078, plus a 20 m margin): about 10,100 buildings, the road and tram network, parks and landuse. Suburbs and villages (Oleshky, Chornobaivka, Komyshany, ...) are not baked. The Dnipro, Koshova, the islands and the natural floodplain (forest, scrub, sand) around the city stay. It is rasterised from OSM at 2 m per voxel.
 - **Streaming world.** Region files load and mesh around the camera in Web Workers. A low-resolution overview mesh fills the horizon.
 - **Walk and fly modes**:
   - **Walk:** gravity, step-up, collision with buildings, tree trunks and water.
@@ -62,7 +62,7 @@ Requirements: **Node.js 24+**. The data tools run TypeScript directly via `--exp
 
 ```bash
 npm ci
-npm run bake      # OSM snapshot → public/world/ (~2–5 s, ~18 MB)
+npm run bake      # OSM snapshot → public/world/ (~2–5 s, ~16 MB)
 npm run dev       # http://localhost:5173/kherson/
 ```
 

@@ -6,7 +6,8 @@ import {
 import { FEATURE_BRIDGE_DECK, FEATURE_BUSH, FEATURE_TREE, encodeRegion } from "../src/world/format.ts";
 import { SPECIES } from "../src/nature/models.ts";
 import { MAT } from "../src/world/materials.ts";
-import { BBOX } from "./bake/config.ts";
+import { BBOX, CITY_DILATE_M, CITY_RELATION } from "./bake/config.ts";
+import { buildCityMask, keepOutsideGround, ringCentroid, type CityMask } from "./bake/city-mask.ts";
 import { WORLD_H, WORLD_W } from "./bake/project.ts";
 import { Grid, DEFAULT_CELLS } from "./bake/grid.ts";
 import { buildOverview } from "./bake/overview.ts";
@@ -173,6 +174,11 @@ async function main(): Promise<void> {
   const cellsX = Math.ceil(WORLD_W / VOXEL);
   const cellsZ = Math.ceil(WORLD_H / VOXEL);
   const grid = new Grid(cellsX, cellsZ);
+  const cityArea = areas.find((a) => a.id === CITY_RELATION && a.tags.place === "city");
+  if (!cityArea) throw new Error(`city boundary relation ${CITY_RELATION} not found in ${INPUT}; refusing to bake everything`);
+  const mask = buildCityMask(cityArea.rings, cellsX, cellsZ, CITY_DILATE_M / VOXEL);
+  const inCity = (cx: number, cz: number): boolean => mask.hasCell(cx, cz);
+  stage("city mask");
   const stats = { buildings: 0, water: 0, landuse: 0, roads: 0, rails: 0, bridgeDecks: 0, trees: 0, streetTrees: 0, bushes: 0, plazas: 0 };
 
   // a. ground areas
@@ -186,7 +192,9 @@ async function main(): Promise<void> {
   const leafType = new Uint8Array(cellsX * cellsZ);
   for (const { mat, a } of gAreas) {
     const lt = a.tags.leaf_type === "needleleaved" ? 1 : a.tags.leaf_type === "mixed" ? 2 : 0;
+    const natural = keepOutsideGround(a.tags);
     fillPolygon(a.rings, (cx, cz) => {
+      if (!natural && !inCity(cx, cz)) return;
       grid.set(F_GROUND_MAT, cx, cz, mat);
       if (mat === MAT.FOREST && cx >= 0 && cz >= 0 && cx < cellsX && cz < cellsZ) leafType[cz * cellsX + cx] = lt;
     });
@@ -228,6 +236,7 @@ async function main(): Promise<void> {
     stats.bridgeDecks++;
   };
   const paint = (mat: number, bridge: boolean) => (cx: number, cz: number): void => {
+    if (!inCity(cx, cz)) return;
     const g = grid.get(F_GROUND_MAT, cx, cz);
     if (g === MAT.WATER) {
       if (bridge) {
@@ -263,6 +272,7 @@ async function main(): Promise<void> {
     if (!r.sidewalk || r.bridge) continue;
     const lined = r.lined;
     bufferLine(r.pts, r.hw / VOXEL + 1, (cx, cz) => {
+      if (!inCity(cx, cz)) return;
       const g = grid.get(F_GROUND_MAT, cx, cz);
       if (g === MAT.ASPHALT || g === MAT.WATER || g === MAT.RAIL || g === MAT.SIDEWALK) return;
       grid.set(F_GROUND_MAT, cx, cz, MAT.SIDEWALK);
@@ -272,7 +282,7 @@ async function main(): Promise<void> {
   stage(`roads: ${stats.roads}, rails: ${stats.rails}, bridge decks: ${stats.bridgeDecks}`);
 
   // d. buildings
-  const places = collectPlaces(osm, areas, lines);
+  const places = collectPlaces(osm, areas, lines, mask);
   stage(`places: ${places.length}`);
   const centre = findCentre(places, areas);
   const styleCounts = new Map<string, number>();
@@ -280,6 +290,8 @@ async function main(): Promise<void> {
     const t = a.tags;
     if (!has(t.building)) continue;
     const r0 = a.rings[0]!;
+    const bc = ringCentroid(r0);
+    if (!mask.hasPoint(bc[0], bc[1])) continue;
     let bx = 0, bz = 0;
     for (const p of r0) { bx += p[0]; bz += p[1]; }
     const dist = Math.hypot((bx / r0.length) * VOXEL - centre[0], (bz / r0.length) * VOXEL - centre[1]);
@@ -313,6 +325,7 @@ async function main(): Promise<void> {
   // d2. vector tiles (built here, written with the rest)
   const vec = buildVectorTiles({
     areas, lines, barriers, taggedNodes: osm.taggedNodes, regionsX: grid.regionsX, regionsZ: grid.regionsZ, centre,
+    inCity: (xCm, zCm) => mask.hasPoint(xCm / (VOXEL * 100), zCm / (VOXEL * 100)),
   });
   stage(`vector tiles: ${vec.tiles.size}`);
 
@@ -385,7 +398,7 @@ async function main(): Promise<void> {
   for (const n of osm.taggedNodes) {
     if (n.tags.natural !== "tree") continue;
     const cx = Math.floor(n.cx), cz = Math.floor(n.cz);
-    if (!free(cx, cz) || !canTree(cx, cz)) continue;
+    if (!inCity(cx, cz) || !free(cx, cz) || !canTree(cx, cz)) continue;
     const h = hash(cx, cz);
     addTree(cx, cz, speciesOfTags(n.tags, h), hash(h, 3));
   }
@@ -407,7 +420,7 @@ async function main(): Promise<void> {
         const t = len > 0 ? d / len : 0;
         const cx = Math.floor(a[0] + (b[0] - a[0]) * t), cz = Math.floor(a[1] + (b[1] - a[1]) * t);
         const h = hash(cx, cz);
-        if (free(cx, cz) && canTree(cx, cz)) {
+        if (inCity(cx, cz) && free(cx, cz) && canTree(cx, cz)) {
           const sp = w.tags.leaf_type === "needleleaved" ? S.PINE : pick(T_ROW, (hash(h, 5) & 0xffff) / 65536);
           addTree(cx, cz, sp, hash(h, 7));
         }
@@ -517,7 +530,7 @@ async function main(): Promise<void> {
     if (pts.length < 1) continue;
     hedgeWays++;
     bufferLine(pts, 0.5, (cx, cz) => {
-      if (bushOk(cx, cz)) addBush(cx, cz, hash(cx, cz), true);
+      if (inCity(cx, cz) && bushOk(cx, cz)) addBush(cx, cz, hash(cx, cz), true);
     });
   }
   stage(`bushes: ${stats.bushes} (hedge ways ${hedgeWays})`);
@@ -611,11 +624,12 @@ function placeKind(t: Tags, isBridge: boolean): string | null {
   return null;
 }
 
-function collectPlaces(osm: OsmData, areas: Area[], lines: Line[]): Place[] {
+function collectPlaces(osm: OsmData, areas: Area[], lines: Line[], mask: CityMask): Place[] {
   const raw: Place[] = [];
   const push = (t: Tags, kind: string | null, cx: number, cz: number): void => {
     const name = t.name;
     if (!name || !kind) return;
+    if (!mask.hasPoint(cx, cz)) return;
     const p: Place = { name, kind, x: Math.round(cx * VOXEL * 10) / 10, z: Math.round(cz * VOXEL * 10) / 10 };
     if (t["name:en"]) p.nameEn = t["name:en"];
     raw.push(p);

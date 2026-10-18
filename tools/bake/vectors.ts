@@ -11,6 +11,7 @@ import {
   type VectorTile, type VArea, type VBuilding, type VLine, type VPoint, type VRoad,
 } from "../../src/world/vector-format.ts";
 import { buildingSpec, parseNum } from "./building-style.ts";
+import { keepOutsideGround } from "./city-mask.ts";
 import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./classes.ts";
 import type { Tags } from "./osm.ts";
 import type { Pt } from "./rasterize.ts";
@@ -45,6 +46,8 @@ export interface VectorInput {
   regionsZ: number;
   /** City centre in world metres (for building style, like the coarse bake). */
   centre: readonly [number, number];
+  /** City mask test on absolute centimetres. When set, everything outside is dropped (areas: only natural classes). */
+  inCity?: (xCm: number, zCm: number) => boolean;
 }
 
 export interface VectorStats {
@@ -243,7 +246,7 @@ function dirOf(dx: number, dz: number): number {
 }
 
 export function buildVectorTiles(input: VectorInput): { tiles: Map<number, VectorTile>; stats: VectorStats } {
-  const { regionsX, regionsZ } = input;
+  const { regionsX, regionsZ, inCity } = input;
   const accs = new Map<number, TileAcc>();
   const stats: VectorStats = { buildings: 0, roads: 0, areas: 0, areaCopies: 0, lines: 0, points: 0 };
   const acc = (rx: number, rz: number): TileAcc | null => {
@@ -266,6 +269,7 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
     for (const p of r0pts) { bx += p[0]; bz += p[1]; }
     bx /= r0pts.length;
     bz /= r0pts.length;
+    if (inCity && !inCity(...toCm([bx, bz]))) continue;
     const ring0 = ringCm(r0pts);
     if (ring0.length < 3) continue;
     const dist = Math.hypot(bx * VOXEL - input.centre[0], bz * VOXEL - input.centre[1]);
@@ -326,6 +330,7 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
   const addPieces = (pts: Cm[], emit: (tile: TileAcc, piece: Cm[], ox: number, oz: number) => void): void => {
     for (const piece of splitPolyline(pts)) {
       const [mx, mz] = midpoint(piece);
+      if (inCity && !inCity(mx, mz)) continue; // pieces end at the city edge
       const tile = owner(mx, mz);
       if (tile) emit(tile, piece, tile.rx * REGION_CM, tile.rz * REGION_CM);
     }
@@ -395,7 +400,9 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
   input.areas.forEach((a, i) => {
     if (has(a.tags.building) || isWater(a.tags)) return;
     const g = groundClass(a.tags);
-    if (g) ground.push({ ...g, a, i });
+    if (!g) return;
+    if (inCity && !keepOutsideGround(a.tags) && !(a.rings[0] ?? []).some((p) => inCity(...toCm(p)))) return;
+    ground.push({ ...g, a, i });
   });
   ground.sort((p, q) => p.prio - q.prio || p.i - q.i);
   for (const { mat, prio, a } of ground) {
@@ -445,6 +452,7 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
     else if (t.name && (t.shop !== undefined || (t.amenity !== undefined && SHOP_AMENITY.has(t.amenity)))) kind = POINT.SHOP;
     if (!kind) continue;
     const [x, z] = toCm([n.cx, n.cz]);
+    if (inCity && !inCity(x, z)) continue;
     const tile = owner(x, z);
     if (!tile) continue;
     if (kind === POINT.SHOP) name = tile.strings.idx(t.name);
