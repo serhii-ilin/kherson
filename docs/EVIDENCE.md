@@ -45,4 +45,4 @@ Poses marked "approx." were estimated from the photo, not yet confirmed by a scr
 | Date | Commit | Result |
 |---|---|---|
 | 2026-10-18 | `666e4e5` | Poses 01/07, 02, 03 and 08 re-shot; layout, railing, lamps, benches, beds, monument and cranes match. Gaps: small cobbles (#33), Hotel Fregat facade (#32), timber monument (#34) |
-| 2026-10-19 | `HASH` | Photos 13–15: added a railing-free stretch with four concrete bathing steps (±15 m around the quay point nearest the fountain), white parapets with short railings, red-brown bands fanning from the fountain, and the fountain's red granite wall, white coping and teal mosaic. Re-shot pose 13 and the steps from the water: they match. Open: the statue (#36) and the exact length of the stretch |
+| 2026-10-19 | `9333cc7` | Photos 13–15: added a railing-free stretch with four concrete bathing steps (±15 m around the quay point nearest the fountain), white parapets with short railings, red-brown bands fanning from the fountain, and the fountain's red granite wall, white coping and teal mosaic. Re-shot pose 13 and the steps from the water: they match. Open: the statue (#36) and the exact length of the stretch |
