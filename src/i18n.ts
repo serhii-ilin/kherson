@@ -30,6 +30,8 @@ const STRINGS = {
     qualityHigh: 'Якість: висока (натисніть, щоб знизити)',
     qualityLow: 'Якість: низька (натисніть, щоб підвищити)',
     timeOfDay: 'Час доби (натисніть, щоб змінити)',
+    share: 'Поділитися посиланням на це місце',
+    shareCopied: 'Посилання скопійовано',
     zoomIn: 'Наблизити',
     zoomOut: 'Віддалити',
   },
@@ -57,6 +59,8 @@ const STRINGS = {
     qualityHigh: 'Quality: high (click to lower)',
     qualityLow: 'Quality: low (click to raise)',
     timeOfDay: 'Time of day (click to change)',
+    share: 'Share a link to this spot',
+    shareCopied: 'Link copied',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
   },
@@ -201,7 +205,7 @@ function createSettingsButton(parent: HTMLElement): HTMLButtonElement {
   // a tap anywhere else (the Places button, the world) folds the menu back up
   document.addEventListener('click', (e) => {
     const el = e.target as Element | null;
-    if (el !== null && el.closest('.vk-settings, .vk-time, .vk-quality, .vk-mute') === null) set(false);
+    if (el !== null && el.closest('.vk-settings, .vk-time, .vk-quality, .vk-mute, .vk-share') === null) set(false);
   });
   const render = (): void => {
     btn.title = t('settings');
@@ -264,6 +268,48 @@ export function createTimeButton(parent: HTMLElement, initialHours: number, onSe
     hours = TIME_PRESETS[nextPreset(hours)]!.hours;
     render();
     onSelect(hours);
+  });
+  onLangChange(render);
+  render();
+  parent.appendChild(btn);
+  return btn;
+}
+
+/** "🔗" button: copies a link to the current position and view (the share sheet on phones that have one). */
+export function createShareButton(parent: HTMLElement, getUrl: () => string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'vk-btn vk-share';
+  btn.textContent = '🔗';
+  const render = (): void => {
+    btn.title = t('share');
+    btn.setAttribute('aria-label', t('share'));
+  };
+  const flash = (): void => {
+    btn.textContent = '✓';
+    btn.title = t('shareCopied');
+    setTimeout(() => {
+      btn.textContent = '🔗';
+      render();
+    }, 1800);
+  };
+  btn.addEventListener('click', async () => {
+    const url = getUrl();
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    if (coarse && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: t('title'), url });
+        return;
+      } catch (e) {
+        if ((e as DOMException).name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      flash();
+    } catch {
+      window.prompt(t('share'), url); // clipboard blocked (insecure origin): let the user copy by hand
+    }
   });
   onLangChange(render);
   render();

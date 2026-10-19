@@ -14,8 +14,8 @@ import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
 import { Input } from './player/input.ts';
-import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, createTimeButton, t } from './i18n.ts';
-import { daylightAt, readStoredTime, resolveTime, writeStoredTime } from './world/daylight.ts';
+import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, createShareButton, createTimeButton, t } from './i18n.ts';
+import { daylightAt, formatTime, readStoredTime, resolveTime, writeStoredTime } from './world/daylight.ts';
 import { NIGHT_UNIFORM } from './world/facade-shader.ts';
 import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
@@ -237,6 +237,7 @@ async function start(): Promise<void> {
   } else {
     player.spawn(sx, sz);
     player.yaw = (num('yaw') ?? 0) * deg;
+    player.pitch = (num('pitch') ?? 0) * deg;
   }
   if (isMobile) {
     const touch = new TouchControls();
@@ -287,6 +288,24 @@ async function start(): Promise<void> {
 
   const ambience = new Ambience();
   createMuteButton(document.body, ambience);
+  createShareButton(document.body, () => {
+    const r = (v: number, d: number): string => String(Number(v.toFixed(d)));
+    const { x, y, z } = camera.position;
+    const u = new URL(location.href);
+    u.search = '';
+    u.hash = '';
+    const set = (k: string, v: string): void => u.searchParams.set(k, v);
+    set('x', r(x, 1));
+    set('z', r(z, 1));
+    if (player.mode === 'fly') {
+      set('mode', 'fly');
+      set('y', r(y, 1));
+    }
+    set('yaw', r((player.yaw * 180) / Math.PI, 1));
+    set('pitch', r((player.pitch * 180) / Math.PI, 1));
+    set('time', formatTime(timeHours));
+    return u.toString();
+  });
   // Browsers only allow audio after a user gesture.
   const unlockAudio = (): void => ambience.unlock();
   for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, unlockAudio, { once: true });

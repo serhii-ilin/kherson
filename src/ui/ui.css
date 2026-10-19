@@ -256,6 +256,14 @@
   letter-spacing: 0.02em;
 }
 
+/* Share button sits under the Places button; in the phone menu it is the last entry. */
+.vk-btn.vk-share {
+  top: 62px;
+  right: 12px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+
 /* Time-of-day button sits left of the quality toggle; on phones it shrinks to the icon. */
 .vk-btn.vk-time {
   right: 340px;
@@ -311,6 +319,7 @@
   }
   .vk-btn.vk-time,
   .vk-btn.vk-quality,
+  .vk-btn.vk-share,
   .vk-btn.vk-mute {
     display: none;
     right: 12px;
@@ -321,12 +330,14 @@
   }
   body.vk-menu-open .vk-btn.vk-time,
   body.vk-menu-open .vk-btn.vk-quality,
+  body.vk-menu-open .vk-btn.vk-share,
   body.vk-menu-open .vk-btn.vk-mute {
     display: block;
   }
   .vk-btn.vk-time { top: 62px; font-size: 16px; }
   .vk-btn.vk-quality { top: 112px; }
   .vk-btn.vk-mute { top: 162px; }
+  .vk-btn.vk-share { top: 212px; }
   .vk-time-text {
     display: inline;
   }
