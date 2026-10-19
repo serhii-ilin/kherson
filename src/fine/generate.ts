@@ -7,7 +7,8 @@ import { rasterizeGround, type FineInput } from './ground.ts';
 import { meshFineGround, type FineMesh } from './mesh.ts';
 import { BlockWindowData, G_GH, G_MAT, G_PLANES, G_RMAT, G_SH, G_SMAT, GM, GPLANE, GW } from './block-input.ts';
 import { addBridges, type PlacedRoad } from './bridges.ts';
-import { addBuildings, canBlock, type PlacedBuilding } from './buildings.ts';
+import { addBuildings, canBlock, type PlacedBuilding, type SmoothSink } from './buildings.ts';
+import { meshSmooth, type SmoothBuilding } from './smooth.ts';
 import { BLOCK_PAD, BLOCK_WIN, BlockWindow, columnPhysics, meshBlocks } from './blocks.ts';
 import { VOL_XZ, Volume } from './volume.ts';
 import { appendMesh, buildPropMesh, placeProps } from './props.ts';
@@ -167,11 +168,17 @@ export function gatherPieces(
  */
 export function fillBlockWindow(
   win: BlockWindow, input: BlockInput,
-): { groundY: Uint8Array; block: PlacedBuilding[]; deps: number[] } {
+): { groundY: Uint8Array; block: PlacedBuilding[]; deps: number[]; smoothTops: Uint8Array; smooth: SmoothBuilding[] } {
   const wd = new BlockWindowData(input.win, input.gcx, input.gcz);
   const { buildings, bridges, roads, allBridges } = gatherPieces(input.gcx, input.gcz, input.tiles);
   const { block, deps } = assignTier(input, buildings);
-  addBuildings(win, block, { groundAt: wd.groundAt, roadDist: roadDistFn(roads) }, win.foot, win.tint);
+  // true-angle buildings: the chunk holding the first vertex of the outer ring emits the whole mesh
+  const cx0 = input.gcx * CHUNK_M, cz0 = input.gcz * CHUNK_M;
+  const sink: SmoothSink = {
+    tops: new Uint8Array(BLOCK_WIN * BLOCK_WIN), list: [],
+    owns: (x, z) => x >= cx0 && x < cx0 + CHUNK_M && z >= cz0 && z < cz0 + CHUNK_M,
+  };
+  addBuildings(win, block, { groundAt: wd.groundAt, roadDist: roadDistFn(roads) }, win.foot, win.tint, sink);
   if (bridges.length > 0) {
     const ctx = { groundAt: wd.groundAt, isWater: wd.isWater, deckTopAt: wd.deckTopAt };
     for (const dz of [0, 2]) {
@@ -196,7 +203,7 @@ export function fillBlockWindow(
       groundY[z * BLOCK_WIN + x] = Math.max(0, Math.floor(wd.groundAt(win.x0 + x + 0.5, win.z0 + z + 0.5) + 1e-6));
     }
   }
-  return { groundY, block, deps };
+  return { groundY, block, deps, smoothTops: sink.tops, smooth: sink.list };
 }
 
 
@@ -353,8 +360,8 @@ function concatF(a: Float32Array, b: Float32Array): Float32Array {
   return o;
 }
 
-/** Appends the coarse structure mesh to the block mesh; runs are zero for the block part. */
-function withCoarse(base: ChunkMesh, extra: ChunkMesh & { runs: Float32Array }): ChunkMesh & { runs: Float32Array } {
+/** Appends a mesh with wall runs (coarse structures, true-angle buildings) to the block mesh; the block part's runs are zero. */
+function withCoarse(base: ChunkMesh, extra: ChunkMesh & { runs: Float32Array }, baseRuns?: Float32Array): ChunkMesh & { runs: Float32Array } {
   const nv = base.positions.length / 3;
   const indices = new Uint32Array(base.indices.length + extra.indices.length);
   indices.set(base.indices);
@@ -364,7 +371,7 @@ function withCoarse(base: ChunkMesh, extra: ChunkMesh & { runs: Float32Array }):
     normals: concatF(base.normals, extra.normals),
     colors: concatF(base.colors, extra.colors),
     walls: concatF(base.walls, extra.walls),
-    runs: concatF(new Float32Array(nv * 2), extra.runs),
+    runs: concatF(baseRuns ?? new Float32Array(nv * 2), extra.runs),
     indices,
   };
 }
@@ -375,15 +382,26 @@ export function generateBlockChunk(input: BlockInput): BlockMesh {
   if (scratch === null) scratch = new BlockWindow(x0, z0);
   else scratch.clear(x0, z0);
   const win = scratch;
-  const { groundY, block, deps } = fillBlockWindow(win, input);
+  const { groundY, block, deps, smoothTops, smooth } = fillBlockWindow(win, input);
   let mesh: ChunkMesh = meshBlocks(win.mats, BLOCK_WIN, BLOCK_PAD, groundY, win.tint);
   const { tops, decks, rails } = columnPhysics(win.mats, BLOCK_WIN, BLOCK_PAD, win.foot, groundY);
+  for (let z = 0; z < CHUNK_M; z++) {
+    for (let x = 0; x < CHUNK_M; x++) {
+      const t = smoothTops[(z + BLOCK_PAD) * BLOCK_WIN + x + BLOCK_PAD]!;
+      if (t > tops[z * CHUNK_M + x]!) tops[z * CHUNK_M + x] = t;
+    }
+  }
+  let runs: Float32Array | undefined;
+  if (smooth.length > 0) {
+    const m = withCoarse(mesh, meshSmooth(smooth, x0, z0));
+    runs = m.runs;
+    mesh = m;
+  }
   // the chunk hides ALL coarse structures, so buildings that stay coarse are re-emitted as coarse cells
   const claim = claimCells(block, input.gcx, input.gcz);
   const coarseMesh = coarseStructures(input.win, input.gcx, input.gcz, claim, tops);
-  let runs: Float32Array | undefined;
   if (coarseMesh !== null) {
-    const m = withCoarse(mesh, coarseMesh);
+    const m = withCoarse(mesh, coarseMesh, runs);
     runs = m.runs;
     mesh = m;
   }

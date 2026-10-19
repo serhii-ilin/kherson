@@ -300,13 +300,22 @@ vec4 fStyle( float m ) {
     float u = ax ? vGWorld.z : vGWorld.x;
     // walls lie on the 2 m voxel grid: snap so per-pixel interpolation error can't flicker the hashes
     float plane = floor( ( ax ? vGWorld.x : vGWorld.z ) * 0.5 + 0.5 );
+    // true-angle walls (src/fine/smooth.ts, aWall.w >= 16): u runs along the wall, one hash plane per wall;
+    // aWall.w = 16 + contact + 2 * entrance code (0 none, else 1 + the entrances' bay phase)
+    float smoothW = step( 15.5, vWall.w );
+    float sEnt = floor( ( vWall.w - 16.0 * smoothW ) * 0.5 ) * smoothW;
+    float wFlags = vWall.w - 16.0 * smoothW - 2.0 * sEnt;
+    if ( smoothW > 0.5 ) {
+      u = vRun.x;
+      plane = floor( vRun.y * 3.7 + wallBase * 1.3 + wallTop * 0.7 );
+    }
     float hy = vGWorld.y - wallBase;
     float totalH = max( wallTop - wallBase, 0.5 );
     // contact AO at the wall base, fading over ~2 m
     // aWall.w: ground-contact flag, +2 on 1 m block faces whose windows, doors and trims are real geometry
     // +4 marks a 1 m slot (reveal) between solid blocks
-    float recessF = step( 5.5, vWall.w );
-    float wcode = vWall.w - 4.0 * recessF;
+    float recessF = step( 5.5, wFlags );
+    float wcode = wFlags - 4.0 * recessF;
     bool carved = wcode > 1.5;
     float gcontact = ( wcode - 2.0 * step( 1.5, wcode ) ) * ( 1.0 - smoothstep( 0.0, 2.2, hy ) );
     float mpx = max( fwidth( u ), fwidth( vGWorld.y ) );
@@ -389,7 +398,7 @@ vec4 fStyle( float m ) {
       float fl = floor( fy );
       fy = fract( fy );
       // distance-adaptive bay width keeps the pattern stable
-      float bay = st.y * ( 0.9 + 0.2 * r );
+      float bay = smoothW > 0.5 ? st.y : st.y * ( 0.9 + 0.2 * r );
       float bu = u / bay;
       if ( hasRun ) {
         // a whole number of bays fits the run, so windows are never cut at its ends
@@ -409,6 +418,11 @@ vec4 fStyle( float m ) {
       float shop = ( fl < 0.5 && gHash( vec2( bi, plane ) + bid ) < shopChance ) ? 1.0 : 0.0;
       // entrances on apartment blocks: one bay in ~6 on the ground floor
       float entr = ( apart || stalin ) && fl < 0.5 && mod( bi + floor( r * 6.0 ), 6.0 ) < 0.5 ? 1.0 : 0.0;
+      // true-angle walls: entrances only on the wall smooth.ts picked, never in the end bays, as it lays them out
+      float entEvery = styleId > 24.5 && styleId < 25.5 ? 4.0 : 6.0;
+      float nBays = floor( runL / bay + 0.5 );
+      bool entrBay = sEnt > 0.5 && mod( bi + sEnt - 1.0, entEvery ) < 0.5 && bi > 0.5 && bi < nBays - 1.5;
+      if ( smoothW > 0.5 ) entr = entrBay && fl < 0.5 ? 1.0 : 0.0;
       shop *= 1.0 - entr;
 
       vec4 wr = vec4( 0.5 - st.z * 0.5, 0.5 + st.z * 0.5, 0.5 - st.w * 0.5, 0.5 + st.w * 0.5 );
@@ -416,6 +430,8 @@ vec4 fStyle( float m ) {
       if ( modern ) { wr.x = 0.0; wr.y = 1.0; }
       if ( shop > 0.5 ) wr = vec4( 0.08, 0.92, 0.12, 0.80 );
       if ( entr > 0.5 ) wr = vec4( 0.28, 0.72, 0.0, 0.70 );
+      // stair windows above an entrance: a narrow column, half a floor up from the flats' windows
+      if ( entrBay && fl > 0.5 ) { fy = fract( fy + 0.5 ); wr = vec4( 0.38, 0.62, 0.30, 0.70 ); }
       // windows are kept clear of the top band
       float lastFloor = fl > nFloors - 1.5 ? 1.0 : 0.0;
       if ( lastFloor > 0.5 && wr.w > 0.78 ) wr.w = 0.78;

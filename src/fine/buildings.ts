@@ -20,6 +20,7 @@
 import { MAT } from '../world/materials.ts';
 import { ROOF, type VBuilding } from '../world/vector-format.ts';
 import { VOL_Y } from './volume.ts';
+import { isSkewed, smoothStyle, type SmoothBuilding } from './smooth.ts';
 
 export interface PlacedBuilding {
   b: VBuilding;
@@ -210,6 +211,8 @@ interface Prep {
   clipX1: number;
   clipZ0: number;
   clipZ1: number;
+  /** World-metre rings (outer first). */
+  rings: Float64Array[];
 }
 
 function inMask(p: Prep, gx: number, gz: number): boolean {
@@ -314,6 +317,7 @@ function prepare(
     phaseX: hash(b.id, 1) % 16, phaseZ: hash(b.id, 2) % 16, entOff: hash(b.id, 3) % 6, tint: buildingTint(b.id),
     clipX0: Math.max(gx0 - DETAIL_PAD, Math.floor(minX)), clipX1: Math.min(gx0 + size + DETAIL_PAD, Math.floor(maxX) + 1),
     clipZ0: Math.max(gz0 - DETAIL_PAD, Math.floor(minZ)), clipZ1: Math.min(gz0 + size + DETAIL_PAD, Math.floor(maxZ) + 1),
+    rings,
   };
   rasterMask(p, rings);
   if (p.cols === 0) return null;
@@ -807,6 +811,7 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
  */
 export function addBuildings(
   grid: BlockGrid, placed: readonly PlacedBuilding[], ctx: BuildingContext, foot?: Uint8Array, tint?: Uint8Array,
+  smooth?: SmoothSink,
 ): void {
   const size = gridSize(grid);
   const gx0 = Math.round(grid.x0);
@@ -814,11 +819,50 @@ export function addBuildings(
   const order = placed.slice().sort((a, b) => a.b.id - b.b.id || a.ox - b.ox || a.oz - b.oz
     || a.b.rings[0]![0]! - b.b.rings[0]![0]! || a.b.rings[0]![1]! - b.b.rings[0]![1]!);
   const preps: Prep[] = [];
+  const w = new Writer(grid.mats, gx0, gz0, size, foot, tint);
   for (const pb of order) {
     const p = prepare(pb, gx0, gz0, size, ctx);
-    if (p !== null) preps.push(p);
+    if (p === null) continue;
+    if (smooth !== undefined && canSmooth(p)) addSmooth(p, w, smooth, ctx);
+    else preps.push(p);
   }
-  const w = new Writer(grid.mats, gx0, gz0, size, foot, tint);
   for (const p of preps) fillBuilding(p, w, ctx);
   for (const p of preps) detailBuilding(p, w, ctx);
+}
+
+/** Where true-angle buildings go (see smooth.ts): a physics raster and the list of the owner chunk. */
+export interface SmoothSink {
+  /** Roof top (m) per grid column, size x size like `foot`; raised over smooth footprints. */
+  tops: Uint8Array;
+  /** Buildings whose mesh this chunk emits. */
+  list: SmoothBuilding[];
+  /** True when the chunk owns the building whose outer ring starts at (x, z). */
+  owns(x: number, z: number): boolean;
+}
+
+/** Flat-roofed, grounded apartment blocks with skewed walls are drawn true-angle instead of as blocks. */
+function canSmooth(p: Prep): boolean {
+  return smoothStyle(p.wall) && p.roofKind === 0 && p.dome === null && p.cols >= MIN_COLS && p.bottomY === p.baseY
+    && !p.allAxis && isSkewed(p.rings[0]!);
+}
+
+function addSmooth(p: Prep, w: Writer, sink: SmoothSink, ctx: BuildingContext): void {
+  for (let gz = p.clipZ0; gz < p.clipZ1; gz++) {
+    for (let gx = p.clipX0; gx < p.clipX1; gx++) {
+      if (!inMask(p, gx, gz)) continue;
+      const x = gx - w.gx0, z = gz - w.gz0;
+      if (x < 0 || z < 0 || x >= w.size || z >= w.size) continue;
+      const c = z * w.size + x;
+      if (w.foot !== undefined) w.foot[c] = 1;
+      if (w.tint !== undefined) w.tint[c] = p.tint;
+      if (sink.tops[c]! < p.bodyTop) sink.tops[c] = p.bodyTop;
+    }
+  }
+  const r0 = p.rings[0]!;
+  if (sink.owns(r0[0]!, r0[1]!)) {
+    sink.list.push({
+      id: p.id, wall: p.wall, roof: p.roofMat, tint: p.tint, rings: p.rings, baseY: p.baseY, floorBase: p.floorBase,
+      top: p.bodyTop, roadDist: ctx.roadDist,
+    });
+  }
 }
