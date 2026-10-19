@@ -21,12 +21,17 @@ const BAND = rgb(0x8c5546);
 const COPING = rgb(0xb4b0a6);
 const KERB = rgb(0xa8a69e);
 const QUAY = rgb(0x6e726e);
-const GRANITE = rgb(0x8d8f8a);
-const WATER = rgb(0x6e9aa0);
+const WATER = rgb(0x5fb3ad);
+const MOSAIC = rgb(0x3f9c97);
+const RIM_RED = rgb(0x6e2f2c);
+const RIM_TOP = rgb(0xe4e2dc);
+const STEP = rgb(0xc9c5bb);
 const PONTOON = rgb(0xb7b4ac);
 const PONTOON_HULL = rgb(0x4a6378);
 
 type Point = [number, number];
+/** Half-length of the railing-free bathing steps along the quay (estimated from the owner's photos 13–15). */
+const STEPS_HALF = 15;
 
 export interface ShoreSegment { p: Point; q: Point; frame: Frame; length: number; s0: number; }
 export interface EmbankmentLayout {
@@ -209,6 +214,14 @@ export function createPier(bbox: Bbox): Landmark {
       const gangA = fs.a, gangSeg = fs.seg;
       const inGang = (seg: ShoreSegment, a: number) => seg === gangSeg && Math.abs(a - gangA) < 1.1;
 
+      const monumentC = centroid(layout.monument), fountainC = centroid(layout.fountain);
+      // Bathing steps: the quay in front of the fountain plaza has no railing and steps down into the
+      // river (owner's photos 13–15), centred on the quay point nearest to the fountain.
+      const fountainShore = nearestShore(layout, fountainC[0], fountainC[1]);
+      const stepsS = fountainShore.seg.s0 + Math.max(0, Math.min(fountainShore.seg.length, fountainShore.a));
+      const inSteps = (seg: ShoreSegment, a: number) => Math.abs(seg.s0 + a - stepsS) < STEPS_HALF;
+      const STEP_N = 4, STEP_D = 0.75;
+
       // Quay edge: wall face, light coping, red-brown border band and the blue-and-white railing.
       const railY: number[] = [];
       for (const seg of shore) {
@@ -219,16 +232,25 @@ export function createPier(bbox: Bbox): Landmark {
           const a0 = (k / pieces) * seg.length, a1 = ((k + 1) / pieces) * seg.length;
           const m = at(f, (a0 + a1) / 2, 1.2, 0), y = paveY(m.x, m.z);
           sum += y;
+          fbox(paving, f, a0, a1, 0.45, 1.05, y + 0.02, y + 0.085, BAND, false);
+          if (inSteps(seg, (a0 + a1) / 2)) {
+            // four broad concrete steps out over the water, the last one just under the surface
+            fbox(opaque, f, a0, a1, -0.2, 0.45, y - 0.1, y + 0.1, STEP);
+            for (let i = 1; i <= STEP_N; i++) {
+              const top = y + 0.1 - (y + 0.1 - (waterY - 0.15)) * (i / STEP_N);
+              fbox(opaque, f, a0, a1, -0.2 - i * STEP_D, -0.2 - (i - 1) * STEP_D, waterY - 0.8, top, STEP);
+            }
+            continue;
+          }
           fbox(opaque, f, a0, a1, -0.5, -0.2, waterY - 0.8, y + 0.1, QUAY);
           fbox(opaque, f, a0, a1, -0.2, 0.45, y - 0.1, y + 0.14, COPING);
-          fbox(paving, f, a0, a1, 0.45, 1.05, y + 0.02, y + 0.085, BAND, false);
         }
         railY.push(sum / pieces);
         const n = Math.max(1, Math.round(seg.length / 2.1));
         let prev: { a: number; y: number } | null = null;
         for (let k = 0; k <= n; k++) {
           const a = (k / n) * seg.length;
-          if (inGang(seg, a)) { prev = null; continue; }
+          if (inGang(seg, a) || inSteps(seg, a)) { prev = null; continue; }
           const m = at(f, a, 0.15, 0), y = paveY(m.x, m.z) + 0.12;
           addRailPost(opaque, f, a, y);
           if (prev !== null) addRails(opaque, f, prev.a, a, prev.y, y);
@@ -241,17 +263,69 @@ export function createPier(bbox: Bbox): Landmark {
         if (x < sMinX - 1 || x > sMaxX + 1 || z < sMinZ - 1 || z > sMaxZ + 1) return false;
         for (let i = 0; i < shore.length; i++) {
           const seg = shore[i]!, [a, c] = toFrame(seg.frame, x, z);
-          if (a < -0.2 || a > seg.length + 0.2 || Math.abs(c - 0.1) > 0.35 || inGang(seg, a)) continue;
+          if (a < -0.2 || a > seg.length + 0.2 || Math.abs(c - 0.1) > 0.35 || inGang(seg, a) || inSteps(seg, a)) continue;
           if (y < railY[i]! + 1.25 && y + bodyH > railY[i]!) return true;
         }
         return false;
       } });
 
+      // Red-brown bands fanning out from the fountain to the steps, and one along the quay (photo 13).
+      {
+        const band = (p: Point, q: Point, w: number) => {
+          const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+          if (len < 1) return;
+          const f: Frame = { x: p[0], z: p[1], ux: (q[0] - p[0]) / len, uz: (q[1] - p[1]) / len, vx: -(q[1] - p[1]) / len, vz: (q[0] - p[0]) / len };
+          const n = Math.ceil(len / 1.5);
+          for (let k = 0; k < n; k++) {
+            const a0 = (k / n) * len, a1 = ((k + 1) / n) * len, m = at(f, (a0 + a1) / 2, 0, 0);
+            if (!inPaving(m.x, m.z)) continue;
+            const y = paveY(m.x, m.z);
+            fbox(paving, f, a0, a1, -w / 2, w / 2, y + 0.02, y + 0.088, BAND, false);
+          }
+        };
+        const seg = fountainShore.seg, aMid = stepsS - seg.s0;
+        const fc: Point = [fountainC[0], fountainC[1]];
+        for (const da of [-STEPS_HALF, -STEPS_HALF / 3, STEPS_HALF / 3, STEPS_HALF]) {
+          const q = at(seg.frame, aMid + da, 1.2, 0), d = Math.hypot(q.x - fc[0], q.z - fc[1]);
+          const start: Point = [fc[0] + (q.x - fc[0]) * 6.5 / d, fc[1] + (q.z - fc[1]) * 6.5 / d];
+          band(start, [q.x, q.z], 0.9);
+        }
+        const b0 = at(seg.frame, aMid - STEPS_HALF - 6, 7, 0), b1 = at(seg.frame, aMid + STEPS_HALF + 6, 7, 0);
+        band([b0.x, b0.z], [b1.x, b1.z], 0.9);
+      }
+
+      // Walkable steps, and white parapets with a short railing where the railing stops (photo 15).
+      {
+        const seg = fountainShore.seg, f = seg.frame;
+        const aMid = stepsS - seg.s0;
+        const m = at(f, aMid, 1.2, 0), y = paveY(m.x, m.z);
+        surfaces.push({ heightAt: (x, z) => {
+          const [a, c] = toFrame(f, x, z);
+          if (Math.abs(a - aMid) >= STEPS_HALF || c > -0.2 || c < -0.2 - STEP_N * STEP_D) return null;
+          const i = Math.min(STEP_N, Math.floor((-0.2 - c) / STEP_D) + 1);
+          return y + 0.1 - (y + 0.1 - (waterY - 0.15)) * (i / STEP_N);
+        } });
+        for (const end of [-1, 1]) {
+          const a = aMid + end * STEPS_HALF, a0 = a - (end > 0 ? 0 : 0.5), a1 = a + (end > 0 ? 0.5 : 0);
+          for (let i = 0; i <= STEP_N; i++) {
+            const top = i === 0 ? y + 0.6 : y + 0.6 - (y + 0.1 - (waterY - 0.15)) * (i / STEP_N);
+            fbox(opaque, f, a0, a1, -0.2 - i * STEP_D, -0.2 - (i - 1) * STEP_D + (i === 0 ? 0.65 : 0), waterY - 0.8, top, STEP);
+          }
+          const ra = a + end * 0.25;
+          for (let i = 0; i < STEP_N; i++) {
+            const c = -0.2 - (i + 0.5) * STEP_D, yy = y + 0.6 - (y + 0.1 - (waterY - 0.15)) * ((i + 1) / STEP_N);
+            tube(opaque, at(f, ra, c, yy), at(f, ra, c, yy + 0.9), 0.03, 0.03, RAIL_BLUE, 5, false);
+          }
+          const yTop = y + 0.6 + 0.9, yLow = y + 0.6 - (y + 0.1 - (waterY - 0.15)) + 0.9;
+          tube(opaque, at(f, ra, -0.2 - 0.5 * STEP_D, yTop - (yTop - yLow) / STEP_N), at(f, ra, -0.2 - (STEP_N - 0.5) * STEP_D, yLow), 0.03, 0.03, RAIL_WHITE, 6, false);
+        }
+      }
+
       // Lamps along the railing and along the park edge; benches facing the river between the park lamps.
       const lampPoints: Point[] = [];
       along(shore, 16, 6, (seg, a) => {
         const m = at(seg.frame, a, 1.7, 0);
-        if (!inPaving(m.x, m.z)) return;
+        if (!inPaving(m.x, m.z) || inSteps(seg, a)) return;
         addCrookLamp(opaque, lamp, m.x, paveY(m.x, m.z) + 0.06, m.z, seg.frame.ux, seg.frame.uz, quality);
         lampPoints.push([m.x, m.z]);
       });
@@ -286,7 +360,6 @@ export function createPier(bbox: Bbox): Landmark {
       }
 
       // Long white-kerbed flower beds down the middle of the promenade.
-      const monumentC = centroid(layout.monument), fountainC = centroid(layout.fountain);
       along(shore, 21, 9, (seg, a, s) => {
         let w = 0;
         for (let c = 2; c < 40; c += 0.5) { const p = at(seg.frame, a, c, 0); if (!pointInPolygon(polygon, p.x, p.z)) break; w = c; }
@@ -329,12 +402,15 @@ export function createPier(bbox: Bbox): Landmark {
       {
         const fy = paveY(fountainC[0], fountainC[1]);
         const ring = layout.fountain;
+        // red-brown granite wall under a white coping, teal mosaic basin (photo 13)
         for (let i = 0; i < ring.length; i++) {
           const seg = edge(ring, ring[i]!, ring[(i + 1) % ring.length]!, 0);
-          fbox(opaque, seg.frame, -0.05, seg.length + 0.05, 0, 0.3, fy - 0.1, fy + 0.45, GRANITE);
+          fbox(opaque, seg.frame, -0.05, seg.length + 0.05, 0, 0.3, fy - 0.1, fy + 0.5, RIM_RED);
+          fbox(opaque, seg.frame, -0.08, seg.length + 0.08, -0.06, 0.36, fy + 0.5, fy + 0.58, RIM_TOP);
         }
         for (let i = 0; i < ring.length; i++) {
           const p = ring[i]!, q = ring[(i + 1) % ring.length]!;
+          face(opaque, { x: fountainC[0], y: fy + 0.06, z: fountainC[1] }, { x: fountainC[0], y: fy + 0.06, z: fountainC[1] }, { x: p[0], y: fy + 0.06, z: p[1] }, { x: q[0], y: fy + 0.06, z: q[1] }, { x: 0, y: 1, z: 0 }, MOSAIC);
           face(water, { x: fountainC[0], y: fy + 0.32, z: fountainC[1] }, { x: fountainC[0], y: fy + 0.32, z: fountainC[1] }, { x: p[0], y: fy + 0.32, z: p[1] }, { x: q[0], y: fy + 0.32, z: q[1] }, { x: 0, y: 1, z: 0 }, WATER);
         }
         tube(water, { x: fountainC[0], y: fy + 0.32, z: fountainC[1] }, { x: fountainC[0], y: fy + 2.2, z: fountainC[1] }, 0.12, 0.05, WATER, 8);
@@ -342,7 +418,7 @@ export function createPier(bbox: Bbox): Landmark {
           const x = fountainC[0] + (p[0] - fountainC[0]) * 0.6, z = fountainC[1] + (p[1] - fountainC[1]) * 0.6;
           tube(water, { x, y: fy + 0.32, z }, { x, y: fy + 1.0, z }, 0.06, 0.03, WATER, 6);
         }
-        surfaces.push({ heightAt: (x, z) => (pointInPolygon(ring, x, z) ? fy + 0.45 : null) });
+        surfaces.push({ heightAt: (x, z) => (pointInPolygon(ring, x, z) ? fy + 0.58 : null) });
       }
 
       // Floating landing at the «Центральна набережна» stop, with a gangway, a small canopy and moored yachts.

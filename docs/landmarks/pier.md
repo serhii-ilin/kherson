@@ -218,3 +218,7 @@ guesses above where they disagree:
 - Moored yachts (white, and one black) and a floating landing at the
   «Центральна набережна» stop; the yellow portal cranes of the cargo port
   along its river quay (way 340197014) behind the west end.
+- Photos 13–15 (2026-10-19): the railing stops in front of the fountain plaza, where broad
+  steps lead down into the river and people bathed. White concrete parapets with a short
+  railing close each end. The paving there has red-brown bands fanning out from the
+  fountain, which has a red-brown granite wall, a white coping and a teal mosaic basin.
