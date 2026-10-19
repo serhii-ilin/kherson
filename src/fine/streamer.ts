@@ -9,6 +9,7 @@ import { buildBlockInput } from './block-input.ts';
 import { makeTierSnapshot, TIER_W, TIER_R, type BlockMesh } from './generate.ts';
 import { buildPatch } from './patch.ts';
 import { FineWorld } from './world.ts';
+import { versioned } from '../version.ts';
 import type { SignData, SignLayer } from './signs.ts';
 
 export interface FineStreamerOptions {
@@ -348,7 +349,7 @@ export class FineStreamer {
     if (this.fetchActive >= MAX_FETCHES) return;
     t.state = 'loading';
     this.fetchActive++;
-    fetch(`${this.baseUrl}v_${t.rx}_${t.rz}.bin`)
+    fetch(versioned(`${this.baseUrl}v_${t.rx}_${t.rz}.bin`))
       .then((r) => {
         const html = (r.headers.get('content-type') ?? '').includes('text/html'); // dev-server fallback
         if (r.status === 404 || html) return null;

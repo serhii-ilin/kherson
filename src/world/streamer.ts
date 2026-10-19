@@ -16,6 +16,7 @@ import { facadeShader } from './facade-shader.ts';
 import { ChunkBatch, type BatchSlot } from './chunk-batch.ts';
 import { QuadBuilder, edgeTops, type ChunkMesh, type EdgeKey, type RegionEdges, type WaterMesh } from './mesher.ts';
 import type { MeshRequest, MeshResponse } from './mesher.worker.ts';
+import { versioned } from '../version.ts';
 import {
   CHUNK_M,
   DIR_NX,
@@ -453,7 +454,7 @@ export class WorldStreamer {
     if (this.fetchActive >= MAX_FETCHES) return false;
     e.state = 'loading';
     this.fetchActive++;
-    fetch(this.baseUrl + e.file!)
+    fetch(versioned(this.baseUrl + e.file!))
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.arrayBuffer();

@@ -23,6 +23,7 @@ import { Minimap } from './ui/minimap.ts';
 import { PlacesMenu, type Place } from './ui/places.ts';
 import { PALETTE } from './world/materials.ts';
 import { REGION, VOXEL } from './world/constants.ts';
+import { versioned, watchForUpdates } from './version.ts';
 import { createLandmarks } from './landmarks/index.ts';
 import { LandmarkLayer } from './landmarks/layer.ts';
 import { LandmarkPhysics } from './landmarks/physics.ts';
@@ -189,10 +190,11 @@ createTimeButton(document.body, timeHours, (h) => {
   applyTime(h);
 });
 createAttribution(document.body);
+watchForUpdates(document.body, () => t('updateAvailable'));
 const base = import.meta.env.BASE_URL;
 
 async function start(): Promise<void> {
-  const manifest = (await (await fetch(`${base}world/manifest.json`)).json()) as Manifest;
+  const manifest = (await (await fetch(versioned(`${base}world/manifest.json`))).json()) as Manifest;
   const viewRadius = isMobile ? 384 : 640;
   const streamer = new WorldStreamer(scene, manifest, { viewRadius, waterMaterial });
   const vegetation = new Vegetation(scene, {
@@ -260,7 +262,7 @@ async function start(): Promise<void> {
   };
   minimap.onTeleport = teleport;
 
-  fetch(`${base}world/places.json`)
+  fetch(versioned(`${base}world/places.json`))
     .then((r) => r.json() as Promise<Place[]>)
     .then((places) => {
       new PlacesMenu(document.body, places, (p) => {
@@ -327,7 +329,7 @@ async function start(): Promise<void> {
   if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, landmarks: landmarkLayer, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
 
   let overview: Overview | null = null;
-  fetch(`${base}world/overview.bin`)
+  fetch(versioned(`${base}world/overview.bin`))
     .then((r) => r.arrayBuffer())
     .then((buf) => {
       const data = parseOverview(buf);

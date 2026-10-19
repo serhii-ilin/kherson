@@ -8,6 +8,7 @@ export const LANGS: readonly Lang[] = ['uk', 'en'];
 const STRINGS = {
   uk: {
     title: 'Воксельний Херсон',
+    updateAvailable: '↻ Є нова версія — оновити',
     walk: 'ПІШКИ',
     fly: 'ПОЛІТ',
     regions: 'регіони',
@@ -34,6 +35,7 @@ const STRINGS = {
   },
   en: {
     title: 'Voxel Kherson',
+    updateAvailable: '↻ New version — reload',
     walk: 'WALK',
     fly: 'FLY',
     regions: 'regions',

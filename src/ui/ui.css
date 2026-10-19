@@ -16,6 +16,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* "new version" button, top centre, above the HUD */
+.vk-update {
+  left: 50%;
+  right: auto;
+  top: 60px;
+  transform: translateX(-50%);
+  z-index: 30;
+  background: #1d4f91e6;
+}
+
 .vk-btn:hover,
 .vk-btn:focus-visible {
   background: #222e;
