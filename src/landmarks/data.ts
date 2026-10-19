@@ -88,3 +88,8 @@ export const EMBANKMENT_DATA = {
     [46.6266535, 32.6210736], [46.6260908, 32.6201013], [46.6255658, 32.6189185], [46.6249621, 32.6174989],
   ] satisfies readonly LatLon[],
 } as const;
+
+/** Filatova 28 (way 130752880, building=apartments): the two corners of the west wall, which faces the school (28-А). */
+export const FILATOVA_28_DATA = {
+  westWall: [[46.6839212, 32.5381967], [46.6836568, 32.5379839]] satisfies readonly LatLon[],
+} as const;

@@ -53,12 +53,13 @@ Photos 01–03 supplied on 2026-10-19, in chat. Early spring, bare trees. Buildi
 
 | # | File | Shows | Validates | Pose | SHA-256 |
 |---|---|---|---|---|---|
-| 01 | `01_courtyard-tyres-climbing-arch.png` | courtyard path with painted tyres half-buried in arcs (green, yellow, pink, teal) and flat blue/red tyre beds along the far verge; a green/orange climbing arch; a green bench and a pink-red table under a bottle-hung shelter on the left; big grey tractor tyre planter; 5-storey block at the right | khrushchevka facade (balcony stacks, window rhythm, grilles on ground floor); courtyard scale; props to add (#38) | pose TBD (courtyard of no. 28) | `6a228cfe965ec515` |
-| 02 | `02_tyre-planters-board-ride.png` | stacked-tyre planters (blue/teal/purple/grey, red), a board-on-tyres ride with a bicycle handlebar, tables with benches, ivy-covered post, shelter of bottles; block behind | prop models for #38 (tyre planters, ride); courtyard layout | pose TBD | `0f1c5e14f2724ee7` |
-| 03 | `03_facade-entrance-blossom.png` | block facade seen from the courtyard: window pairs, ground-floor entrance with porch and people, balconies (one glazed green), poplar, tyre beds along the path | facade proportions; entrance placement; balcony glazing variety | pose TBD | `d7a753cd0d7104f9` |
+| 01 | `01_courtyard-tyres-climbing-arch.png` | courtyard path with painted tyres half-buried in arcs (green, yellow, pink, teal) and flat blue/red tyre beds along the far verge; a green/orange climbing arch; a green bench and a pink-red table under a bottle-hung shelter on the left; big grey tractor tyre planter; 5-storey block at the right | khrushchevka facade (balcony stacks, window rhythm, grilles on ground floor); courtyard scale; props to add (#38) | `x=4425&z=4010&yaw=-29&pitch=-5` (approx.) | `6a228cfe965ec515` |
+| 02 | `02_tyre-planters-board-ride.png` | stacked-tyre planters (blue/teal/purple/grey, red), a board-on-tyres ride with a bicycle handlebar, tables with benches, ivy-covered post, shelter of bottles; block behind | prop models for #38 (tyre planters, ride); courtyard layout | `x=4430&z=3990&yaw=-29&pitch=-5` (approx.) | `0f1c5e14f2724ee7` |
+| 03 | `03_facade-entrance-blossom.png` | block facade seen from the courtyard: window pairs, ground-floor entrance with porch and people, balconies (one glazed green), poplar, tyre beds along the path | facade proportions; entrance placement; balcony glazing variety | `x=4415&z=3995&yaw=-120&pitch=0` (approx.) | `d7a753cd0d7104f9` |
 
 ### Log
 
 | Date | Commit | Result |
 |---|---|---|
-| 2026-10-19 | - | Photos 01–03 catalogued; nothing modelled yet (PROGRESS #38) |
+| 2026-10-19 | - | Photos 01–03 catalogued; owner: the yard is on the side of house 28 that faces the school (28-А) |
+| 2026-10-19 | (next commit) | Courtyard landmark added (tyre arcs and flat beds, stacked planters, climbing arch, board ride, shelter with table and bottles, bench) on the west wall of way 130752880. Poses are approx.; a headless render showed the props but not the fine-tier house, so the layout is unconfirmed (PROGRESS #38) |
