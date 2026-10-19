@@ -68,7 +68,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
-| Share a link: 🔗 button copies a URL with position, height (fly), view direction, tilt and time of day (share sheet on phones); `?pitch=` now also applies in walk mode | pending |
+| Share a link: 🔗 button copies a URL with position, height (fly), view direction, tilt and time of day (share sheet on phones); `?pitch=` now also applies in walk mode | `cbf91b1` |
 | Embankment, owner's photos 13–15: no railing in front of the fountain plaza; four broad concrete bathing steps into the river there (walkable), white parapets with short railings at both ends; red-brown bands fanning from the fountain; the fountain gets a red granite wall, white coping and teal mosaic | `9333cc7` |
 | Owner's 12 embankment photos kept as private evidence in git-ignored `evidence/photos/ushakova-embankment/`, catalogued in [EVIDENCE.md](EVIDENCE.md) with what each shows and validates, a re-shoot pose and SHA-256; rule added as CONSTITUTION 6.6 / 7.5 (`9de7cb5`) | `341ffa2` |
 | Stale pages after a deploy (GitHub Pages caches everything for 10 min and its headers can't be changed): each build gets an id (git sha), written to `version.json`; all world data is fetched with `?v=<id>`, so a new deploy never mixes with cached tiles. On start a newer `version.json` reopens the page once under `?v=<new id>` (a URL the cache has not seen); later checks (every 10 min, and when the tab comes back) show a «Є нова версія — оновити» button instead of interrupting | `5210101` |
