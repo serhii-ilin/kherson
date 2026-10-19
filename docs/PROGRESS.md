@@ -54,6 +54,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 35 | P3 | `birds` (swift altitude band) and `landmarks` (budgets) tests failed once in a full local run and passed on rerun | watch CI; raise their timeouts or seed the swift test if it repeats |
 | 36 | P3 | A standing statue on a tall red-and-grey pedestal (owner's photos 04, 05, 14, 15 in [EVIDENCE.md](EVIDENCE.md)) is not modelled: it is not in the current OSM (perhaps the Ushakov monument removed in 2022) and its spot is unknown | owner to point at it on the map |
 | 37 | P3 | The railing-free stretch with the bathing steps is ±15 m around the quay point nearest the fountain, estimated from photos 13–15 | owner to confirm where it starts and ends |
+| 38 | P3 | Filatova 28 courtyard from the owner's photos (EVIDENCE.md, Filatova 28): painted-tyre planters, tyre arcs along the path, a green/orange climbing arch, a board-and-tyre ride, tables under a bottle-hung shelter and ivy are not modelled; only the khrushchevka facades exist | courtyard props module (tyres, arch, benches) at the building's courtyard; confirm the exact spot with the owner |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
 ## Waiting on the owner
