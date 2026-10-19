@@ -95,7 +95,7 @@ describe('buildings: facades', () => {
     }
     expect(south.length).toBeGreaterThan(10);
     // the same bay phase everywhere along the facade
-    expect(new Set(south.map((x) => ((x % 3) + 3) % 3)).size).toBe(1);
+    expect(new Set(south.map((x) => ((x % 4) + 4) % 4)).size).toBeLessThanOrEqual(2); // 2-wide windows in 4 m bays
     // and a window on each floor (5 floors x 2 rows) in a typical bay
     const x0 = south[0]!;
     let rows = 0;
@@ -157,7 +157,11 @@ describe('buildings: facades', () => {
     expect(count(v.mats, MAT.DOOR)).toBeGreaterThan(0);
     expect(count(v.mats, MAT.METAL)).toBeGreaterThan(0);
     expect(count(v.mats, MAT.CONCRETE)).toBeGreaterThan(0);
-    expect(count(v.mats, MAT.TRIM)).toBe(0); // plain khrushchevka: no sills or cornice
+    // khrushchevka: no sills or cornice, only the light portal around each entrance door
+    const trims: number[] = [];
+    for (let y = 0; y < VOL_Y; y++) for (let z = 0; z < 64; z++) for (let x = 0; x < 64; x++) if (v.get(x, y, z) === MAT.TRIM) trims.push(y);
+    expect(trims.length).toBeGreaterThan(0);
+    expect(Math.max(...trims)).toBeLessThan(base + 3);
     const old = volume(0, 0, [bld(rect(4, 10, 60, 22), { wall: MAT.WALL_HISTORIC, heightCm: 1100 })]);
     expect(count(old.mats, MAT.TRIM)).toBeGreaterThan(20); // sills, plinth and cornice
   });

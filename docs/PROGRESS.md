@@ -55,6 +55,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 36 | P3 | A standing statue on a tall red-and-grey pedestal (owner's photos 04, 05, 14, 15 in [EVIDENCE.md](EVIDENCE.md)) is not modelled: it is not in the current OSM (perhaps the Ushakov monument removed in 2022) and its spot is unknown | owner to point at it on the map |
 | 37 | P3 | The railing-free stretch with the bathing steps is ±15 m around the quay point nearest the fountain, estimated from photos 13–15 | owner to confirm where it starts and ends |
 | 38 | P3 | Filatova 28 courtyard (west side, facing school 28-А) is modelled from the owner's photos as a landmark (`src/landmarks/courtyard.ts`), but positions inside the yard are estimated; the house facade (entrance, glazed balcony) and the ivy are generic; the yard is sparser than in the photos (no trees or bushes of its own) | owner to confirm the layout in a real browser; compare with photos 01–03 |
+| 39 | P2 | Buildings whose walls are not aligned with the 1 m grid (Filatova 28 is at 29°, most khrushchevkas in the microdistricts) are drawn as 1 m staircases: windows are carved only where a straight run exists, so they come out irregular and in steps, unlike the even rows in the owner's photos | draw slab blocks (khrushchevka/panel) as true-angle walls with windows laid along the wall instead of 1 m blocks; needs an owner decision (bigger change to the block tier) |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
 ## Waiting on the owner
@@ -69,6 +70,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Khrushchevka facade matched to the owner's photos of Filatova 28: warm grey pebble-dash (1.5 cm stones, 5 cm clusters, faint 3.2 × 3 m joints), 1.5 m windows with 2 m piers (2-wide openings in 4 m bays, kept off corners), an entrance every 4 bays with a light portal and a concrete canopy, some painted wooden frames (blue, brown) among white ones; 5-storey slabs are no longer picked as Stalin-era at random (Filatova 28 had tall Stalin windows; Stalin styles 63) | (next commit) |
 | Share a link: 🔗 button copies a URL with position, height (fly), view direction, tilt and time of day (share sheet on phones); `?pitch=` now also applies in walk mode | `cbf91b1` |
 | Embankment, owner's photos 13–15: no railing in front of the fountain plaza; four broad concrete bathing steps into the river there (walkable), white parapets with short railings at both ends; red-brown bands fanning from the fountain; the fountain gets a red granite wall, white coping and teal mosaic | `9333cc7` |
 | Owner's 12 embankment photos kept as private evidence in git-ignored `evidence/photos/ushakova-embankment/`, catalogued in [EVIDENCE.md](EVIDENCE.md) with what each shows and validates, a re-shoot pose and SHA-256; rule added as CONSTITUTION 6.6 / 7.5 (`9de7cb5`) | `341ffa2` |

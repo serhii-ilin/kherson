@@ -101,7 +101,7 @@ const COLORS: Record<number, number> = {
   [MAT.WALL_INDUSTRIAL]: 0x9a9fa3,
   [MAT.WALL_CHURCH]: 0xf2efe6,
   [MAT.WALL_PUBLIC]: 0xd9c08a,
-  [MAT.WALL_KHRUSH]: 0xd8d5cc,
+  [MAT.WALL_KHRUSH]: 0xbcb5a7, // warm grey pebble-dash (owner's photos)
   [MAT.WALL_PANEL]: 0xb9b7b0,
   [MAT.WALL_STALIN]: 0xdcc596,
   [MAT.WALL_MODERN]: 0xc4ccd2,

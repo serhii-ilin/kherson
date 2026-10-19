@@ -86,6 +86,10 @@ export interface Style {
   stairWindows: boolean;
   /** Small basement vents on the dark plinth band. */
   basementVents: boolean;
+  /** One entrance (and stair-window column) every N bays. */
+  entEvery: number;
+  /** Entrance with a light trim portal around the door and a concrete canopy slab (khrushchevka). */
+  portal: boolean;
   garage: boolean;
   pitched: boolean;
   church: boolean;
@@ -95,7 +99,7 @@ export interface Style {
 function mk(o: Partial<Style> & Pick<Style, 'floorH' | 'bay' | 'winW' | 'winH'>): Style {
   return {
     winOff: 1, plinth: MAT.CONCRETE, cornice: false, sills: true, balconies: 0, shops: false,
-    entrances: false, stairWindows: false, basementVents: false, garage: false, pitched: false, church: false, ribbon: false, ...o,
+    entrances: false, stairWindows: false, basementVents: false, entEvery: 6, portal: false, garage: false, pitched: false, church: false, ribbon: false, ...o,
   };
 }
 
@@ -110,7 +114,9 @@ const STYLES = new Map<number, Style>([
   [MAT.WALL_INDUSTRIAL, mk({ floorH: 5, bay: 4, winW: 2, winH: 1, winOff: 3, sills: false })],
   [MAT.WALL_CHURCH, mk({ floorH: 0, bay: 5, winW: 1, winH: 3, winOff: 3, plinth: MAT.TRIM, church: true })],
   [MAT.WALL_PUBLIC, mk({ floorH: 4, bay: 4, winW: 2, winH: 2, cornice: true, shops: true })],
-  [MAT.WALL_KHRUSH, mk({ floorH: 3, bay: 3, winW: 1, winH: 2, sills: false, balconies: 8, entrances: true, stairWindows: true, basementVents: true })],
+  // Khrushchevka from the owner's photos (Filatova 28): ~1.5 m windows with 2 m piers, an entrance every
+  // ~16 m under a concrete canopy in a light portal, the stair-window column above it.
+  [MAT.WALL_KHRUSH, mk({ floorH: 3, bay: 4, winW: 2, winH: 2, sills: false, balconies: 8, entrances: true, stairWindows: true, basementVents: true, entEvery: 4, portal: true })],
   [MAT.WALL_PANEL, mk({ floorH: 3, bay: 3, winW: 1, winH: 2, sills: false, balconies: 8, entrances: true })],
   [MAT.WALL_STALIN, mk({ floorH: 4, bay: 4, winW: 2, winH: 3, cornice: true, shops: true, entrances: true, balconies: 7 })],
   [MAT.WALL_MODERN, mk({ floorH: 4, bay: 4, winW: 3, winH: 2, sills: false, shops: true, ribbon: true })],
@@ -697,7 +703,9 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
         // axis-aligned walls need a straight run so windows keep clear of corner piers
         const px = DZ[d]!, pz = DX[d]!; // lateral step
         const straight = inMask(p, gx + px, gz + pz) && inMask(p, gx - px, gz - pz)
-          && !inMask(p, gx + px + DX[d]!, gz + pz + DZ[d]!) && !inMask(p, gx - px + DX[d]!, gz - pz + DZ[d]!);
+          && !inMask(p, gx + px + DX[d]!, gz + pz + DZ[d]!) && !inMask(p, gx - px + DX[d]!, gz - pz + DZ[d]!)
+          // wide windows also keep a solid pier next to a corner, so two facades never share a pane
+          && (st.winW < 2 || (inMask(p, gx + 2 * px, gz + 2 * pz) && inMask(p, gx - 2 * px, gz - 2 * pz)));
         if (!straight && (p.allAxis || !nearestEdge(p, gx + 0.5, gz + 0.5).oblique)) continue;
       } else if (nOut === 2 && (DX[o0]! !== 0) !== (DX[o1]! !== 0) && !p.allAxis) {
         // staircased diagonal wall: face along the nearest edge's normal
@@ -720,7 +728,7 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
       const pp = mod(u, st.bay);
       const winOff = Math.floor((st.bay - st.winW) / 2);
       const isWinCol = st.winW > 0 && pp >= winOff && pp < winOff + st.winW;
-      const stairBay = st.stairWindows && mod(bayI + p.entOff, 6) === 0;
+      const stairBay = st.stairWindows && mod(bayI + p.entOff, st.entEvery) === 0;
       // Stair windows sit in a narrow, slightly offset column above each entrance rather than
       // repeating across every apartment bay.
       const stairCol = pp === winOff;
@@ -735,7 +743,7 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
       }
 
       // entrance bay: a recessed door under a canopy, one bay in six on the ground floor
-      const entr = st.entrances && ground && mod(bayI + p.entOff, 6) === 0 && wallH >= 4;
+      const entr = st.entrances && ground && mod(bayI + p.entOff, st.entEvery) === 0 && wallH >= 4;
       // shop front: wide glazing on street-facing ground-floor bays
       let shop = false;
       if (st.shops && ground && !entr && (hb % 100) < 55) {
@@ -749,7 +757,10 @@ function detailBuilding(p: Prep, w: Writer, ctx: BuildingContext): void {
           w.set(ix, p.baseY + 1, iz, MAT.DOOR);
         }
         // canopy over three columns, fully outside the wall plane
-        if (Math.abs(pp - (st.bay >> 1)) <= 1) w.setAir(gx + dx, p.baseY + 2, gz + dz, MAT.METAL);
+        if (Math.abs(pp - (st.bay >> 1)) <= 1) w.setAir(gx + dx, p.baseY + 2, gz + dz, st.portal ? MAT.CONCRETE : MAT.METAL);
+        // light portal: trim on the wall beside and above the door
+        if (st.portal && Math.abs(pp - (st.bay >> 1)) === 1) for (let y = p.baseY; y < p.baseY + 3; y++) w.set(gx, y, gz, MAT.TRIM);
+        if (st.portal && pp === st.bay >> 1) w.set(gx, p.baseY + 2, gz, MAT.TRIM);
       }
 
       // rows

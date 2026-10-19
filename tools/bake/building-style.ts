@@ -125,6 +125,16 @@ export function footprintMetrics(
   return { areaM2, widthM: bestW, lengthM: bestL };
 }
 
+/**
+ * The typical 1-464/1-447 khrushchevka slab: 9-14.5 m wide, at least 30 m long, up to five storeys. Such
+ * a block is never picked as Stalin-era at random (Filatova 28 was; the owner's photos show a khrushchevka).
+ */
+function khrushSlab(geometry: BuildingGeometry, areaM2: number, levels: number): boolean {
+  if (levels > 5) return false;
+  const m = footprintMetrics(geometry.ring, areaM2);
+  return m.widthM >= 9 && m.widthM <= 14.5 && m.lengthM >= 30;
+}
+
 /** Calibrated storey heuristic for buildings without `building:levels` or `height`. */
 export function estimateStoreys(
   t: Tags, centreDist = Infinity, areaM2 = Infinity, geometry: BuildingGeometry = {},
@@ -207,7 +217,7 @@ export function buildingSpec(id: number, t: Tags, centreDist = Infinity, areaM2 
     && (b === "apartments" || b === "residential" || b === "dormitory" || (lv ?? 0) >= 4)) {
     const levels = lv ?? 5;
     if (HISTORIC_TYPES.has(b) && central && levels <= 3) pick(HISTORIC_WALLS, "historic");
-    else if (centreDist <= STALIN_RADIUS && levels >= 3 && levels <= 7 && hh % 3 === 0) set(MAT.WALL_STALIN, "stalin");
+    else if (centreDist <= STALIN_RADIUS && levels >= 3 && levels <= 7 && hh % 3 === 0 && !khrushSlab(geometry, areaM2, levels)) set(MAT.WALL_STALIN, "stalin");
     else if (levels >= 7 || hm >= 20) set(MAT.WALL_PANEL, "panel");
     else set(MAT.WALL_KHRUSH, "khrush");
   } else if (HISTORIC_TYPES.has(b) && central && (lv ?? 2) <= 3 && areaM2 < 900) {

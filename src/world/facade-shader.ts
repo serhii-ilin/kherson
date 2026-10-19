@@ -117,12 +117,22 @@ vec3 fMicro( vec3 c, float id, vec2 p, float hy, float px, float seed, float gf 
     c *= 1.0 + f * 0.10 * ( bt - 0.5 );
     c = mix( c, c * 0.80 + 0.03, f * ( 1.0 - inB ) * 0.8 );
   } else if ( id > 24.5 && id < 25.5 ) {
-    // Khrushchevka white/grey panel joints: horizontal courses at each storey and 3 m panel bays.
+    // Khrushchevka: pebble-dash ("камешки") panels. Stones of ~1.5 cm, light, dark and rusty, in a grey
+    // render; 5 cm clusters keep the texture visible at 10-30 m; faint joints at each storey and 3.2 m.
     vec2 pq = vec2( p.x + seed * 2.0, p.y );
-    float seam = max( fLine( pq.x, 3.0, 0.035, px ), fLine( pq.y, 2.8, 0.035, px ) );
+    vec2 sc = floor( pq * 65.0 );
+    float s1 = gHash( sc + seed );
+    float s2 = gHash( sc * 1.31 + 7.7 );
+    float fs = k * fFade( px, 0.008, 0.05 );
+    float stone = ( step( 0.80, s1 ) * 0.16 - step( s1, 0.16 ) * 0.17 ) * fs;
+    c *= 1.0 + stone;
+    c = mix( c, c * vec3( 1.10, 0.92, 0.78 ), step( 0.93, s2 ) * fs * 0.6 );
+    float cl = gVNoise( pq * 20.0 ) * 0.6 + gVNoise( pq * 7.0 ) * 0.4;
+    c *= 1.0 + 0.11 * k * fFade( px, 0.03, 0.25 ) * ( cl - 0.5 );
+    float seam = max( fLine( pq.x, 3.2, 0.03, px ), fLine( pq.y, 3.0, 0.03, px ) );
     float f = k * fFade( px, 0.12, 0.7 );
-    c *= 1.0 - 0.14 * f * seam;
-    c *= 1.0 + 0.035 * f * ( gHash( floor( vec2( pq.x / 3.0, pq.y / 2.8 ) ) + seed ) - 0.5 );
+    c *= 1.0 - 0.10 * f * seam;
+    c *= 1.0 + 0.04 * f * ( gHash( floor( vec2( pq.x / 3.2, pq.y / 3.0 ) ) + seed ) - 0.5 );
   } else if ( id > 25.5 && id < 26.5 ) {
     // panel seams: 3.0 x 1.4 m panels, dark joints, faint per-panel tone
     vec2 pq = vec2( p.x + seed * 3.0, p.y - 0.0 );
@@ -181,7 +191,7 @@ vec4 fStyle( float m ) {
   if ( m < 22.5 ) return vec4( 5.0, 6.0, 0.80, 0.16 );            // industrial: high strip windows
   if ( m < 23.5 ) return vec4( 6.0, 5.0, 0.16, 0.62 );            // church: tall narrow
   if ( m < 24.5 ) return vec4( 3.6, 3.6, 0.46, 0.48 );            // public
-  if ( m < 25.5 ) return vec4( 2.8, 2.9, 0.38, 0.40 );            // khrushchevka
+  if ( m < 25.5 ) return vec4( 3.0, 4.0, 0.42, 0.50 );            // khrushchevka: 1.5 m windows, 2 m piers
   if ( m < 26.5 ) return vec4( 2.8, 3.0, 0.40, 0.42 );            // panel
   if ( m < 27.5 ) return vec4( 3.4, 3.4, 0.44, 0.56 );            // stalin
   if ( m < 28.5 ) return vec4( 3.6, 3.0, 1.00, 0.55 );            // modern: glass bands
@@ -329,7 +339,10 @@ vec4 fStyle( float m ) {
         // thin white frame around each ordinary pane, mullions on shop fronts
         float fw = max( fwidth( fu ), fwidth( fyb ) ) + 1e-4;
         float inner = fBox( fu, 0.07, 0.93, fw ) * fBox( fyb, 0.07, 0.93, fw );
-        vec3 frame = shopGlass ? vec3( 0.20, 0.22, 0.24 ) : vec3( 0.90, 0.89, 0.86 );
+        // most frames are white PVC; some old painted wood: blue or brown (owner's photos)
+        float fh = gHash( floor( bcell.xz / 2.0 ) * 0.73 + bcell.y * 2.1 + 5.0 );
+        vec3 frame = shopGlass ? vec3( 0.20, 0.22, 0.24 )
+          : fh < 0.12 ? vec3( 0.30, 0.48, 0.70 ) : fh < 0.22 ? vec3( 0.48, 0.36, 0.25 ) : vec3( 0.90, 0.89, 0.86 );
         float frameAmt = ( 1.0 - inner ) * bdetail * ( shopGlass ? 0.7 : 0.85 );
         bcol = mix( glass, frame, frameAmt );
         bcol = mix( glass * 0.9, bcol, bdetail );

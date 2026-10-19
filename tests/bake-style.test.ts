@@ -23,6 +23,11 @@ describe('buildingSpec facade styles', () => {
     }
     expect(stalin).toBeGreaterThan(50);
     expect(stalin).toBeLessThan(200);
+    // ...but never a typical khrushchevka slab (12 x 66 m, five storeys), e.g. Filatova 28
+    const slab = { ring: [[0, 0], [33, 0], [33, 6], [0, 6]] as [number, number][] }; // cell units (2 m)
+    for (let id = 0; id < 300; id++) {
+      expect(buildingSpec(id, { building: 'apartments', 'building:levels': '5' }, 1000, 790, slab).wall).toBe(MAT.WALL_KHRUSH);
+    }
   });
 
   it('low central buildings are historic pastels; far ones are plain houses', () => {
