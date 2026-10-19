@@ -72,6 +72,7 @@ A change is done only when all of these hold:
 3. **Visual changes are seen, not assumed:** check them in a real browser render with screenshots from known URL poses. Animations are confirmed by comparing two frames. Phone layout is checked with device emulation.
 4. **CI is the gate:** the deploy workflow passing on `main` is the release gate. Report a failing deploy and fix it promptly; never bypass it.
 5. **Honest results:** claims about results (performance, counts, "it works") must come from measurements in this session, not expectations.
+6. **Reference photos are evidence:** photos the owner supplies are kept under `evidence/photos/` and catalogued in [docs/EVIDENCE.md](docs/EVIDENCE.md) with what each one shows, what it validates (map geometry, models, colours) and a URL pose to re-shoot from. Any later change to the place a photo shows is re-checked against it with a screenshot from that pose, and the catalogue records the result.
 
 ## Article 7: Privacy and respect
 
@@ -79,6 +80,7 @@ A change is done only when all of these hold:
 2. **Identifying requests:** requests to third-party services (Overpass) identify the project by name and repository URL only, never a personal email or other personal data.
 3. **No sound before a gesture:** audio never starts without a user gesture, and it can always be muted with one tap.
 4. **Tone:** the city is presented respectfully, with no war imagery or sensational content added beyond what the map data contains.
+5. **Evidence stays private:** the repository and the site are public, so reference photos are never committed, deployed or uploaded anywhere. `evidence/photos/` is git-ignored and outside `public/`; only the text catalogue (descriptions, SHA-256 hashes, poses) is committed.
 
 ## Article 8: Licensing and attribution
 
