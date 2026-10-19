@@ -165,25 +165,26 @@ export function createFilatovaCourtyard(bbox: Bbox): Landmark {
       const b = new LandmarkMeshBuilder();
       const hi = ctx.quality === 'high', segs = hi ? 12 : 8;
       const gy = (a: number, c: number): number => { const p = at(f, a, c, 0); return ctx.groundAt(p.x, p.z) ?? ctx.groundAt(mx, mz) ?? 0; };
-      // half-buried tyre arcs: one row on the grass strip by the house, one behind the climbing arch
+      // the service drive runs along the wall at c ≈ -6.5; the beds sit between it and the wall, the rest out in the yard
+      // half-buried tyre arcs: one row along the drive's yard edge, one behind the climbing arch
       const row1 = [TYRE_GREEN, TYRE_YELLOW, TYRE_PINK, TYRE_TEAL, TYRE_GREEN, TYRE_PINK];
-      row1.forEach((col, i) => { const a = -8 + i * 0.75; addTyreArch(b, f, a, -5.5, gy(a, -5.5), col, col, hi ? 8 : 6); });
+      row1.forEach((col, i) => { const a = -8 + i * 0.75; addTyreArch(b, f, a, -10, gy(a, -10), col, col, hi ? 8 : 6); });
       const row2 = [TYRE_PINK, TYRE_TEAL, TYRE_GREEN, TYRE_YELLOW, TYRE_PINK, TYRE_BLUE, TYRE_GREEN];
-      row2.forEach((col, i) => { const a = -10 + i * 0.75; addTyreArch(b, f, a, -14, gy(a, -14), col, col, hi ? 8 : 6); });
+      row2.forEach((col, i) => { const a = -10 + i * 0.75; addTyreArch(b, f, a, -19, gy(a, -19), col, col, hi ? 8 : 6); });
       // flat tyre beds along the far verge
       ([[2, TYRE_BLUE], [4.6, TYRE_BLUE], [7.2, TYRE_RED], [9.8, TYRE_BLUE], [12.4, TYRE_RED]] as const).forEach(([a, col]) => {
-        const p = at(f, a, -3, 0); addFlatTyre(b, p.x, p.z, gy(a, -3), 0.46, 0.1, col, col, segs);
+        const p = at(f, a, -2.5, 0); addFlatTyre(b, p.x, p.z, gy(a, -2.5), 0.46, 0.1, col, col, segs);
       });
       // stacked planters near the shelter, and one big grey tractor tyre in the foreground
-      ([[8.5, -8.5, TYRE_BLUE, TYRE_PURPLE], [11, -10, TYRE_TEAL, TYRE_PINK], [13.5, -8.8, TYRE_BLUE, TYRE_GREY], [15.8, -11, TYRE_TEAL, TYRE_RED]] as const).forEach(([a, c, lo, up]) => {
+      ([[8.5, -12.5, TYRE_BLUE, TYRE_PURPLE], [11, -14, TYRE_TEAL, TYRE_PINK], [13.5, -12.8, TYRE_BLUE, TYRE_GREY], [15.8, -15, TYRE_TEAL, TYRE_RED]] as const).forEach(([a, c, lo, up]) => {
         const p = at(f, a, c, 0); addTyrePlanter(b, p.x, p.z, gy(a, c), lo, up, false, segs);
       });
-      const big = at(f, -12, -9, 0);
-      addTyrePlanter(b, big.x, big.z, gy(-12, -9), TYRE_GREY, TYRE_GREY, true, segs);
-      addClimbingArch(b, f, -3.5, -10.5, gy(-3.5, -10.5), ctx.quality);
-      addBoardRide(b, f, -9.5, -7.5, gy(-9.5, -7.5), segs);
-      addShelter(b, f, 4.5, -15, gy(4.5, -15));
-      addPipeBench(b, f, -1, -8, gy(-1, -8));
+      const big = at(f, -12, -13, 0);
+      addTyrePlanter(b, big.x, big.z, gy(-12, -13), TYRE_GREY, TYRE_GREY, true, segs);
+      addClimbingArch(b, f, -1, -14, gy(-1, -14), ctx.quality);
+      addBoardRide(b, f, -9.5, -14.5, gy(-9.5, -14.5), segs);
+      addShelter(b, f, 4.5, -18, gy(4.5, -18));
+      addPipeBench(b, f, 3, -12, gy(3, -12));
       return buildResult([b.finish('opaque')], [], undefined, { pavedAreaM2: 0, lamps: 0, benches: 2 });
     },
   };
