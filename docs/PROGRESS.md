@@ -2,11 +2,11 @@
 
 The single source of truth for what is done, in progress and still open. **Update this file in the same commit as the work it describes**: tick tasks off, add new issues as they are found, and move fixed issues to **Done** with the commit.
 
-Plan details are in [REALISM_PLAN.md](REALISM_PLAN.md); rules and budgets in [CONSTITUTION.md](../CONSTITUTION.md).
+Plan details are in [REALISM_PLAN.md](REALISM_PLAN.md); rules and budgets in [CONSTITUTION.md](../CONSTITUTION.md); the owner's reference photos (private, git-ignored) are catalogued in [EVIDENCE.md](EVIDENCE.md).
 
 Status: ✅ done · 🟡 in progress · ⬜ not started · ⛔ blocked (waiting on the owner)
 
-_Last updated: 2026-10-18_
+_Last updated: 2026-10-19_
 
 ## Phases
 
@@ -66,6 +66,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Owner's 12 embankment photos kept as private evidence in git-ignored `evidence/photos/ushakova-embankment/`, catalogued in [EVIDENCE.md](EVIDENCE.md) with what each shows and validates, a re-shoot pose and SHA-256; rule added as CONSTITUTION 6.6 / 7.5 (`9de7cb5`) | `HASH` |
 | Stale pages after a deploy (GitHub Pages caches everything for 10 min and its headers can't be changed): each build gets an id (git sha), written to `version.json`; all world data is fetched with `?v=<id>`, so a new deploy never mixes with cached tiles. On start a newer `version.json` reopens the page once under `?v=<new id>` (a URL the cache has not seen); later checks (every 10 min, and when the tab comes back) show a «Є нова версія — оновити» button instead of interrupting | `5210101` |
 | Ushakova embankment rebuilt from the owner's photos: paving over the whole OSM pedestrian area (10.9k m², edge tiles split to follow the outline) with a red-brown band and coping along the quay wall; blue S-shaped railing posts with white tube rails along the 380 m river edge and the cannon bastion (solid for the walker); 47 black shepherd's-crook lamps with bell caps and globes (only the globes glow); wooden benches with cast-iron ends and bins along the park edge; white-kerbed rose beds down the middle; the Frigate monument on its mapped pedestal (red-brown relief, tapering granite pylon, bronze three-master); the cannon; the axial fountain on its OSM outline; a floating landing with gangway, canopy and three moored yachts; five yellow/green portal cranes on the port quay (separate `port-cranes` landmark). Paving uses a new `paving` mesh kind with a stronger depth bias so the fine ground no longer shows through. The old guessed 45 m deck and avenue plaza are gone. 129k + 2.7k triangles, 4 + 1 draw calls | `666e4e5` |
 | Fences and storeys: OSM barrier=fence/wall baked and drawn; 2.2 m Soviet concrete panel fences (PO-2) around industrial land with gaps at crossing roads; storeys for untagged buildings from the footprint (khrushchevka slabs → 5, point towers → 9, small houses 1–2), calibrated against the city's 2021 housing stock (`npm run height-report`); brick facade for building:material=brick; khrushchevka facade with panel seams, stair windows, balcony stacks. Filatova: 5-storey 51 → 91, 9-storey 9 → 18. Baked world 20 MB | `119c68f` |

@@ -194,7 +194,8 @@ promenade over invented detail.
 
 ## Photo pass (2026-10-18)
 
-The owner supplied twelve photos of the pre-war embankment. They override the
+The owner supplied twelve photos of the pre-war embankment (private evidence, catalogued in
+[EVIDENCE.md](../EVIDENCE.md)). They override the
 guesses above where they disagree:
 
 - The promenade is the OSM pedestrian multipolygon 2727475 (outer way

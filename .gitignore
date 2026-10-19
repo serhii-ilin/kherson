@@ -4,3 +4,6 @@ data/osm/*.json
 .DS_Store
 data/osm/tiles/
 public/world/
+
+# owner reference photos: private evidence, never committed (CONSTITUTION 7.5)
+evidence/photos/
