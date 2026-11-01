@@ -22,7 +22,9 @@ This is a short pre-24-Feb-2022-informed reference for the procedural mix. The s
 | мартин чорноголовий / жовтоногий / каспійський | black-headed / yellow-legged / Caspian gull | *Chroicocephalus ridibundus* / *Larus michahellis* / *Larus cachinnans* | Dnipro | 2 | day |
 | серпокрилець чорний | common swift | *Apus apus* | built-up sky, river corridor | 3 | day, loudest evening |
 
-The baseline weights deliberately make sparrows and pigeons dominant in streets, shift to tits/blackbirds/chaffinches/oriole/nightingale in trees, and turn gulls/swallow/wagtail on within about 150 m of water. Crows, rooks and gulls are rendered quieter and less frequent. All voices remain synthesised; there are no recordings or sample files.
+The baseline weights deliberately make sparrows and pigeons dominant in streets, shift to tits/blackbirds/chaffinches/oriole/nightingale in trees, and turn gulls/swallow/wagtail on within about 150 m of water. Crows, rooks and gulls are rendered quieter and less frequent.
+
+Common swift, feral pigeon, collared dove, house sparrow, great tit, blackbird and starling play CC0 or public-domain recordings when those files have loaded. The other species in this table stay synthesised, and a recorded species falls back to its synthetic voice if the files fail. Wind and water are still synthesised. Recording sources are in [AUDIO_CREDITS.md](AUDIO_CREDITS.md).
 
 ## Sources
 

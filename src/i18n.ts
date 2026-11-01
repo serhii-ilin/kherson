@@ -21,6 +21,8 @@ const STRINGS = {
     search: 'Пошук місць і вулиць…',
     formerly: 'раніше',
     attribution: 'Дані мапи © учасники OpenStreetMap',
+    attributionBirds: 'Записи птахів: CC0',
+    attributionBirdsTip: 'Серпокрильці, голуби, горлиці й співочі птахи: записи CC0 та суспільного надбання (xeno-canto, Wikimedia Commons, Freesound).',
     north: 'Пн',
     failed: 'Не вдалося запустити',
     switchTo: 'Switch to English',
@@ -50,6 +52,8 @@ const STRINGS = {
     search: 'Search places and streets…',
     formerly: 'formerly',
     attribution: 'Map data © OpenStreetMap contributors',
+    attributionBirds: 'Bird recordings: CC0',
+    attributionBirdsTip: 'Swifts, pigeons, collared doves and songbirds: CC0 and public-domain recordings (xeno-canto, Wikimedia Commons, Freesound).',
     north: 'N',
     failed: 'Failed to start',
     switchTo: 'Перемкнути на українську',
@@ -317,18 +321,25 @@ export function createShareButton(parent: HTMLElement, getUrl: () => string): HT
   return btn;
 }
 
-/** The ODbL credit for the map data (Constitution 8.1), linked to the OSM copyright page. */
-export function createAttribution(parent: HTMLElement): HTMLAnchorElement {
+/** The ODbL credit for the map data (Constitution 8.1), plus provenance for the CC0 bird recordings. */
+export function createAttribution(parent: HTMLElement): HTMLDivElement {
+  const box = document.createElement('div');
+  box.className = 'vk-attribution';
   const a = document.createElement('a');
-  a.className = 'vk-attribution';
+  a.className = 'vk-attribution-link';
   a.href = 'https://www.openstreetmap.org/copyright';
   a.target = '_blank';
   a.rel = 'noopener';
+  const birds = document.createElement('span');
+  birds.className = 'vk-attribution-birds';
   const render = (): void => {
     a.textContent = t('attribution');
+    birds.textContent = t('attributionBirds');
+    birds.title = t('attributionBirdsTip');
   };
   render();
   onLangChange(render);
-  parent.appendChild(a);
-  return a;
+  box.append(a, birds);
+  parent.appendChild(box);
+  return box;
 }
