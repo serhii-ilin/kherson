@@ -26,7 +26,12 @@ _Last updated: 2026-11-01_
 | Pre-war restoration on the full OSM snapshot (bridge corridor, restoration table) | ✅ | `e446c4e` |
 | Mesh prototype: extruded buildings for the centre, behind `?renderer=mesh` | ✅ | `738c88f` |
 | Whole-city mid meshes, on by default; props and signs stay | ✅ | `3f6017f` |
-| Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | 🟡 | this branch |
+| Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | ✅ | `8fb1ee8` |
+| Hotel «Фрегат» hero glTF (Meshopt) replaces the generic extrusion for way 116810729 | 🟡 | this branch |
+
+## Hotel «Фрегат»
+
+OSM way 116810729 is no longer the generic extrusion. A Meshopt glTF (`public/landmarks/hotel-fregat.glb`, 2,372 triangles, 61 KB) draws the 15-storey slab, yellow balcony bands and the stair tower with a sail crown. The spec other heroes can copy is [hotel-fregat.md](landmarks/hotel-fregat.md). The photo is the owner's private `06_hotel-fregat.png` (2026-10-18, SHA `9f9556fefb72f4a9`); the glTF uses the palette, not the photo. Headless Chrome, SwiftShader, 1280×720, High, fly pose `x=10890&z=10060&y=40&yaw=32&pitch=-12`: before 551,700 triangles and 226 draws, after 626,782 triangles and 234 draws. The frame interval is about 1 s and is not a laptop frame time.
 
 ## Realistic trees and bushes
 
@@ -146,7 +151,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 28 | P3 | The Ushakova embankment is not in the Places menu | add it to the bake's landmark list and re-bake `public/world` |
 | 29 | P3 | Tree rows between Freedom Square and the administration came from OSM `tree_row` ways drawn after 2022 | the 2022-01-01 snapshot has 14 `tree_row` ways, none with id > 1e9 (was 798, of which 789 had id > 1e9). Owner to confirm the square in the browser |
 | 30 | P3 | Thin grass slivers remain at the edges of Freedom Square's paving; its pavers are in the plain opaque mesh, so the fine ground (polygonOffset −1/−4) can also show through them at grazing angles, as it did on the embankment | clip edge pavers to the polygon; move the pavers to the `paving` mesh kind |
-| 32 | P3 | Hotel «Фрегат» (owner's photo) still has the generic tower facade: no sail-shaped crown on the stair tower, no yellow balcony bands | landmark-style facade override for way 116810729 |
+| 32 | P3 | Hotel «Фрегат» hero is a geometric reading of photo 06 (yellow bands, sail crown). The owner has not compared it with the photo in a browser yet | [hotel-fregat.md](landmarks/hotel-fregat.md) |
 | 33 | P3 | Embankment pavers are 1.5 m slabs; the photos show small grey-beige cobbles (a 0.5 m grid would be ~3× the 129k triangles) | texture or shader pattern instead of geometry |
 | 34 | P3 | The stacked-timber monument from the owner's photos is not modelled: its spot on the embankment is not mapped | owner to point at it on the map |
 | 31 | P3 | Storeys are still guessed for ~70% of buildings (no open per-building height source covers Kherson, see [HEIGHT_SOURCES.md](HEIGHT_SOURCES.md)); short blocks (< 35 m) stay 3 storeys | add building:levels in OSM for known blocks; re-bake |
