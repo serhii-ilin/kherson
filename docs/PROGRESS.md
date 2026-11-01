@@ -26,7 +26,24 @@ _Last updated: 2026-11-01_
 | Pre-war restoration on the full OSM snapshot (bridge corridor, restoration table) | ✅ | `e446c4e` |
 | Mesh prototype: extruded buildings for the centre, behind `?renderer=mesh` | ✅ | `738c88f` |
 | Whole-city mid meshes, on by default; props and signs stay | ✅ | `3f6017f` |
-| Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | 🟡 | this branch |
+| Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | ✅ | `8fb1ee8` |
+| Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
+
+## Near crowns
+
+The dark green block in the corner of the street shot was not the 0.2 m voxel crown. The default path already built leaf cards. The near model was three quads the size of the whole crown, so standing next to a tree showed one flat face.
+
+The near model (inside 40 m, 25 m on a phone) is now many overlapping cards. Each card is smaller than the tree, and its normals point outward from the crown so the mass shades instead of reading as one plane. From 70 m outward the mid model uses a few crown-sized planes plus a canopy, which is what keeps a row of trees solid at street distance. The far slot is still a crossed billboard and a canopy. `?renderer=voxel` is unchanged and is the only path that builds micro-voxel crowns.
+
+Heaviest variant after the change, triangles: chestnut near 636 (cap 6,000), 70 m 298 (cap 1,500), mid 76 (cap 400), far 14 (cap 24). Headless Chrome, SwiftShader, 1280×720, High. The frame interval is about 2 s and is not a laptop frame time.
+
+| Pose | Before | After |
+|---|---|---|
+| Street `x=10270&z=8850&yaw=-75&pitch=4` | 528,997 tris, 196 draws, vegetation 133,036 tris | 653,861 tris, 191 draws, vegetation 204,732 tris |
+| Aerial `mode=fly&x=10340&z=9000&y=90&yaw=-15&pitch=-32` | 548,020 tris, 206 draws, vegetation 158,978 tris | 700,268 tris, 206 draws, vegetation 235,102 tris |
+| Under the plane tree at 10276.5, 8858.5, looking up (`pitch=58`) | 467,224 tris, one flat crown | 627,980 tris, 188 draws, a shaded crown |
+
+Same instance counts (9,283 on the street, 11,448 in the air, 9,485 under the tree). Draws stay near 190.
 
 ## Realistic trees and bushes
 
