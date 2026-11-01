@@ -23,6 +23,8 @@ Every push to `main` (or a manual **Run workflow**) runs:
 
 A full run takes about 30–60 s. The site updates as soon as the deploy job turns green; a browser hard refresh may be needed.
 
+Pull requests do not deploy. They run the same test, bake and build steps in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). A red check on the PR is the same gate as a red deploy, without publishing the site.
+
 Watch a run from the terminal:
 
 ```bash

@@ -23,10 +23,68 @@ _Last updated: 2026-11-01_
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
 | Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps, phone 60–90 fps) | `418796d` |
 | Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | `efeb49b` |
+| Pre-war restoration on the full OSM snapshot (bridge corridor, restoration table) | ✅ | `e446c4e` |
+| Mesh prototype: `?renderer=mesh` extruded buildings for the centre (voxel path kept) | 🟡 first neighbourhood, rebased onto the restoration | this branch |
+
+## Mesh prototype (2026-11-01)
+
+The centre box below is phase 0. The owner direction (2026-11-01) is that realistic meshes cover the whole city. The migration, the budgets, and the PR that deletes the voxel buildings are in [ADR 0001](adr/0001-rendering-architecture.md). This pull request does not widen the box. It is rebased onto main after PR #2 (the restoration pass) merged. Spawn is still 10293, 8817, so the box in metres did not move.
+
+`?renderer=mesh` extrudes OSM footprints from the existing `v_*.bin` tiles for one neighbourhood: Freedom Square and Ushakova / Nezalezhnosti avenue down to the embankment, world box **x 9984–11264, z 8320–10496** (about 1.3 × 2.2 km, regions rx 19–21 and rz 16–20). The voxel path is unchanged and remains the default. Ground, streets, vegetation, water, birds, audio and UI are the same. In that box the 1 m block tier (carved voxel buildings, shop signs, street props) is left off so buildings are not drawn twice; landmark lamps on the square stay. Walk collision is still the voxel columns. The outer 96 m of the box keeps its voxel buildings so a footprint is not cut in half. Meshes are built in a worker and instanced in one `BatchedMesh`; a chunk is meshed once the coarse region it needs is loaded.
+
+Materials are procedural (no new texture files): tiling albedo, roughness and a window grid from `building:levels` (or the bake's storey heuristic). Flat roofs get a parapet; gable, hip, pyramid, skillion and dome follow the tile's `roof:shape`, with untagged houses gabled.
+
+### Geometry (full neighbourhood, no WebGL)
+
+`node --experimental-strip-types tools/mesh-report.ts` after `npm run bake`, ground height fixed so the count is the mesh not the terrain:
+
+| | |
+|---|---|
+| Buildings | 863 |
+| Chunks with a mesh | 402 of 680 |
+| Triangles | 34,501 |
+| GPU buffers | 5.12 MB |
+| Vector tiles read | 35 files, 0.26 MB |
+| Baked world | 22.1 MB apparent (22,076,877 bytes) |
+
+City-wide the restored bake has 10,956 buildings (was 10,118 before the restoration). The centre gained 78 footprints. Triangles per building stay at 40.
+
+The headless Chrome scene counts further down were taken on the pre-restoration bake and were not re-run after the rebase. They are not the centre-box measurement.
+
+### Same poses, headless Chrome (SwiftShader, 1280×720, `quality=high`, pre-restoration bake)
+
+`renderer.info` after the scene settled. Frame interval is the wall-clock gap between `requestAnimationFrame` callbacks. This Chrome does not vsync, and `gl.finish` returns before the GPU process, so the interval is a software-rasteriser figure, not a laptop frame time. The owner's 2026-10-18 MacBook Air measurement of the voxel path (60 fps) still stands. Samples are short (one to two gaps) because the software rasteriser is about one frame a second.
+
+Freedom Square, street (`x=10270&z=8850&yaw=-75&pitch=4`):
+
+| | Voxel | Mesh |
+|---|---|---|
+| Scene triangles | 1,120,506 | 982,870 |
+| Draw calls | 210 | 200 |
+| Block triangles | 144,994 | 0 |
+| Mesh triangles / GPU | — | 17,169 / 2.55 MB |
+| rAF interval | ~1.4 s | ~2.5 s (one gap) |
+
+Oblique, above the administration roof (`mode=fly&x=10315&z=8895&y=24&yaw=-55&pitch=-16`):
+
+| | Voxel | Mesh |
+|---|---|---|
+| Scene triangles | 1,191,210 | 1,034,627 |
+| Draw calls | 219 | 198 |
+
+Both poses stay inside the constitution caps (about 2.5M triangles and 400 draws on desktop). The mesh path is fewer triangles and fewer draws because the 1 m blocks are not built. Streamed world bytes at the pose were about 5 MB encoded (dev server, not gzip); the mesh reads the vector tiles the fine ground already uses and adds no bake files.
+
+### Next
+
+- Hero landmarks as photo-based glTF (Meshopt/KTX2), starting with Hotel «Фрегат» way 116810729.
+- Freeze a pre-war OSM extract around 2022-02-01 and keep it in a GitHub Release, with the committed gzip as the small cache.
+- Bring street props and shop signs back in the mesh neighbourhood (they are generated with the block tier today).
+- Re-measure on a laptop before extending the meshes past this neighbourhood, and amend Article 4 only if a real device exceeds a budget.
 
 ## Open tasks
 
 ### Next
+- ⬜ Hero landmarks as photo-based glTF, starting with Hotel «Фрегат» (way 116810729). The centre's generic buildings can be compared with `?renderer=mesh`.
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ✅ Landmark detail layer, first pass (see Done).

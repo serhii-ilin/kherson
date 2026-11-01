@@ -28,6 +28,8 @@ import { createLandmarks } from './landmarks/index.ts';
 import { LandmarkLayer } from './landmarks/layer.ts';
 import { LandmarkPhysics } from './landmarks/physics.ts';
 import { getVegetationExclusions } from './landmarks/exclusions.ts';
+import { chunkInNeighbourhood } from './mesh/bounds.ts';
+import { MeshStreamer } from './mesh/streamer.ts';
 
 const SKY = 0x9cc8ef;
 const SURROUNDING_RADII = [12, 30, 60, 100, 150] as const;
@@ -211,12 +213,21 @@ async function start(): Promise<void> {
   // Block tier (1 m buildings and bridges within 250 m, 100 m on phones): High quality; ?blocks=0|1 overrides.
   const blocksParam = q.get('blocks');
   const blocksOn = blocksParam === '0' ? false : blocksParam === '1' ? true : quality === 'high';
+  // Extruded OSM buildings for the city centre. The voxel path stays; ?renderer=mesh swaps it in.
+  const meshOn = q.get('renderer') === 'mesh' && manifest.vectors === true;
   const fine = fineOn
     ? new FineStreamer(scene, streamer, manifest, {
       radius: isMobile ? 70 : 150,
       blockRadius: blocksOn ? (isMobile ? 100 : 250) : 0,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
       signs: blocksOn ? new SignLayer(scene) : undefined,
+      blockExclude: meshOn ? chunkInNeighbourhood : undefined,
+    })
+    : null;
+  const mesh = meshOn
+    ? new MeshStreamer(scene, streamer, manifest, {
+      castShadow: shadowsOn,
+      workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
     })
     : null;
   const basePhysics = fine !== null ? fine.world : streamer;
@@ -304,6 +315,7 @@ async function start(): Promise<void> {
     set('yaw', r((player.yaw * 180) / Math.PI, 1));
     set('pitch', r((player.pitch * 180) / Math.PI, 1));
     set('time', formatTime(timeHours));
+    if (q.get('renderer') === 'mesh') set('renderer', 'mesh');
     return u.toString();
   });
   // Browsers only allow audio after a user gesture.
@@ -345,7 +357,10 @@ async function start(): Promise<void> {
     audioScene.builtUp = samples > 0 ? built / samples : 0.5;
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, landmarks: landmarkLayer, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
+  if (import.meta.env.DEV) Object.assign(window, { __vk: { shadowProbe, player, streamer, fine, mesh, landmarks: landmarkLayer, input, birds, fish, ambience, vegetation, renderer, scene, camera, minimap } });
+  const probeOn = q.get('probe') === '1';
+  const probeStamps: number[] = [];
+  let probeReported = false;
 
   let overview: Overview | null = null;
   fetch(versioned(`${base}world/overview.bin`))
@@ -393,6 +408,7 @@ async function start(): Promise<void> {
     }
     streamer.update(camera.position.x, camera.position.z);
     fine?.update(camera.position.x, camera.position.z, agl);
+    mesh?.update(camera.position.x, camera.position.z);
     landmarkLayer?.update(camera.position.x, camera.position.z);
     vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
@@ -427,6 +443,57 @@ async function start(): Promise<void> {
     ambience.update(dt, audioScene);
     renderer.render(scene, camera);
     rendered++;
+    if (probeOn && !probeReported) {
+      // Wall-clock gaps between frames after the world has settled. Headless Chrome does not vsync and
+      // gl.finish returns before the GPU process, so this interval is the one the HUD's fps is based on.
+      const meshReady = mesh === null || mesh.isSettled;
+      const settled = rendered > 8 && streamer.inflightJobs === 0 && (fine === null || fine.inflightJobs === 0) && meshReady;
+      if (settled) probeStamps.push(now);
+      const elapsed = probeStamps.length > 1 ? now - probeStamps[0]! : 0;
+      if (probeStamps.length >= 3 && elapsed >= 1500) {
+        probeReported = true;
+        const gaps: number[] = [];
+        for (let i = 1; i < probeStamps.length; i++) gaps.push(probeStamps[i]! - probeStamps[i - 1]!);
+        const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+        const sorted = gaps.slice().sort((a, b) => a - b);
+        const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? mean;
+        const resources = performance.getEntriesByType('resource');
+        let encoded = 0;
+        let transfer = 0;
+        for (const r of resources) {
+          if (!r.name.includes('/world/')) continue;
+          const t = r as PerformanceResourceTiming;
+          encoded += t.encodedBodySize || 0;
+          transfer += t.transferSize || 0;
+        }
+        const info = renderer.info;
+        const payload = {
+          label: 'headless-swiftshader',
+          method: 'raf-wall-clock',
+          renderer: mesh !== null ? 'mesh' : 'voxel',
+          search: location.search,
+          frames: gaps.length,
+          frameMs: Number(mean.toFixed(2)),
+          frameMsP95: Number(p95.toFixed(2)),
+          fps: Math.round(1000 / mean),
+          triangles: info.render.triangles,
+          calls: info.render.calls,
+          geometries: info.memory.geometries,
+          textures: info.memory.textures,
+          coarseTris: streamer.triangles,
+          fineTris: fine?.triangles ?? 0,
+          blockTris: fine?.blockTriangles ?? 0,
+          meshChunks: mesh?.chunkCount ?? 0,
+          meshTris: mesh?.triangles ?? 0,
+          meshGpuBytes: mesh?.gpuBytes ?? 0,
+          meshTileBytes: mesh?.downloadedBytes ?? 0,
+          worldEncodedBytes: encoded,
+          worldTransferBytes: transfer,
+        };
+        Object.assign(window, { __probe: payload });
+        console.log(`VK_PROBE ${JSON.stringify(payload)}`);
+      }
+    }
     minimap.update(camera.position.x, camera.position.z, player.yaw);
 
     frames++;
@@ -451,7 +518,10 @@ async function start(): Promise<void> {
                 (fine.blockRadius > 0
                   ? `blocks ${fine.blockChunks} chunks · ${fine.blockJobs} jobs · ${(fine.blockTriangles / 1000).toFixed(1)}k tris\n`
                   : 'blocks off\n')
-              : 'fine off\n')
+              : 'fine off\n') +
+            (mesh !== null
+              ? `mesh ${mesh.chunkCount} chunks · ${mesh.inflightJobs} jobs · ${(mesh.triangles / 1000).toFixed(1)}k tris · ${(mesh.gpuBytes / 1e6).toFixed(2)} MB\n`
+              : '')
           : '') +
         (isMobile ? t('hintTouch') : t('hintDesktop'));
     }

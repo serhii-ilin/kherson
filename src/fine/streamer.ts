@@ -21,6 +21,11 @@ export interface FineStreamerOptions {
   workers?: number;
   /** Shop sign renderer; signs follow the installed block chunks. */
   signs?: SignLayer;
+  /**
+   * Chunks left out of the block tier. The mesh prototype uses this so the centre is not drawn twice
+   * (1 m voxels and extruded meshes). Ground jobs are unaffected.
+   */
+  blockExclude?: (gcx: number, gcz: number) => boolean;
 }
 
 const HYSTERESIS = 64;
@@ -139,6 +144,7 @@ export class FineStreamer {
   readonly radius: number;
   readonly blockRadius: number;
   private readonly signLayer: SignLayer | null;
+  private readonly blockExclude: ((gcx: number, gcz: number) => boolean) | null;
 
   private readonly scene: THREE.Scene;
   private readonly coarse: WorldStreamer;
@@ -200,6 +206,7 @@ export class FineStreamer {
     this.radius = opts.radius;
     this.blockRadius = opts.blockRadius ?? 0;
     this.signLayer = opts.signs ?? null;
+    this.blockExclude = opts.blockExclude ?? null;
     this.world = new FineWorld(coarse);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     this.chunksX = manifest.regionsX * REGION_CHUNKS;
@@ -404,7 +411,8 @@ export class FineStreamer {
       }
     }
     if (this.blockRadius > 0) {
-      this.bneed = neededChunks(this.camX, this.camZ, this.blockRadius, this.chunksX, this.chunksZ);
+      this.bneed = neededChunks(this.camX, this.camZ, this.blockRadius, this.chunksX, this.chunksZ)
+        .filter((c) => this.blockExclude === null || !this.blockExclude(c.gcx, c.gcz));
       const bkeep = this.blockRadius + HYSTERESIS;
       for (const c of [...this.bchunks.values()]) {
         if (distToChunk(this.camX, this.camZ, c.gcx, c.gcz) > bkeep) {

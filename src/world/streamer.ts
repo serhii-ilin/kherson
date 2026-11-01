@@ -272,6 +272,19 @@ export class WorldStreamer {
   }
 
   /**
+   * Like {@link regionData}, but does not create an entry or touch the LRU. Used by the mesh
+   * prototype's settle check, which would otherwise pin every region it inspected.
+   */
+  peekRegion(rx: number, rz: number): RegionData | null | undefined {
+    if (rx < 0 || rz < 0 || rx >= this.manifest.regionsX || rz >= this.manifest.regionsZ) return undefined;
+    const e = this.regions.get(regionKey(rx, rz));
+    if (e === undefined) return undefined;
+    if (e.state === 'empty') return null;
+    if (e.state !== 'loaded' || e.data === null) return undefined;
+    return e.data;
+  }
+
+  /**
    * Hides (or shows) the ground part of a coarse chunk (its batch instance), so the
    * fine tier can replace it. Chunk coordinates are global.
    */
