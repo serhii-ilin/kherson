@@ -23,7 +23,7 @@ _Last updated: 2026-11-01_
 | Street search: 686 named streets, former names searchable, teleport onto the street facing along it | ✅ | `90e4bed` |
 | Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps, phone 60–90 fps) | `418796d` |
 | Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | `efeb49b` |
-| Mesh prototype: `?renderer=mesh` extruded buildings for the centre (voxel path kept) | 🟡 first neighbourhood | this change |
+| Mesh prototype: `?renderer=mesh` extruded buildings for the centre (voxel path kept) | 🟡 first neighbourhood | `d5d61fb` |
 
 ## Mesh prototype (2026-11-01)
 
