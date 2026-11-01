@@ -57,6 +57,7 @@ The interface is Ukrainian by default, with English available.
 | `lang=uk` / `lang=en` | interface language |
 | `time=HH:MM` | time of day (e.g. `22:30` for night) |
 | `quality=high` / `quality=low` | rendering quality |
+| `renderer=mesh` | city-centre buildings as extruded meshes (the voxel city stays the default) |
 
 Example: `?mode=fly&x=10900&z=9900&y=180&yaw=135&pitch=-22`
 
@@ -126,6 +127,7 @@ CONSTITUTION.md         project principles, budgets and working rules
 - [Constitution](CONSTITUTION.md): principles, performance budgets, code and contribution rules.
 - [Progress](docs/PROGRESS.md): phase status, open tasks and known issues.
 - [Realism plan](docs/REALISM_PLAN.md): roadmap for lighting, facades, streets and 0.2 m near-camera detail.
+- [Requirements](docs/REQUIREMENTS.md): structured requirements (vision, performance, data, realism) and open decisions.
 
 ## Data and attribution
 
