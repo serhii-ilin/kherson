@@ -31,7 +31,7 @@ _Last updated: 2026-11-01_
 
 ## Hotel «Фрегат»
 
-OSM way 116810729 is no longer the generic extrusion. A Meshopt glTF (`public/landmarks/hotel-fregat.glb`, 2,372 triangles, 61 KB) draws the 15-storey slab, yellow balcony bands and the stair tower with a sail crown. The spec other heroes can copy is [hotel-fregat.md](landmarks/hotel-fregat.md). The photo is the owner's private `06_hotel-fregat.png` (2026-10-18, SHA `9f9556fefb72f4a9`); the glTF uses the palette, not the photo. Headless Chrome, SwiftShader, 1280×720, High, fly pose `x=10890&z=10060&y=40&yaw=32&pitch=-12`: before 551,700 triangles and 226 draws, after 626,782 triangles and 234 draws. The frame interval is about 1 s and is not a laptop frame time.
+OSM way 116810729 is no longer the generic extrusion. A Meshopt glTF (`public/landmarks/hotel-fregat.glb`, 2,372 triangles, 61 KB) draws the 15-storey slab, yellow balcony bands and the stair tower with a sail crown. The spec other heroes can copy is [hotel-fregat.md](landmarks/hotel-fregat.md). The photo is the owner's private `06_hotel-fregat.png` (2026-10-18, SHA `9f9556fefb72f4a9`); the glTF uses the palette, not the photo. Headless Chrome, SwiftShader, 1280×720, High, fly pose `x=10890&z=10060&y=40&yaw=32&pitch=-12`: before 551,700 triangles and 226 draws, after 594,558 triangles and 230 draws. The frame interval is about 1 s and is not a laptop frame time.
 
 ## Realistic trees and bushes
 
