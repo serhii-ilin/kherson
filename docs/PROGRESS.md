@@ -35,7 +35,7 @@ The dark green block in the corner of the street shot was not the 0.2 m voxel cr
 
 The near model (inside 40 m, 25 m on a phone) is now many overlapping cards. Each card is smaller than the tree, and its normals point outward from the crown so the mass shades instead of reading as one plane. From 70 m outward the mid model uses a few crown-sized planes plus a canopy, which is what keeps a row of trees solid at street distance. The far slot is still a crossed billboard and a canopy. `?renderer=voxel` is unchanged and is the only path that builds micro-voxel crowns.
 
-Heaviest variant after the change, triangles: chestnut near 636 (cap 6,000), 70 m 298 (cap 1,500), mid  about 80 (cap 400), far 14 (cap 24). Headless Chrome, SwiftShader, 1280×720, High. The frame interval is about 2 s and is not a laptop frame time.
+Heaviest variant after the change, triangles: chestnut near 636 (cap 6,000), 70 m 298 (cap 1,500), mid 76 (cap 400), far 14 (cap 24). Headless Chrome, SwiftShader, 1280×720, High. The frame interval is about 2 s and is not a laptop frame time.
 
 | Pose | Before | After |
 |---|---|---|
