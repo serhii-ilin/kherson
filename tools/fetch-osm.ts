@@ -11,8 +11,9 @@ import {
 
 // The whole bbox in one Overpass query is too heavy for busy public servers,
 // so we fetch it as a grid of tiles (cached on disk, one directory per attic date)
-// and merge by element id. `--geofabrik` / `--pbf` skip the network and build the
-// same JSON from a local .osm.pbf. `--from-release` downloads the frozen release.
+// and merge by element id. The default is the live database, which is the base
+// snapshot. `--geofabrik` / `--pbf` refresh the 2022 reference clip and do not
+// replace that base. `--from-release` downloads the frozen base if Overpass is down.
 const TILES = 4;
 const GEOFABRIK_PBF = "data/osm/upstream/ukraine-220101.osm.pbf";
 
