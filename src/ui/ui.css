@@ -178,21 +178,33 @@
   top: 34px;
 }
 
-/* ODbL map-data credit: always visible, small, bottom-left on desktop. */
+/* ODbL map-data credit: always visible, small, bottom-left on desktop.
+   The second line is provenance for the CC0 bird recordings. */
 .vk-attribution {
   position: fixed;
   left: 10px;
   bottom: 6px;
   z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   padding: 2px 6px;
   border-radius: 6px;
   background: #0000004d;
   color: #ffffffd9;
   font: 11px/1.4 system-ui, sans-serif;
-  text-decoration: none;
 }
-.vk-attribution:hover {
+.vk-attribution-link {
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.vk-attribution-link:hover {
   text-decoration: underline;
+}
+.vk-attribution-birds {
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 /* Touch layout: the bottom corners belong to the joystick and buttons. */
@@ -201,8 +213,9 @@
     left: 50%;
     bottom: 4px;
     transform: translateX(-50%);
+    align-items: center;
     font-size: 10px;
-    white-space: nowrap;
+    text-align: center;
   }
   .vk-minimap-wrap {
     top: 64px;

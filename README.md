@@ -27,7 +27,7 @@ The interface is Ukrainian by default, with English available.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
 - **Share a link**: the 🔗 button copies a URL for your exact spot and view (`x`, `z`, `yaw`, `pitch`, `time`, plus `mode=fly&y=` when flying).
 - **Time of day**: morning, noon, golden evening and a moonlit night with stars, lit windows and glowing street lamps (button next to the language switch, or `?time=HH:MM`).
-- **Ambient sound**, synthesised in real time with WebAudio (no audio files): songbirds, screaming swift fly-bys with Doppler shift, cooing doves, wind and water. There is a mute toggle.
+- **Ambient sound.** Wind and water are synthesised in WebAudio. Common swifts, feral pigeons, collared doves, house sparrows, great tits, blackbirds and starlings use short CC0 / public-domain recordings (mono Opus, with AAC for Safari), loaded after the first click or tap. Other species stay synthesised. Swift fly-bys keep their Doppler shift, and dove groups still trigger the takeoff. There is a mute toggle. Sources are in [docs/AUDIO_CREDITS.md](docs/AUDIO_CREDITS.md).
 - **UI**:
   - Places search and teleport, in Cyrillic or Latin: 171 landmarks and 773 streets. The displayed street name is the pre-war one; the current OSM name stays searchable (проспект Незалежності still finds проспект Ушакова). A street result puts you on the street, looking along it.
   - A minimap.
@@ -108,7 +108,7 @@ src/
   main.ts               bootstrap, frame loop, wiring
   i18n.ts               Ukrainian/English strings, language switcher
   world/                format, mesher (+worker), streamer, overview LOD, materials, geo
-  nature/               vegetation + models, water shader, birds, procedural audio
+  nature/               vegetation + models, water shader, birds, ambience (recordings + procedural beds)
   player/               input, walk physics, fly, touch controls, controller
   ui/                   places menu, minimap, styles
 tools/
@@ -143,6 +143,8 @@ The committed snapshot `data/osm/kherson.json.gz` is the current OpenStreetMap e
 - Checkpoints, barricades, `military=*` and `memorial=war_memorial` objects that are not in the 2022 reference are dropped. Ordinary monuments mapped later are kept.
 
 Manual exceptions go in `data/osm/restoration-overrides.json`. The reference clip is `data/osm/reference/kherson-2022-01-01.osm.pbf`.
+
+Bird recordings in `public/audio/birds/` are CC0 or public domain (no attribution requirement). The source URL, author and licence of each take are listed in [docs/AUDIO_CREDITS.md](docs/AUDIO_CREDITS.md). The running app shows a short “Bird recordings: CC0” line under the map credit.
 
 ## License
 

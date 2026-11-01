@@ -1,6 +1,11 @@
-// Procedural WebAudio summer soundscape: songbirds, swifts, doves, wind and water.
-// Everything is synthesised; no asset files.
+// Summer soundscape. Wind, water, fish and any bird without a CC0 recording are
+// synthesised. Swifts, pigeons, collared doves and the common songbirds play
+// recordings when those files have decoded (see bird-samples.ts).
 import { onLangChange, t } from '../i18n.ts';
+import {
+  BIRD_CLIPS, clipUrl, pickClip, readyClips, sampleVariation, screamCount, speciesHasClips,
+  type BirdClip, type ClipKind,
+} from './bird-samples.ts';
 
 export interface AudioScene {
   listener: { x: number; y: number; z: number; yaw: number };
@@ -449,6 +454,11 @@ const LOOKAHEAD = 0.12;
 const MAX_SWIFT_SLOTS = 4;
 const MAX_DOVE_SLOTS = 3;
 const NOISE_SECONDS = 4;
+const PHRASE_KINDS: readonly ClipKind[] = ['song', 'call'];
+const SCREAM_KINDS: readonly ClipKind[] = ['scream'];
+const WING_KINDS: readonly ClipKind[] = ['wing'];
+const COO_KINDS: readonly ClipKind[] = ['coo'];
+const BIRD_CLIP_IDS: readonly string[] = BIRD_CLIPS.map((c) => c.id);
 
 interface Songbird {
   species: Species;
@@ -494,6 +504,10 @@ export class Ambience {
   private nextSplashPanner = 0;
   private lastSplashT = -Infinity;
   private readonly defaultBirdMix = speciesWeights({ treeDensity: 0.35, waterDistance: Infinity, builtUp: 0.6 });
+  /** Decoded recordings, keyed by clip id. Empty until the first gesture, and stays empty if fetch/decode fails. */
+  private samples = new Map<string, AudioBuffer>();
+  private sampleIds = new Set<string>();
+  private samplesState: 'idle' | 'loading' | 'done' = 'idle';
 
   constructor() {
     try {
@@ -529,6 +543,7 @@ export class Ambience {
       }
     }
     this.applyMute();
+    this.beginSamples();
   }
 
   dispose(): void {
@@ -540,6 +555,9 @@ export class Ambience {
     this.swiftSlots.length = 0;
     this.doveSlots.length = 0;
     this.splashPanners.length = 0;
+    this.samples.clear();
+    this.sampleIds.clear();
+    this.samplesState = 'idle';
     if (ctx) void ctx.close().catch(() => {});
   }
 
@@ -719,6 +737,86 @@ export class Ambience {
     }
   }
 
+  /** Start fetching recordings after the gesture that created the context. Failures stay on the synthetic voice. */
+  private beginSamples(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.samplesState !== 'idle') return;
+    this.samplesState = 'loading';
+    void this.loadSamples(ctx).then(() => {
+      if (this.ctx === ctx) this.samplesState = 'done';
+    });
+  }
+
+  private async loadSamples(ctx: AudioContext): Promise<void> {
+    const base = import.meta.env.BASE_URL;
+    let format: 'webm' | 'm4a' = 'webm';
+    const probe = BIRD_CLIP_IDS[0];
+    if (probe && !(await this.decodeClip(ctx, base, probe, 'webm'))) format = 'm4a';
+    await Promise.all(BIRD_CLIP_IDS.map(async (id) => {
+      if (this.sampleIds.has(id)) return;
+      if (await this.decodeClip(ctx, base, id, format)) return;
+      if (format === 'webm') await this.decodeClip(ctx, base, id, 'm4a');
+    }));
+  }
+
+  private async decodeClip(ctx: AudioContext, base: string, id: string, format: 'webm' | 'm4a'): Promise<boolean> {
+    try {
+      const res = await fetch(clipUrl(base, id, format));
+      if (!res.ok) return false;
+      const raw = await res.arrayBuffer();
+      if (this.ctx !== ctx) return false;
+      const audio = await ctx.decodeAudioData(raw);
+      if (this.ctx !== ctx) return false;
+      this.samples.set(id, audio);
+      this.sampleIds.add(id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A decoded take, `'wait'` while its files are still loading, or null to use the synthetic voice.
+   * The null result is also the permanent fallback when every file for that species failed.
+   */
+  private chooseClip(species: string, kinds: readonly ClipKind[]): { clip: BirdClip; buffer: AudioBuffer } | 'wait' | null {
+    const clip = pickClip(readyClips(species, kinds, this.sampleIds), this.rng);
+    if (clip) {
+      const buffer = this.samples.get(clip.id);
+      if (buffer) return { clip, buffer };
+    }
+    if (speciesHasClips(species, kinds) && this.samplesState !== 'done') return 'wait';
+    return null;
+  }
+
+  /** One recording through an existing panner. Counts as a single voice. */
+  private playSample(
+    ctx: AudioContext, dest: AudioNode, buffer: AudioBuffer, at: number,
+    rate: number, gain: number, attack: number,
+  ): void {
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.setValueAtTime(rate, at);
+    const g = ctx.createGain();
+    const dur = buffer.duration / Math.max(0.5, rate);
+    const peak = Math.max(0.0001, gain);
+    const fade = Math.min(Math.max(0.001, attack), dur * 0.3);
+    const stop = at + Math.max(dur, fade + 0.02);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.linearRampToValueAtTime(peak, at + fade);
+    const hold = Math.min(stop - 0.012, Math.max(at + fade, stop - 0.04));
+    if (hold > at + fade) g.gain.setValueAtTime(peak, hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, stop);
+    src.connect(g).connect(dest);
+    this.voices++;
+    src.onended = () => {
+      this.voices--;
+      g.disconnect();
+    };
+    src.start(at);
+    src.stop(stop + 0.02);
+  }
+
   private updateListener(ctx: AudioContext, L: AudioScene['listener']): void {
     const l = ctx.listener;
     // Keep the hot path allocation-free; forwardFromYaw remains the pure public helper.
@@ -759,6 +857,22 @@ export class Ambience {
       // A slot chooses again only after its previous phrase and pause are over, so a walk
       // from houses to a park changes the chorus without allocating in every update frame.
       b.species = pickSpecies(speciesWeights(scene), rng);
+      const recorded = this.chooseClip(b.species, PHRASE_KINDS);
+      if (recorded === 'wait') {
+        b.nextAt = now + 0.4;
+        continue;
+      }
+      if (recorded) {
+        if (this.voices >= MAX_VOICES) {
+          b.nextAt = now + 0.5;
+          continue;
+        }
+        const v = sampleVariation(rng);
+        const at = Math.max(now, b.nextAt);
+        this.playSample(ctx, b.panner, recorded.buffer, at, v.playbackRate, v.gain * 0.55 * b.level * speciesLevel(b.species), 0.012);
+        b.nextAt = at + recorded.buffer.duration / v.playbackRate + nextInterval(rng, 2, 9);
+        continue;
+      }
       const notes = generateSpeciesPhrase(b.species, rng, b.pitch * range(rng, 0.97, 1.03), b.tempo * range(rng, 0.92, 1.08));
       if (this.voices + notes.length > MAX_VOICES) {
         b.nextAt = now + 0.5;
@@ -951,6 +1065,41 @@ export class Ambience {
       if (slot.nextAt === 0) slot.nextAt = now + range(rng, 0, 1.5);
       if (now + LOOKAHEAD < slot.nextAt) continue;
       const doppler = dopplerFactor(radialVelocity(f.x - L.x, f.y - L.y, f.z - L.z, f.vx, f.vy, f.vz));
+      const screams = readyClips('swift', SCREAM_KINDS, this.sampleIds);
+      if (screams.length === 0 && this.samplesState !== 'done' && speciesHasClips('swift', SCREAM_KINDS)) {
+        slot.nextAt = now + 0.4;
+        continue;
+      }
+      if (screams.length > 0) {
+        const partyPool = screams.filter((c) => c.party);
+        const singlePool = screams.filter((c) => !c.party);
+        const useParty = partyPool.length > 0 && (singlePool.length === 0 || rng() < 0.45);
+        const pool = useParty ? partyPool : (singlePool.length > 0 ? singlePool : partyPool);
+        const first = pickClip(pool, rng);
+        if (!first) {
+          slot.nextAt = now + 0.4;
+          continue;
+        }
+        const n = screamCount(Boolean(first.party), d, rng);
+        if (this.voices + n > MAX_VOICES) {
+          slot.nextAt = now + 0.4;
+          continue;
+        }
+        const t0 = Math.max(now, slot.nextAt);
+        let end = t0;
+        for (let i = 0; i < n; i++) {
+          const clip = i === 0 ? first : (pickClip(pool, rng) ?? first);
+          const buf = this.samples.get(clip.id);
+          if (!buf) continue;
+          const v = sampleVariation(rng, doppler);
+          const at = t0 + (i === 0 ? 0 : range(rng, 0.04, 0.35));
+          const layer = n > 1 ? 0.62 : 0.8;
+          this.playSample(ctx, slot.panner, buf, at, v.playbackRate, v.gain * layer, 0.01);
+          end = Math.max(end, at + buf.duration / v.playbackRate);
+        }
+        slot.nextAt = end + swiftInterval(rng, d);
+        continue;
+      }
       const max = d < 60 ? 6 : 3;
       const n = Math.min(max, 2 + Math.floor(rng() * (max - 1)));
       if (this.voices + n * 2 > MAX_VOICES) {
@@ -1037,9 +1186,27 @@ export class Ambience {
           slot.nextClap = now + range(rng, 0, 1);
           continue;
         }
-        if (this.voices + 12 > MAX_VOICES) continue;
-        this.playClaps(ctx, slot.panner, now, 8 + Math.floor(rng() * 5));
-        slot.nextClap = now + range(rng, 2.5, 5);
+        const ownWings = this.chooseClip(slot.species, WING_KINDS);
+        const wings = ownWings === null && slot.species === 'collaredDove'
+          ? this.chooseClip('rockPigeon', WING_KINDS)
+          : ownWings;
+        if (wings === 'wait') {
+          slot.nextClap = now + 0.4;
+          continue;
+        }
+        if (wings) {
+          if (this.voices >= MAX_VOICES) {
+            slot.nextClap = now + 0.4;
+            continue;
+          }
+          const v = sampleVariation(rng);
+          this.playSample(ctx, slot.panner, wings.buffer, now, v.playbackRate, v.gain * 0.8, 0.004);
+          slot.nextClap = now + wings.buffer.duration / v.playbackRate + range(rng, 1.4, 3.4);
+        } else {
+          if (this.voices + 12 > MAX_VOICES) continue;
+          this.playClaps(ctx, slot.panner, now, 8 + Math.floor(rng() * 5));
+          slot.nextClap = now + range(rng, 2.5, 5);
+        }
       } else {
         slot.nextClap = 0;
         if (now + LOOKAHEAD < slot.nextCoo) continue;
@@ -1047,15 +1214,30 @@ export class Ambience {
           slot.nextCoo = now + range(rng, 0.2, 5);
           continue;
         }
-        if (this.voices + 3 > MAX_VOICES) continue;
         const mix = speciesWeights(scene);
         const doveWeights: Record<'rockPigeon' | 'collaredDove', number> = {
           rockPigeon: mix.rockPigeon,
           collaredDove: mix.collaredDove,
         };
         slot.species = pickDoveSpecies(doveWeights, rng);
-        this.playCoo(ctx, slot.panner, now, slot.species);
-        slot.nextCoo = now + nextInterval(rng, 4, 12);
+        const coo = this.chooseClip(slot.species, COO_KINDS);
+        if (coo === 'wait') {
+          slot.nextCoo = now + 0.4;
+          continue;
+        }
+        if (coo) {
+          if (this.voices >= MAX_VOICES) {
+            slot.nextCoo = now + 0.4;
+            continue;
+          }
+          const v = sampleVariation(rng);
+          this.playSample(ctx, slot.panner, coo.buffer, now, v.playbackRate, v.gain * 0.5, 0.015);
+          slot.nextCoo = now + coo.buffer.duration / v.playbackRate + nextInterval(rng, 4, 12);
+        } else {
+          if (this.voices + 3 > MAX_VOICES) continue;
+          this.playCoo(ctx, slot.panner, now, slot.species);
+          slot.nextCoo = now + nextInterval(rng, 4, 12);
+        }
       }
     }
   }
