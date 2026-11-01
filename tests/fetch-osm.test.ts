@@ -8,12 +8,13 @@ import {
 } from "../tools/osm-snapshot.ts";
 
 describe("fetch-osm options", () => {
-  it("defaults to the pre-war attic instant and puts it in the query", () => {
+  it("defaults to a live fetch, and --date still builds an attic query", () => {
     const args = parseFetchArgs(["node", "tools/fetch-osm.ts"]);
-    expect(args.date).toBe(DEFAULT_SNAPSHOT_DATE);
-    expect(args.date).toBe("2022-02-01T00:00:00Z");
-    expect(args.live).toBe(false);
-    const q = buildQuery("46.6,32.5,46.7,32.6", args.date);
+    expect(args.date).toBeNull();
+    expect(args.live).toBe(true);
+    expect(args.outExplicit).toBe(false);
+    const dated = parseFetchArgs(["node", "x", "--date", DEFAULT_SNAPSHOT_DATE]);
+    const q = buildQuery("46.6,32.5,46.7,32.6", dated.date);
     expect(q.startsWith('[out:json][timeout:300][maxsize:536870912][date:"2022-02-01T00:00:00Z"];')).toBe(true);
     expect(q).toContain('nwr(46.6,32.5,46.7,32.6)["building"]');
     expect(q).toContain('["bridge"="yes"]');
@@ -48,7 +49,7 @@ describe("fetch-osm options", () => {
 
   it("points the release fallback at the frozen asset and round-trips checksums", () => {
     expect(releaseAssetUrl(RELEASE_JSON)).toBe(
-      "https://github.com/serhii-ilin/kherson/releases/download/osm-2022-01-01/kherson.json.gz",
+      "https://github.com/serhii-ilin/kherson/releases/download/osm-base/kherson.json.gz",
     );
     const text = formatChecksums([
       { name: RELEASE_JSON, sha256: "a".repeat(64) },
@@ -59,7 +60,7 @@ describe("fetch-osm options", () => {
     expect(parsed.get(RELEASE_PBF)).toBe("b".repeat(64));
     expect(parseChecksums(`# comment\n${"c".repeat(64)}  ${RELEASE_SHA}\n`).get(RELEASE_SHA)).toBe("c".repeat(64));
     const cmd = ghReleaseCommand("data/osm/release");
-    expect(cmd).toContain("gh release create osm-2022-01-01");
+    expect(cmd).toContain("gh release create osm-base");
     expect(cmd).toContain("data/osm/release/kherson.json.gz");
     expect(cmd).toContain("data/osm/release/SHA256SUMS");
     expect(cmd).not.toContain("curl");

@@ -1,6 +1,8 @@
 node_modules
 dist
 data/osm/*.json
+!data/osm/restoration.json
+!data/osm/restoration-overrides.json
 .DS_Store
 data/osm/tiles/
 data/osm/upstream/

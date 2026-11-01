@@ -5,7 +5,7 @@ import { BBOX } from "./bake/config.ts";
 import { pbfToSnapshotJson } from "./pbf-snapshot.ts";
 import { downloadReleaseSnapshot, downloadToFile, sha256File } from "./snapshot-fallback.ts";
 import {
-  DEFAULT_SNAPSHOT_DATE, GEOFABRIK_UKRAINE_220101_BYTES, GEOFABRIK_UKRAINE_220101_URL,
+  GEOFABRIK_UKRAINE_220101_BYTES, GEOFABRIK_UKRAINE_220101_URL, REFERENCE_JSON, REFERENCE_PBF,
   buildQuery, parseFetchArgs, pbfSnapshotMeta, snapshotDocument, tileCacheDir, type OsmEl,
 } from "./osm-snapshot.ts";
 
@@ -14,7 +14,6 @@ import {
 // and merge by element id. `--geofabrik` / `--pbf` skip the network and build the
 // same JSON from a local .osm.pbf. `--from-release` downloads the frozen release.
 const TILES = 4;
-const CLIP_PBF = "data/osm/kherson-bbox.osm.pbf";
 const GEOFABRIK_PBF = "data/osm/upstream/ukraine-220101.osm.pbf";
 
 const endpoints = [
@@ -128,21 +127,28 @@ async function main(): Promise<void> {
   if (args.geofabrik || args.pbf) {
     const source = args.geofabrik ? ensureGeofabrikPbf() : args.pbf!;
     const meta = pbfSnapshotMeta(args, source);
-    const json = await pbfToSnapshotJson(source, CLIP_PBF, meta);
+    const json = await pbfToSnapshotJson(source, REFERENCE_PBF, meta);
     const gz = zlib.gzipSync(Buffer.from(json, "utf8"), { level: 9 });
-    fs.mkdirSync(path.dirname(args.out), { recursive: true });
-    fs.writeFileSync(args.out, gz);
-    console.log(`Wrote ${args.out} (${gz.length} bytes gzipped, ${json.length} bytes raw) date=${meta.snapshot_date}`);
-    console.log(`bbox clip ${CLIP_PBF} (${fs.statSync(CLIP_PBF).size} bytes)`);
+    fs.mkdirSync("data/osm/reference", { recursive: true });
+    fs.writeFileSync(REFERENCE_JSON, gz);
+    console.log(`reference clip ${REFERENCE_PBF} (${fs.statSync(REFERENCE_PBF).size} bytes)`);
+    console.log(`reference json ${REFERENCE_JSON} (${gz.length} bytes gzipped) date=${meta.snapshot_date}`);
+    if (args.outExplicit) {
+      fs.mkdirSync(path.dirname(args.out), { recursive: true });
+      fs.writeFileSync(args.out, gz);
+      console.log(`also wrote ${args.out}`);
+    } else {
+      console.log("base snapshot data/osm/kherson.json.gz was left unchanged; run npm run build-restoration");
+    }
     return;
   }
   try {
     await fetchOverpassSnapshot(args.out, args.date);
   } catch (e) {
-    // The published release is the 2022-01-01 Geofabrik snapshot, not an arbitrary attic date.
-    if (args.date === DEFAULT_SNAPSHOT_DATE) {
+    // A historical --date must not be silently replaced by the frozen base.
+    if (args.date === null) {
       console.error(`Overpass failed (${(e as Error).message}).`);
-      console.error("Falling back to the frozen pre-war release (Geofabrik 2022-01-01), not a 2022-02-01 attic extract.");
+      console.error("Falling back to the frozen base snapshot on the GitHub release.");
       await downloadReleaseSnapshot(args.out);
       return;
     }

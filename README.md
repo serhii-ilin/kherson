@@ -21,15 +21,15 @@ The interface is Ukrainian by default, with English available.
   - **Fly:** free flight that cannot pass through the ground or buildings.
 - **Touch controls** for phones and tablets: virtual joystick, look-drag, and up/down/mode buttons.
 - **Nature**:
-  - **Trees:** about 325k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 74k street trees. Almost all of those are placed by the bake along streets; the 2022-01-01 extract has very few individually mapped trees.
-  - **Bushes:** about 244k, including flowering lilac and pink bushes.
+  - **Trees:** about 396k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 74k street trees.
+  - **Bushes:** about 313k, including flowering lilac and pink bushes.
   - **Water:** tessellated with a wave shader, shore foam and sky reflection.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
 - **Share a link**: the 🔗 button copies a URL for your exact spot and view (`x`, `z`, `yaw`, `pitch`, `time`, plus `mode=fly&y=` when flying).
 - **Time of day**: morning, noon, golden evening and a moonlit night with stars, lit windows and glowing street lamps (button next to the language switch, or `?time=HH:MM`).
 - **Ambient sound**, synthesised in real time with WebAudio (no audio files): songbirds, screaming swift fly-bys with Doppler shift, cooing doves, wind and water. There is a mute toggle.
 - **UI**:
-  - Places search and teleport, in Cyrillic or Latin: 114 landmarks and 386 streets. Former names work when OSM recorded an `old_name`. In this snapshot the main avenue is still проспект Ушакова (it was renamed Незалежності later). A street result puts you on the street, looking along it.
+  - Places search and teleport, in Cyrillic or Latin: 171 landmarks and 773 streets. The displayed street name is the pre-war one; the current OSM name stays searchable (проспект Незалежності still finds проспект Ушакова). A street result puts you on the street, looking along it.
   - A minimap.
   - A language switcher (УКР | EN).
   - Shareable URL poses.
@@ -79,8 +79,9 @@ npm run dev       # http://localhost:5173/kherson/
 | `npm run preview` | serve the production build |
 | `npm test` | Vitest unit tests |
 | `npm run bake` | convert `data/osm/kherson.json.gz` into region files, overview and places |
-| `npm run fetch-osm` | rebuild `data/osm/kherson.json.gz` (Overpass attic at 2022-02-01 by default; `--geofabrik` or `--pbf` offline; `--from-release` for the frozen release) |
-| `npm run publish-snapshot` | pack the snapshot, bbox clip and checksums for a GitHub Release (does not upload) |
+| `npm run fetch-osm` | refresh the base snapshot from live Overpass (`--date` for an attic instant, `--geofabrik` for the 2022 reference clip, `--from-release` if the base file is missing) |
+| `npm run build-restoration` | rebuild `data/osm/restoration.json` from the base snapshot and the 2022 reference |
+| `npm run publish-snapshot` | pack the base snapshot, restoration table, 2022 clip and checksums for a GitHub Release (does not upload) |
 
 ## How it works
 
@@ -130,7 +131,15 @@ CONSTITUTION.md         project principles, budgets and working rules
 
 Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/). The baked world in `public/world/` is a derived database and stays under ODbL.
 
-The committed snapshot is pre-war Kherson: Geofabrik `ukraine-220101.osm.pbf`, OpenStreetMap as of **2022-01-01** (the extract was written on 2022-01-02), before the invasion of 24 February 2022. `npm run fetch-osm` asks Overpass for the attic instant **2022-02-01T00:00:00Z** by default; the file in git was built from the Geofabrik extract because the public Overpass instance was not accepting queries. Structures are shown as that snapshot records them. Later damage tags, including the destroyed Antonivskyi bridge, are not in it. The road bridge is drawn intact, in a corridor outside the city polygon.
+The committed snapshot `data/osm/kherson.json.gz` is the current OpenStreetMap extract, which is fuller than the January 2022 dump: buildings and tree rows mapped after 2022 stay, because they were missing from the old extract, not missing from the city. A restoration table (`data/osm/restoration.json`, regenerated with `npm run build-restoration`) undoes war effects on that base, using Geofabrik `ukraine-220101` (OSM as of **2022-01-01**) as the reference:
+
+- `building=ruins` / `destroyed` / `damaged` and lifecycle prefixes (`abandoned:`, `demolished:`, `was:`, `disused:`, …) that were not already set on 2022-01-01 are put back. A footprint mapped only later and tagged ruins is kept as `building=yes`, not deleted.
+- Buildings present on 2022-01-01 and missing now are re-added, unless the same nodes already belong to a current building (a redraw).
+- The Antonivskyi road bridge is the pre-war span (tags and node list), drawn in a corridor outside the city polygon.
+- Street `name` is the pre-war name. The current name is appended to `old_name`, so search still finds it.
+- Checkpoints, barricades, `military=*` and `memorial=war_memorial` objects that are not in the 2022 reference are dropped. Ordinary monuments mapped later are kept.
+
+Manual exceptions go in `data/osm/restoration-overrides.json`. The reference clip is `data/osm/reference/kherson-2022-01-01.osm.pbf`.
 
 ## License
 

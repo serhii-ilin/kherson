@@ -22,18 +22,21 @@ jobs:
       - run: npm ci
       - name: Install osmium
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y osmium-tool
-      - name: Download the 2022-01-01 Ukraine extract and clip it
+      - name: Refresh the 2022 reference clip
         run: npm run fetch-osm -- --geofabrik
+      - name: Rebuild the restoration table
+        run: npm run build-restoration
       - name: Pack release files
         run: npm run publish-snapshot
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create osm-2022-01-01 \
+          gh release create osm-base \
             data/osm/release/kherson.json.gz \
-            data/osm/release/kherson-bbox.osm.pbf \
+            data/osm/release/kherson-2022-01-01.osm.pbf \
+            data/osm/release/restoration.json \
             data/osm/release/SHA256SUMS \
             --repo ${{ github.repository }} \
-            --title "OSM snapshot 2022-01-01 (pre-war Kherson)" \
+            --title "OSM base snapshot and pre-war restoration" \
             --notes-file data/osm/release/NOTES.md

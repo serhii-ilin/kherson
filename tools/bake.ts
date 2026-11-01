@@ -13,6 +13,7 @@ import { WORLD_H, WORLD_W } from "./bake/project.ts";
 import { Grid, DEFAULT_CELLS } from "./bake/grid.ts";
 import { buildOverview } from "./bake/overview.ts";
 import { loadOsm, type OsmData, type Tags } from "./bake/osm.ts";
+import { readRestoration, loadOptionsFromRestoration } from "./bake/restoration.ts";
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
 import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
 import { dedupePlaces, nudgeToWalkable, type Place } from "./bake/places.ts";
@@ -184,7 +185,10 @@ const TREE_LINED = new Set(["residential", "living_street", "tertiary", "seconda
 async function main(): Promise<void> {
   await ensureSnapshot(INPUT);
   if (!fs.existsSync(INPUT)) throw new Error(`missing ${INPUT}`);
-  const osm = await loadOsm(INPUT);
+  const restoration = readRestoration();
+  const loaded = restoration ? loadOptionsFromRestoration(restoration) : null;
+  if (loaded) console.log(`restoration: rows ${loaded.stats.rows}, additions ${loaded.stats.additions}, drops ${loaded.stats.drops}`);
+  const osm = await loadOsm(INPUT, loaded?.options);
   stage(`loaded ${osm.counts.nodes} nodes, ${osm.counts.ways} ways, ${osm.counts.relations} relations`);
   const { areas, lines, barriers } = main_(osm);
   stage(`geometry: ${areas.length} areas, ${lines.length} lines`);

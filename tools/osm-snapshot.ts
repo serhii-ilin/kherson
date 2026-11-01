@@ -5,7 +5,11 @@ import { BBOX } from "./bake/config.ts";
 
 export interface BBox { south: number; west: number; north: number; east: number }
 
-/** Overpass attic instant requested by `npm run fetch-osm` when no date is given. */
+/**
+ * Attic instant passed to `npm run fetch-osm -- --date …` when a caller wants
+ * 1 February 2022. The default fetch is the live database: that fuller extract
+ * is the base snapshot. Pre-war state is a restoration pass, not a replacement.
+ */
 export const DEFAULT_SNAPSHOT_DATE = "2022-02-01T00:00:00Z";
 
 /**
@@ -17,12 +21,17 @@ export const GEOFABRIK_UKRAINE_220101_URL = "https://download.geofabrik.de/europ
 export const GEOFABRIK_UKRAINE_220101_DATE = "2022-01-01T00:00:00Z";
 export const GEOFABRIK_UKRAINE_220101_BYTES = 678_386_418;
 
-/** Tag of the release that holds the frozen pre-war snapshot. Not created by the fetch tool. */
-export const RELEASE_TAG = "osm-2022-01-01";
+/** Release of the frozen base snapshot, the restoration table and the 2022 clip. Not created by fetch. */
+export const RELEASE_TAG = "osm-base";
 export const RELEASE_REPO = "serhii-ilin/kherson";
 export const RELEASE_JSON = "kherson.json.gz";
-export const RELEASE_PBF = "kherson-bbox.osm.pbf";
+export const RELEASE_PBF = "kherson-2022-01-01.osm.pbf";
+export const RELEASE_RESTORATION = "restoration.json";
 export const RELEASE_SHA = "SHA256SUMS";
+
+/** Geofabrik clip used to rebuild the restoration table. Not the base snapshot. */
+export const REFERENCE_PBF = "data/osm/reference/kherson-2022-01-01.osm.pbf";
+export const REFERENCE_JSON = "data/osm/reference/kherson-2022-01-01.json.gz";
 
 /** Degrees added on every side when clipping the national PBF, so boundary ways and the bridge are not cut. */
 export const EXTRACT_MARGIN_DEG = 0.015;
@@ -73,17 +82,20 @@ export interface FetchArgs {
   geofabrik: boolean;
   fromRelease: boolean;
   out: string;
+  /** True when `--out` was passed. Geofabrik mode otherwise writes only the reference clip. */
+  outExplicit: boolean;
 }
 
 export function parseFetchArgs(argv: string[]): FetchArgs {
   const args: FetchArgs = {
-    date: DEFAULT_SNAPSHOT_DATE,
+    date: null,
     dateExplicit: false,
-    live: false,
+    live: true,
     pbf: null,
     geofabrik: false,
     fromRelease: false,
     out: "data/osm/kherson.json.gz",
+    outExplicit: false,
   };
   let sawLive = false;
   for (let i = 2; i < argv.length; i++) {
@@ -104,7 +116,10 @@ export function parseFetchArgs(argv: string[]): FetchArgs {
     } else if (a === "--pbf") args.pbf = next();
     else if (a === "--geofabrik") args.geofabrik = true;
     else if (a === "--from-release") args.fromRelease = true;
-    else if (a === "--out") args.out = next();
+    else if (a === "--out") {
+      args.out = next();
+      args.outExplicit = true;
+    }
     else throw new Error(`unknown argument ${a}`);
   }
   if (sawLive && args.dateExplicit) throw new Error("--live and --date cannot be combined");
@@ -184,6 +199,8 @@ export interface OsmEl {
   nodes?: number[];
   members?: OsmMember[];
   tags?: Record<string, string>;
+  /** Object version from an OPL dump, when the source has one. */
+  version?: number;
 }
 
 /** Osmium OPL escapes a code point as `%hex%` (space is `%20%`). Characters it leaves raw pass through. */
@@ -205,6 +222,7 @@ export function parseOplLine(line: string): OsmEl | null {
   let deleted = false;
   let lat: number | undefined;
   let lon: number | undefined;
+  let version: number | undefined;
   let nodes: number[] | undefined;
   let members: OsmMember[] | undefined;
   let tags: Record<string, string> | undefined;
@@ -213,6 +231,7 @@ export function parseOplLine(line: string): OsmEl | null {
     const kind = tok[0];
     const rest = tok.slice(1);
     if (kind === "d") deleted = rest === "D";
+    else if (kind === "v" && rest) version = Number(rest);
     else if (kind === "x") lon = Number(rest);
     else if (kind === "y") lat = Number(rest);
     else if (kind === "N" && rest) {
@@ -246,6 +265,7 @@ export function parseOplLine(line: string): OsmEl | null {
   if (deleted) return null;
   const type = head[1] === "n" ? "node" : head[1] === "w" ? "way" : "relation";
   const el: OsmEl = { type, id: Number(head[2]) };
+  if (version !== undefined && Number.isFinite(version)) el.version = version;
   if (type === "node") {
     if (lat === undefined || lon === undefined || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     el.lat = lat;
@@ -407,7 +427,7 @@ export function pbfSnapshotMeta(args: FetchArgs, sourcePath: string): SnapshotMe
 }
 
 export function ghReleaseCommand(dir: string): string {
-  const files = [RELEASE_JSON, RELEASE_PBF, RELEASE_SHA].map((n) => `${dir}/${n}`).join(" ");
+  const files = [RELEASE_JSON, RELEASE_PBF, RELEASE_RESTORATION, RELEASE_SHA].map((n) => `${dir}/${n}`).join(" ");
   return [
     "gh release create",
     RELEASE_TAG,

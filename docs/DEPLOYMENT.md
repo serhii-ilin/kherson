@@ -80,32 +80,41 @@ Things to check in the browser:
 
 The OSM snapshot is committed on purpose. Deploys bake that file and do not call Overpass. The Pages workflow is unchanged: if `data/osm/kherson.json.gz` is in the checkout, `npm run bake` never touches the network. It tries the frozen GitHub release only when the file is missing.
 
-The snapshot is pre-war. Two ways to rebuild it:
+The base snapshot is the current OpenStreetMap extract. The bake then applies `data/osm/restoration.json`, which undoes war effects using the Geofabrik clip from 2022-01-01. Replacing the base with that clip drops buildings and tree rows that were mapped later; do not do that.
 
-### 4.1 Overpass attic (default)
+### 4.1 Refresh the base (live Overpass)
 
-`npm run fetch-osm` requests the database as of `2022-02-01T00:00:00Z` (override with `--date YYYY-MM-DDTHH:MM:SSZ`, or `--live` for the current database). The query is the same tiled fetch as before, with retries. Tiles are cached under `data/osm/tiles/<date>/` so an attic run cannot reuse a live tile. Public Overpass is often at capacity, and attic queries are heavier than live ones; a full run can take a long time or fail.
+`npm run fetch-osm` with no flags requests the live database. `--date YYYY-MM-DDTHH:MM:SSZ` is an attic query (for example `2022-02-01T00:00:00Z`); it does not replace the restoration reference unless you point `--out` at it. Tiles are cached under `data/osm/tiles/<date>/` (`live` for an undated fetch).
 
 ```bash
-rm -rf data/osm/tiles
-npm run fetch-osm                # attic 2022-02-01, 16 tiles
-npm run fetch-osm -- --date 2022-01-15T00:00:00Z
-npm run fetch-osm -- --live      # current OSM, not pre-war
+rm -rf data/osm/tiles/live
+npm run fetch-osm
+npm run build-restoration    # re-diff the new base against the 2022 reference
+npm run bake
 ```
 
-If every tile fails and the requested instant is the default `2022-02-01T00:00:00Z`, fetch falls back to the frozen release below. That asset is the Geofabrik 2022-01-01 extract, not a 1 February attic result; the log says so. `--live` and any other `--date` do not fall back.
+If a live fetch fails outright, it falls back to the frozen base on the GitHub release below. A `--date` query does not fall back.
 
-### 4.2 Offline, from Geofabrik `ukraine-220101.osm.pbf`
+### 4.2 The 2022 reference clip
 
-This is the path that produced the committed file. The extract is OpenStreetMap for Ukraine as of 2022-01-01 (file written 2022-01-02), the nearest complete country dump published before the invasion. It needs [osmium-tool](https://osmcode.org/osmium-tool/).
+Geofabrik `ukraine-220101.osm.pbf` (678,386,418 bytes, OSM as of 2022-01-01, file written 2022-01-02) is the pre-war reference, not the city we bake. Refreshing it needs [osmium-tool](https://osmcode.org/osmium-tool/) and does not touch `data/osm/kherson.json.gz`:
 
 ```bash
 npm run fetch-osm -- --geofabrik
-# or, if the PBF is already on disk:
-npm run fetch-osm -- --pbf data/osm/upstream/ukraine-220101.osm.pbf --date 2022-01-01T00:00:00Z
+# or, from a PBF already on disk:
+npm run fetch-osm -- --pbf data/osm/upstream/ukraine-220101.osm.pbf
+npm run build-restoration
 ```
 
-`--geofabrik` downloads `https://download.geofabrik.de/europe/ukraine-220101.osm.pbf` (678,386,418 bytes) into `data/osm/upstream/` (gitignored) and checks the size. osmium then clips it with `--strategy smart` to the project bbox plus 0.015° on each side, writes `data/osm/kherson-bbox.osm.pbf`, and the script filters that clip to the same tags as the Overpass query. Relation 2175078 and its member ways are kept even when a member way has no other matching tags. Ways of the Antonivskyi road bridge and its short approaches are kept even if they fall just outside the bbox.
+osmium clips with `--strategy smart` to the project bbox plus 0.015° and writes `data/osm/reference/kherson-2022-01-01.osm.pbf` plus a filtered `kherson-2022-01-01.json.gz`. The restoration script diffs that JSON against the base. It records, for each change, the OSM id, field, pre-war value, source, version and reason. Exceptions belong in `data/osm/restoration-overrides.json` (a row there replaces the generated row with the same type, id and field).
+
+What the pass does:
+
+- Damage and lifecycle tags (`building=ruins|destroyed|damaged|collapsed`, `ruins`, `destroyed`, `abandoned:*`, `demolished:*`, `was:*`, `disused:*`, …) that were not already set on 2022-01-01 are reverted. A footprint that did not exist in the reference and is tagged ruins is kept as `building=yes`.
+- Building ways that existed in the reference and are gone now are re-added, with their missing nodes, unless at least half of their nodes already belong to a current building (that is a redraw, not a deletion).
+- The Antonivskyi road bridge gets its pre-war node list and loses `ruins` / `destroyed`. The post-war `highway=proposed` duplicate is dropped.
+- Highway `name` / `name:uk` / `name:en` / `name:ru` return to the reference. The displaced current name is appended to `old_name` (search still finds it).
+- Objects absent from the reference and tagged `military`, checkpoint, barricade, or `memorial=war_memorial` (plus a few invasion names) are dropped. A statue of Shevchenko mapped later is not.
 
 ### 4.3 Frozen release
 
@@ -115,16 +124,16 @@ The release is an owner step. This repository does not create it on push.
 npm run publish-snapshot
 ```
 
-That copies `data/osm/kherson.json.gz` and `data/osm/kherson-bbox.osm.pbf` into `data/osm/release/` (gitignored), writes `SHA256SUMS` and `NOTES.md`, and prints a `gh release create osm-2022-01-01 ...` command. It does not upload. The same steps are in `.github/workflows/snapshot-release.yml`, which is `workflow_dispatch` only and is separate from the Pages deploy.
+That copies the base `kherson.json.gz`, `restoration.json` and the 2022 clip into `data/osm/release/` (gitignored), writes `SHA256SUMS` and `NOTES.md`, and prints a `gh release create osm-base ...` command. It does not upload. `.github/workflows/snapshot-release.yml` is `workflow_dispatch` only and is separate from the Pages deploy.
 
-`npm run fetch-osm -- --from-release` downloads `kherson.json.gz` from that release and checks it against the release's `SHA256SUMS`. `npm run bake` does the same if `data/osm/kherson.json.gz` is absent.
+`npm run fetch-osm -- --from-release` downloads the base `kherson.json.gz` from that release and checks `SHA256SUMS`. `npm run bake` does the same if the base file is absent. The restoration table is read from the checkout.
 
 After a refresh:
 
 ```bash
 npm run bake
 npm test && npm run build
-git add data/osm/kherson.json.gz
+git add data/osm/kherson.json.gz data/osm/restoration.json
 git commit -m "Refresh OSM snapshot (YYYY-MM-DD)"
 ```
 
@@ -132,15 +141,15 @@ git commit -m "Refresh OSM snapshot (YYYY-MM-DD)"
 - **City boundary:** the bake keeps the city inside OSM relation 2175078 (`CITY_RELATION` in `tools/bake/config.ts`, dilated by 20 m). Water and natural land cover stay outside it. The bake fails if the relation is missing.
 - **Antonivskyi road bridge:** outside that polygon. The bake stamps a 30 m corridor around the carriageways (Wikidata Q4067525) and 450 m of each trunk approach. The railway bridge (Q4067523) is not included. The world bbox east edge is 32.73 so the span fits in the grid; west and north are unchanged, so existing `x`/`z` poses stay put.
 - **Bbox:** `tools/bake/config.ts`, mirrored by `DEFAULT_BBOX` in `src/landmarks/geo.ts`. Changing west or north moves the world origin and every shared URL pose.
-- **Review the bake stats before committing.** A sudden drop usually means a partial download. The 2022-01-01 bake is about 5,000 buildings, 386 named streets, 859 vector tiles, 325k trees, 244k bushes, and about 14 MB of world data. The earlier live snapshot was about twice as many buildings; that gap is the mapping added after January 2022, not a truncated download (the bbox clip has 6,072 building ways and the JSON keeps 5,900).
+- **Review the bake stats before committing.** A sudden drop in buildings or tree rows usually means the restoration replaced the base, or the download was partial. The restored bake is about 11,000 buildings, 773 named streets, 798 tree rows, 968 vector tiles, 396k trees, 313k bushes, and about 18 MB of world data.
 
 ### Size limits
 
 | Limit | GitHub Pages | Current |
 |---|---|---|
-| Published site | 1 GB | about 17 MB after this snapshot (the bake writes about 14 MB of world data; the site total depends on the JS bundle) |
+| Published site | 1 GB | the bake writes about 18 MB of world data; the site total depends on the JS bundle |
 | Single file | 100 MB | region files are about 60 KB or less |
-| Snapshot in git | (keep it small) | `kherson.json.gz` is about 1.9 MB |
+| Snapshot in git | (keep it small) | `kherson.json.gz` is about 3.9 MB; `restoration.json` is about 3.4 MB; the 2022 reference clip is about 1.5 MB |
 
 ## 5. Troubleshooting
 
