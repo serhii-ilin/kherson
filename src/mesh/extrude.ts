@@ -1,6 +1,6 @@
 /**
  * Extrude one OSM footprint into a building mesh: walls, a simple roof, UVs in metres.
- * Pure (no DOM, no three.js). Heights come from the vector tile (`height` / `building:levels`
+ * Pure aside from the earcut helper (`three/src/extras/Earcut.js`, not the renderer). Heights come from the vector tile (`height` / `building:levels`
  * already resolved by the bake, including its documented heuristic). Window grids are not
  * geometry: each wall vertex carries storey count, floor height and bay width for the facade shader.
  *

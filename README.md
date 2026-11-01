@@ -128,6 +128,7 @@ CONSTITUTION.md         project principles, budgets and working rules
 - [Progress](docs/PROGRESS.md): phase status, open tasks and known issues.
 - [Realism plan](docs/REALISM_PLAN.md): roadmap for lighting, facades, streets and 0.2 m near-camera detail.
 - [Requirements](docs/REQUIREMENTS.md): structured requirements (vision, performance, data, realism) and open decisions.
+- [Rendering architecture](docs/adr/0001-rendering-architecture.md): why the city becomes mesh levels of detail, and the pull requests that delete the voxel buildings.
 
 ## Data and attribution
 

@@ -118,7 +118,7 @@ Primary target: **laptops**, including **integrated GPU**. Phones and desktops a
 
 | ID | Question | Needed from |
 |---|---|---|
-| OQ-01 | Renderer: stay on voxels, or move to a hybrid. **Decided 2026-11-01:** hybrid. The city fabric becomes streamed OSM-extruded meshes with procedural PBR facades; memorable sites become photo-based glTF later (Meshopt/KTX2). The voxel path stays until the meshes cover the city. First slice is `?renderer=mesh` for the centre (see [PROGRESS.md](PROGRESS.md)). | Owner — decided |
+| OQ-01 | Renderer: stay on voxels, or move to a hybrid. **Decided 2026-11-01:** hybrid, for the whole city, not a centre box. Fabric is streamed OSM meshes (near detail, mid extrusion, far skyline). Memorable sites become photo-based glTF later (Meshopt/KTX2). The voxel buildings are deleted in a later PR, after collision no longer reads them. Record: [ADR 0001](adr/0001-rendering-architecture.md). The centre `?renderer=mesh` box is only the first slice. | Owner — decided |
 | OQ-02 | Bring Antonivskyi bridge / Karantynnyi back past the city cut? | Owner |
 | OQ-03 | Freedom Square tree_rows (post-2022 OSM ids) — exclude? | Owner |
 | OQ-04 | Phone default quality HQ vs LQ? | Owner |
@@ -152,3 +152,4 @@ Each requirement traces to a source statement or document. Date: **2026-11-01** 
 |---|---|
 | 2026-11-01 | Initial capture from Serhii’s statements + constitution fold-in. |
 | 2026-11-01 | Committed. Baked-world size corrected to the measured apparent bytes (20.9 MB; 26M was 4 KiB block allocation). OQ-01 recorded as decided. |
+| 2026-11-01 | OQ-01 clarified: realism is the whole city. Migration and budgets are in ADR 0001. |

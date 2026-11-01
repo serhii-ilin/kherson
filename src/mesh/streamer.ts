@@ -42,7 +42,6 @@ interface Tile {
   sentMask: number;
   lastUsed: number;
   failedAt: number;
-  bytes: number;
 }
 
 interface MChunk {
@@ -53,7 +52,6 @@ interface MChunk {
   tris: number;
   bytes: number;
   hidden: boolean;
-  busy: boolean;
   disposed: boolean;
 }
 
@@ -111,7 +109,9 @@ export class MeshStreamer {
     this.coarse = coarse;
     this.manifest = manifest;
     this.material = createFacadeMaterial();
-    this.batch = new ChunkBatch(this.material, { instances: 900, vertices: 1_200_000, castShadow: opts.castShadow });
+    // The centre prototype is ~60k vertices (mesh-report). Start small; ChunkBatch grows if a later
+    // phase streams more. Reserving 1.2M up front was ~75 MB of GPU buffer on a phone.
+    this.batch = new ChunkBatch(this.material, { instances: 480, vertices: 80_000, castShadow: opts.castShadow });
     scene.add(this.batch.mesh);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     const n = Math.max(1, Math.min(2, opts.workers ?? 1));
@@ -130,9 +130,6 @@ export class MeshStreamer {
   get gpuBytes(): number { return this.byteCount; }
   /** Bytes of vector tiles this streamer has fetched (the fine tier may fetch the same files). */
   get downloadedBytes(): number { return this.downloadBytes; }
-  /** 1 when the batched mesh has anything to draw, else 0. Without WEBGL_multi_draw the GPU splits it per chunk. */
-  get batchedDraws(): number { return this.meshCount > 0 ? 1 : 0; }
-  get isActive(): boolean { return this.active; }
 
   /**
    * True when every chunk that can be built (its coarse regions are loaded) has a result, and nothing
@@ -230,7 +227,7 @@ export class MeshStreamer {
       if (prepared === 'full') { this.waiting = true; return; }
       if (prepared === null) { this.waiting = true; continue; }
       const chunk: MChunk = {
-        key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0, hidden: false, busy: true, disposed: false,
+        key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0, hidden: false, disposed: false,
       };
       this.chunks.set(key, chunk);
       this.send({ id: this.nextJobId++, chunk, worker: prepared.worker, tiles: prepared.tiles }, prepared.ground, false);
@@ -313,15 +310,12 @@ export class MeshStreamer {
         this.send(job, again.ground, true);
         return;
       }
-      chunk.busy = false;
       if (this.chunks.get(chunk.key) === chunk) this.chunks.delete(chunk.key);
       chunk.disposed = true;
     } else if (msg.indices !== undefined && msg.error === undefined) {
-      chunk.busy = false;
       if (!chunk.disposed) this.install(chunk, msg);
     } else {
       console.warn(`city mesh ${chunk.gcx},${chunk.gcz} failed: ${msg.error ?? 'unknown'}`);
-      chunk.busy = false;
     }
     this.dirty = true;
     this.pump();
@@ -363,7 +357,7 @@ export class MeshStreamer {
         const x = rx + dx;
         const z = rz + dz;
         if (x < 0 || z < 0 || x >= this.manifest.regionsX || z >= this.manifest.regionsZ) continue;
-        if (this.coarse.regionData(x, z) === undefined) return false;
+        if (this.coarse.peekRegion(x, z) === undefined) return false;
       }
     }
     return true;
@@ -404,7 +398,7 @@ export class MeshStreamer {
     const key = regionKey(rx, rz);
     let t = this.tiles.get(key);
     if (t === undefined) {
-      t = { rx, rz, key, state: 'idle', buffer: null, sentMask: 0, lastUsed: this.tick, failedAt: 0, bytes: 0 };
+      t = { rx, rz, key, state: 'idle', buffer: null, sentMask: 0, lastUsed: this.tick, failedAt: 0 };
       this.tiles.set(key, t);
     }
     return t;
@@ -428,7 +422,6 @@ export class MeshStreamer {
           t.state = 'none';
         } else {
           t.buffer = buf;
-          t.bytes = buf.byteLength;
           t.sentMask = 0;
           t.state = 'loaded';
           this.loadedTiles++;

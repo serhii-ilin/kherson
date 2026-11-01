@@ -27,6 +27,8 @@ _Last updated: 2026-11-01_
 
 ## Mesh prototype (2026-11-01)
 
+The centre box below is phase 0. The owner direction (2026-11-01) is that realistic meshes cover the whole city. The migration, the budgets, and the PR that deletes the voxel buildings are in [ADR 0001](adr/0001-rendering-architecture.md). This pull request does not widen the box. PR #2 (pre-war OSM) is being reworked and merges first; rebase onto it before merging this branch.
+
 `?renderer=mesh` extrudes OSM footprints from the existing `v_*.bin` tiles for one neighbourhood: Freedom Square and Ushakova / Nezalezhnosti avenue down to the embankment, world box **x 9984–11264, z 8320–10496** (about 1.3 × 2.2 km, regions rx 19–21 and rz 16–20). The voxel path is unchanged and remains the default. Ground, streets, vegetation, water, birds, audio and UI are the same. In that box the 1 m block tier (carved voxel buildings, shop signs, street props) is left off so buildings are not drawn twice; landmark lamps on the square stay. Walk collision is still the voxel columns. The outer 96 m of the box keeps its voxel buildings so a footprint is not cut in half. Meshes are built in a worker and instanced in one `BatchedMesh`; a chunk is meshed once the coarse region it needs is loaded.
 
 Materials are procedural (no new texture files): tiling albedo, roughness and a window grid from `building:levels` (or the bake's storey heuristic). Flat roofs get a parapet; gable, hip, pyramid, skillion and dome follow the tile's `roof:shape`, with untagged houses gabled.
