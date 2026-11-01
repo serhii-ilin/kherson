@@ -24,11 +24,25 @@ _Last updated: 2026-11-01_
 | Phase 4: 0.2 m trees, street props, surface micro-detail, cross-fade, draw-call pass | ✅ (laptop 60 fps, phone 60–90 fps) | `418796d` |
 | Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | `efeb49b` |
 | Pre-war restoration on the full OSM snapshot (bridge corridor, restoration table) | ✅ | `e446c4e` |
-| Mesh prototype: `?renderer=mesh` extruded buildings for the centre (voxel path kept) | 🟡 first neighbourhood, rebased onto the restoration | this branch |
+| Mesh prototype: extruded buildings for the centre, behind `?renderer=mesh` | ✅ | `738c88f` |
+| Whole-city mid meshes, on by default; props and signs stay | 🟡 | this branch |
+
+## Whole-city meshes (phase 1)
+
+Extruded mid-detail buildings are the default for every chunk inside the view radius (640 m on a laptop, 384 m on a phone or Low). `?renderer=voxel` is the comparison path. Where a mesh chunk is installed, coarse building voxels are hidden (bridge decks stay). High quality still draws street props and shop signs from the block tier, without the 1 m building voxels. Laptop High at the Freedom Square spawn, the 640 m disc (`tools/mesh-report.ts`, buildings only): **454 buildings, 18,033 triangles, 2.66 MB**. Headless Chrome (SwiftShader, 1280×720, `quality=high`) after the scene settled:
+
+| Pose | Path | Scene triangles | Draws | Building layer |
+|---|---|---:|---:|---|
+| Street `x=10270&z=8850&yaw=-75&pitch=4` | `?renderer=voxel` | 984,698 | 190 | 50,056 block tris |
+| Same street | default meshes | 646,419 | 111 | 18,660 tris, 2.76 MB, plus 3,776 prop tris |
+| Aerial `mode=fly&x=10340&z=9000&y=90&yaw=-15&pitch=-32` | voxel | 1,283,626 | 207 | 68,832 block tris |
+| Same aerial | default meshes | 1,209,006 | 205 | 19,957 tris, 2.95 MB, plus 3,148 prop tris |
+
+The resident building layer is far under the ADR cap (250k triangles, 20 MB). The SwiftShader frame interval is about 2 s either way and is not a laptop frame time.
 
 ## Mesh prototype (2026-11-01)
 
-The centre box below is phase 0. The owner direction (2026-11-01) is that realistic meshes cover the whole city. The migration, the budgets, and the PR that deletes the voxel buildings are in [ADR 0001](adr/0001-rendering-architecture.md). This pull request does not widen the box. It is rebased onto main after PR #2 (the restoration pass) merged. Spawn is still 10293, 8817, so the box in metres did not move.
+The centre box below was phase 0. The owner direction (2026-11-01) is that realistic meshes cover the whole city. The migration, the budgets, and the PR that deletes the voxel buildings are in [ADR 0001](adr/0001-rendering-architecture.md). This pull request does not widen the box. It is rebased onto main after PR #2 (the restoration pass) merged. Spawn is still 10293, 8817, so the box in metres did not move.
 
 `?renderer=mesh` extrudes OSM footprints from the existing `v_*.bin` tiles for one neighbourhood: Freedom Square and Ushakova / Nezalezhnosti avenue down to the embankment, world box **x 9984–11264, z 8320–10496** (about 1.3 × 2.2 km, regions rx 19–21 and rz 16–20). The voxel path is unchanged and remains the default. Ground, streets, vegetation, water, birds, audio and UI are the same. In that box the 1 m block tier (carved voxel buildings, shop signs, street props) is left off so buildings are not drawn twice; landmark lamps on the square stay. Walk collision is still the voxel columns. The outer 96 m of the box keeps its voxel buildings so a footprint is not cut in half. Meshes are built in a worker and instanced in one `BatchedMesh`; a chunk is meshed once the coarse region it needs is loaded.
 

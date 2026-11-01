@@ -28,7 +28,7 @@ import { createLandmarks } from './landmarks/index.ts';
 import { LandmarkLayer } from './landmarks/layer.ts';
 import { LandmarkPhysics } from './landmarks/physics.ts';
 import { getVegetationExclusions } from './landmarks/exclusions.ts';
-import { chunkInNeighbourhood } from './mesh/bounds.ts';
+import { meshViewRadius } from './mesh/bounds.ts';
 import { MeshStreamer } from './mesh/streamer.ts';
 
 const SKY = 0x9cc8ef;
@@ -213,19 +213,20 @@ async function start(): Promise<void> {
   // Block tier (1 m buildings and bridges within 250 m, 100 m on phones): High quality; ?blocks=0|1 overrides.
   const blocksParam = q.get('blocks');
   const blocksOn = blocksParam === '0' ? false : blocksParam === '1' ? true : quality === 'high';
-  // Extruded OSM buildings for the city centre. The voxel path stays; ?renderer=mesh swaps it in.
-  const meshOn = q.get('renderer') === 'mesh' && manifest.vectors === true;
+  // Extruded buildings are the default. ?renderer=voxel keeps the 1 m / 2 m blocks for comparison.
+  const meshOn = q.get('renderer') !== 'voxel' && manifest.vectors === true;
   const fine = fineOn
     ? new FineStreamer(scene, streamer, manifest, {
       radius: isMobile ? 70 : 150,
       blockRadius: blocksOn ? (isMobile ? 100 : 250) : 0,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
       signs: blocksOn ? new SignLayer(scene) : undefined,
-      blockExclude: meshOn ? chunkInNeighbourhood : undefined,
+      propsOnly: meshOn && blocksOn,
     })
     : null;
   const mesh = meshOn
     ? new MeshStreamer(scene, streamer, manifest, {
+      radius: meshViewRadius(quality, isMobile),
       castShadow: shadowsOn,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
     })
@@ -315,7 +316,7 @@ async function start(): Promise<void> {
     set('yaw', r((player.yaw * 180) / Math.PI, 1));
     set('pitch', r((player.pitch * 180) / Math.PI, 1));
     set('time', formatTime(timeHours));
-    if (q.get('renderer') === 'mesh') set('renderer', 'mesh');
+    if (q.get('renderer') === 'voxel') set('renderer', 'voxel');
     return u.toString();
   });
   // Browsers only allow audio after a user gesture.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAT } from '../src/world/materials';
 import { ROOF, type VBuilding, type VectorTile } from '../src/world/vector-format';
-import { chunkHidesStructures, chunkInNeighbourhood, MESH_NEIGHBOURHOOD } from '../src/mesh/bounds';
+import { chunkInMeshRadius, meshViewRadius } from '../src/mesh/bounds';
 import { buildingsInChunk, buildChunkMesh } from '../src/mesh/chunk';
 import {
   extrudeBuilding, facadeMetrics, meshByteSize, roofKindOf, triangleCount, type CityMesh, type ExtrudeBuilding,
@@ -278,20 +278,29 @@ describe('chunk ownership', () => {
     expect(saw).toBe(true);
     expect(triangleCount(buildChunkMesh(tiles, 4, 0, () => 6, box))).toBe(0);
   });
+
+  it('without a box, meshes the building in whatever chunk holds its centroid', () => {
+    const tiles = [tile([vb(3, 290, 4, 310, 16)])];
+    const gcx = Math.floor(300 / 64);
+    expect(buildingsInChunk(tiles, gcx, 0, () => 6).map((b) => b.id)).toEqual([3]);
+    expect(buildingsInChunk(tiles, 0, 0, () => 6)).toEqual([]);
+  });
 });
 
-describe('neighbourhood', () => {
-  it('covers Freedom Square and the embankment pose, and hides only the interior', () => {
-    const spawn = chunkOf(10293, 8817);
-    const emb = chunkOf(10790, 10172);
-    expect(chunkInNeighbourhood(spawn[0], spawn[1])).toBe(true);
-    expect(chunkHidesStructures(spawn[0], spawn[1])).toBe(true);
-    expect(chunkInNeighbourhood(emb[0], emb[1])).toBe(true);
-    expect(chunkHidesStructures(emb[0], emb[1])).toBe(true);
-    const edge = chunkOf(MESH_NEIGHBOURHOOD.x0, MESH_NEIGHBOURHOOD.z0);
-    expect(chunkInNeighbourhood(edge[0], edge[1])).toBe(true);
-    expect(chunkHidesStructures(edge[0], edge[1])).toBe(false);
-    expect(chunkInNeighbourhood(0, 0)).toBe(false);
+describe('mesh radius', () => {
+  it('is the full view on a laptop and the shorter view on a phone or Low', () => {
+    expect(meshViewRadius('high', false)).toBe(640);
+    expect(meshViewRadius('low', false)).toBe(384);
+    expect(meshViewRadius('high', true)).toBe(384);
+  });
+
+  it('includes the chunk under the camera and not the far corner of the map', () => {
+    const [gx, gz] = chunkOf(10293, 8817);
+    expect(chunkInMeshRadius(10293, 8817, gx, gz, 640)).toBe(true);
+    expect(chunkInMeshRadius(10293, 8817, 0, 0, 640)).toBe(false);
+    const far = chunkOf(10293 + 500, 8817);
+    expect(chunkInMeshRadius(10293, 8817, far[0], far[1], 384)).toBe(false);
+    expect(chunkInMeshRadius(10293, 8817, far[0], far[1], 640)).toBe(true);
   });
 });
 

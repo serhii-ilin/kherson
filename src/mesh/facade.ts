@@ -64,8 +64,16 @@ const FRAG_COLOR = /* glsl */`
     float hi = 0.78;
     float x0 = 0.22;
     float x1 = 0.78;
+    // Typology. Wall colour is already the bake's reading of building:colour / material.
+    bool historic = styleId > 29.5 && styleId < 34.5;
+    bool khrush = styleId > 24.5 && styleId < 25.5;
+    bool panel = styleId > 25.5 && styleId < 26.5;
+    bool stalin = styleId > 26.5 && styleId < 27.5;
+    if (historic || stalin) { lo = 0.18; hi = 0.84; x0 = 0.28; x1 = 0.72; } // tall 19th-c. / Stalin windows
+    if (khrush) { lo = 0.32; hi = 0.72; x0 = 0.18; x1 = 0.82; }               // wide, short panes
+    if (panel) { lo = 0.30; hi = 0.74; x0 = 0.16; x1 = 0.84; }
     if (shops > 0.5 && row < 0.5) { lo = 0.12; hi = 0.92; x0 = 0.08; x1 = 0.92; }
-    if (styleId > 27.5 && styleId < 28.5) { x0 = 0.06; x1 = 0.94; } // modern: glass bands
+    if (styleId > 27.5 && styleId < 28.5) { x0 = 0.06; x1 = 0.94; lo = 0.22; hi = 0.78; } // modern glass bands
     win = aaBox(fy, lo, hi, px) * aaBox(fx, x0, x1, px);
     vec3 glass = vec3(0.16, 0.22, 0.28);
     float dirt = 0.92 + 0.08 * gHash(vec2(floor(u / bay), row));
@@ -73,6 +81,12 @@ const FRAG_COLOR = /* glsl */`
     float lit = step(0.42, gHash(vec2(floor(u / bay) + 3.1, row + 1.7)));
     vec3 lamp = gHash(vec2(row, floor(u / bay))) > 0.92 ? vec3(0.55, 0.72, 1.0) : vec3(1.0, 0.72, 0.38);
     gGlow = lamp * win * lit * uNight * 1.6;
+    if ((historic || stalin) && v > bodyH - 0.45) albedo = mix(albedo, vec3(0.93, 0.90, 0.84), 0.45);
+    if ((khrush || panel) && win < 0.5) {
+      float seamPx = max(fwidth(v), 0.015);
+      float seam = max(aaLine(u, max(bay, 3.0), 0.04, seamPx), aaLine(v, floorH, 0.035, seamPx));
+      albedo *= mix(1.0, panel ? 0.78 : 0.86, seam);
+    }
   } else if (part > 0.5 && part < 1.5) {
     float py = max(fwidth(vUvM.y), 0.01);
     float tile = aaLine(vUvM.y, 0.32, 0.025, py);
@@ -84,12 +98,15 @@ const FRAG_COLOR = /* glsl */`
     float grain = 0.95 + 0.05 * gHash(floor(vUvM * vec2(2.0, 4.0)));
     albedo *= grain;
     if (v < 0.55) albedo *= 0.78; // plinth
+    if ((styleId > 29.5 && styleId < 34.5) || (styleId > 26.5 && styleId < 27.5)) {
+      if (v > bodyH - 0.45) albedo = mix(albedo, vec3(0.93, 0.90, 0.84), 0.55); // cornice
+    }
     if (styleId > 38.5 && styleId < 39.5) {
       float py = max(fwidth(v), 0.008);
       float mortar = max(aaLine(v, 0.075, 0.012, py), aaLine(u, 0.24, 0.012, py));
       albedo *= mix(1.0, 0.55, mortar);
     }
-    if ((styleId > 24.5 && styleId < 26.5)) {
+    if (styleId > 24.5 && styleId < 26.5) {
       float py = max(fwidth(v), 0.015);
       float seam = max(aaLine(u, max(bay, 3.0), 0.035, py), aaLine(v, floorH, 0.03, py));
       albedo *= mix(1.0, 0.86, seam);
@@ -138,7 +155,7 @@ export function createFacadeMaterial(): THREE.MeshStandardMaterial {
     metalness: 0.0,
     vertexColors: true,
   });
-  material.customProgramCacheKey = () => 'vk-citymesh-facade-1';
+  material.customProgramCacheKey = () => 'vk-citymesh-facade-2';
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = NIGHT_UNIFORM;
     shader.vertexShader = shader.vertexShader

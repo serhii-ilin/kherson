@@ -1,11 +1,11 @@
 /**
- * Streams extruded building meshes for the city-centre neighbourhood. Vector tiles and the coarse
- * ground window are the same inputs the fine tier already uses; meshing runs in a worker. Buildings
- * in a chunk are one geometry, and every chunk is an instance of a single BatchedMesh.
+ * Streams extruded building meshes for every chunk inside the view radius (the whole city, as the
+ * camera moves). Vector tiles and the coarse ground window are the same inputs the fine tier uses.
+ * Meshing runs in a worker. Buildings in a chunk are one geometry, and every chunk is an instance
+ * of a single BatchedMesh.
  *
- * Interior chunks hide the coarse voxel walls and roofs once their mesh is in the scene (the ground
- * stays). Chunks that contain a coarse bridge deck are left alone so the deck is not deleted.
- * The outer ring of the neighbourhood keeps its voxels, so a building is never cut on the boundary.
+ * A finished chunk hides its coarse voxel walls and roofs (the ground stays). Chunks that contain a
+ * coarse bridge deck are left alone so the deck is not deleted. Chunks outside the radius stay voxels.
  */
 import * as THREE from 'three';
 import { FEATURE_BRIDGE_DECK } from '../world/format.ts';
@@ -13,17 +13,13 @@ import { buildBlockInput, G_GH, GPLANE } from '../fine/block-input.ts';
 import type { Manifest } from '../world/manifest.ts';
 import { ChunkBatch, type BatchSlot } from '../world/chunk-batch.ts';
 import { CHUNK, REGION_CHUNKS } from '../world/constants.ts';
-import { CHUNK_M, chunkKey, distToChunk, regionKey, type ChunkRef } from '../world/stream-math.ts';
+import { CHUNK_M, chunkKey, neededChunks, regionKey, type ChunkRef } from '../world/stream-math.ts';
 import type { WorldStreamer } from '../world/streamer.ts';
 import { versioned } from '../version.ts';
-import {
-  MESH_NEIGHBOURHOOD, chunkHidesStructures, distToNeighbourhood,
-} from './bounds.ts';
+import { MESH_KEEP } from './bounds.ts';
 import { createFacadeMaterial } from './facade.ts';
 import type { CityMeshRequest, CityMeshResponse, MeshTileRef } from './protocol.ts';
 
-const HYSTERESIS_ON = 400;
-const HYSTERESIS_OFF = 600;
 const MAX_TILES = 48;
 const MAX_FETCHES = 4;
 const MAX_JOBS = 2;
@@ -52,6 +48,8 @@ interface MChunk {
   tris: number;
   bytes: number;
   hidden: boolean;
+  /** The worker has returned and voxel buildings for this chunk may be hidden. */
+  ready: boolean;
   disposed: boolean;
 }
 
@@ -63,14 +61,15 @@ interface Job {
 }
 
 export interface MeshStreamerOptions {
+  /** Metres. Laptop High is 640, phone / Low is 384 (the coarse view radius). */
+  radius: number;
   /** When false, meshes are built but do not cast shadows (Low quality). */
   castShadow: boolean;
   workers?: number;
 }
 
 /**
- * City-centre building meshes. `active` is false while the camera is far from the neighbourhood,
- * and the coarse voxels are showing again.
+ * Extruded buildings for the loaded view. Coarse voxels show again where a chunk is dropped.
  */
 export class MeshStreamer {
   private readonly scene: THREE.Scene;
@@ -98,7 +97,7 @@ export class MeshStreamer {
   private dirty = false;
   private waiting = false;
   private lastTry = 0;
-  private active = false;
+  private readonly radius: number;
   private meshCount = 0;
   private triCount = 0;
   private byteCount = 0;
@@ -108,10 +107,12 @@ export class MeshStreamer {
     this.scene = scene;
     this.coarse = coarse;
     this.manifest = manifest;
+    this.radius = opts.radius;
     this.material = createFacadeMaterial();
-    // The centre prototype is ~60k vertices (mesh-report). Start small; ChunkBatch grows if a later
-    // phase streams more. Reserving 1.2M up front was ~75 MB of GPU buffer on a phone.
-    this.batch = new ChunkBatch(this.material, { instances: 480, vertices: 80_000, castShadow: opts.castShadow });
+    // A 640 m view is on the order of 150k vertices (about 40 triangles and ~6 KB per building).
+    // ChunkBatch grows if a dense view exceeds this. Staying near 200k vertices keeps the
+    // reservation under the ADR's 20 MB laptop budget.
+    this.batch = new ChunkBatch(this.material, { instances: 800, vertices: 200_000, castShadow: opts.castShadow });
     scene.add(this.batch.mesh);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     const n = Math.max(1, Math.min(2, opts.workers ?? 1));
@@ -137,26 +138,16 @@ export class MeshStreamer {
    */
   get isSettled(): boolean {
     if (this.inflight > 0 || this.fetchActive > 0) return false;
-    if (!this.active) return true;
     for (const ref of this.need) {
       if (this.chunks.has(chunkKey(ref.gcx, ref.gcz))) continue;
       if (this.regionsReady(ref.gcx, ref.gcz)) return false;
     }
-    return true;
+    return this.need.length > 0;
   }
 
   update(x: number, z: number): void {
     this.camX = x;
     this.camZ = z;
-    const dist = distToNeighbourhood(x, z);
-    const was = this.active;
-    if (!this.active && dist < HYSTERESIS_ON) this.active = true;
-    else if (this.active && dist > HYSTERESIS_OFF) this.active = false;
-    if (was !== this.active) {
-      if (!this.active) this.dropAll();
-      this.lastGcx = -1e9;
-    }
-    if (!this.active) return;
     const gcx = Math.floor(x / CHUNK_M);
     const gcz = Math.floor(z / CHUNK_M);
     if (gcx !== this.lastGcx || gcz !== this.lastGcz) {
@@ -177,28 +168,14 @@ export class MeshStreamer {
     this.material.dispose();
   }
 
-  private neighbourhoodChunks(): ChunkRef[] {
-    const b = MESH_NEIGHBOURHOOD;
-    const gx0 = Math.floor(b.x0 / CHUNK_M);
-    const gx1 = Math.floor((b.x1 - 1) / CHUNK_M);
-    const gz0 = Math.floor(b.z0 / CHUNK_M);
-    const gz1 = Math.floor((b.z1 - 1) / CHUNK_M);
-    const out: ChunkRef[] = [];
-    for (let gcz = gz0; gcz <= gz1; gcz++) {
-      for (let gcx = gx0; gcx <= gx1; gcx++) {
-        out.push({ gcx, gcz, dist: distToChunk(this.camX, this.camZ, gcx, gcz) });
-      }
-    }
-    out.sort((a, c) => a.dist - c.dist || a.gcz - c.gcz || a.gcx - c.gcx);
-    return out;
-  }
-
   private recompute(): void {
-    this.need = this.neighbourhoodChunks();
-    const keep = new Set<number>();
-    for (const r of this.need) keep.add(chunkKey(r.gcx, r.gcz));
+    const chunksX = this.manifest.regionsX * REGION_CHUNKS;
+    const chunksZ = this.manifest.regionsZ * REGION_CHUNKS;
+    const keep = neededChunks(this.camX, this.camZ, this.radius + MESH_KEEP, chunksX, chunksZ);
+    const keepKeys = new Set(keep.map((r) => chunkKey(r.gcx, r.gcz)));
+    this.need = keep.filter((r) => r.dist <= this.radius);
     for (const c of [...this.chunks.values()]) {
-      if (!keep.has(c.key)) {
+      if (!keepKeys.has(c.key)) {
         this.chunks.delete(c.key);
         this.drop(c);
       }
@@ -210,7 +187,6 @@ export class MeshStreamer {
     for (const c of [...this.chunks.values()]) this.drop(c);
     this.chunks.clear();
     this.need = [];
-    this.active = false;
   }
 
   private pump(): void {
@@ -227,7 +203,7 @@ export class MeshStreamer {
       if (prepared === 'full') { this.waiting = true; return; }
       if (prepared === null) { this.waiting = true; continue; }
       const chunk: MChunk = {
-        key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0, hidden: false, disposed: false,
+        key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0, hidden: false, ready: false, disposed: false,
       };
       this.chunks.set(key, chunk);
       this.send({ id: this.nextJobId++, chunk, worker: prepared.worker, tiles: prepared.tiles }, prepared.ground, false);
@@ -342,7 +318,8 @@ export class MeshStreamer {
       this.byteCount += chunk.bytes;
       this.meshCount++;
     }
-    if (chunkHidesStructures(chunk.gcx, chunk.gcz) && !this.chunkHasBridge(chunk.gcx, chunk.gcz)) {
+    chunk.ready = true;
+    if (!this.chunkHasBridge(chunk.gcx, chunk.gcz)) {
       this.coarse.setStructuresHidden(chunk.gcx, chunk.gcz, true);
       chunk.hidden = true;
     }

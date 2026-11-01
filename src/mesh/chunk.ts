@@ -1,13 +1,13 @@
 /**
  * One 64 m chunk of extruded buildings. A building belongs to the chunk that holds its footprint
- * centroid (the same anchor the bake uses) and only when that centroid lies in the mesh neighbourhood.
+ * centroid (the same anchor the bake uses). An optional box limits a report to one neighbourhood.
  * The mesh is in chunk-local metres.
  */
 import { VOXEL } from '../world/constants.ts';
 import { CHUNK_M } from '../world/stream-math.ts';
 import { GM, GW } from '../fine/block-input.ts';
 import type { VectorTile, VBuilding } from '../world/vector-format.ts';
-import { MESH_NEIGHBOURHOOD, type Aabb } from './bounds.ts';
+import type { Aabb } from './bounds.ts';
 import {
   emptyMesh, extrudeBuilding, mergeMeshes, type CityMesh, type ExtrudeBuilding,
 } from './extrude.ts';
@@ -86,7 +86,7 @@ export function groundAtFromGrid(gcx: number, gcz: number, ground: Uint8Array): 
 export function buildingsInChunk(
   tiles: readonly VectorTile[], gcx: number, gcz: number,
   groundAt: (x: number, z: number) => number,
-  box: Aabb = MESH_NEIGHBOURHOOD,
+  box?: Aabb,
 ): ExtrudeBuilding[] {
   const out: ExtrudeBuilding[] = [];
   for (const tile of tiles) {
@@ -100,14 +100,14 @@ export function buildingsInChunk(
 
 function one(
   b: VBuilding, ox: number, oz: number, gcx: number, gcz: number,
-  groundAt: (x: number, z: number) => number, box: Aabb,
+  groundAt: (x: number, z: number) => number, box: Aabb | undefined,
 ): ExtrudeBuilding[] {
   const ring0 = b.rings[0];
   if (ring0 === undefined || ring0.length < 6) return [];
   const rings = b.rings.map((r) => ringMetres(r, ox, oz));
   const [cx, cz] = centroid(rings[0]!);
   if (Math.floor(cx / CHUNK_M) !== gcx || Math.floor(cz / CHUNK_M) !== gcz) return [];
-  if (!inBox(cx, cz, box)) return [];
+  if (box !== undefined && !inBox(cx, cz, box)) return [];
   return [{
     id: b.id,
     rings,

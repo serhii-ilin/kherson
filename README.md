@@ -15,7 +15,7 @@ The interface is Ukrainian by default, with English available.
 ## Features
 
 - **The city of Kherson only**, limited to its OSM boundary (relation 2175078, plus a 20 m margin): the road and tram network, parks and landuse. Suburbs and villages (Oleshky, Chornobaivka, Komyshany, ...) are not baked. The Dnipro, Koshova, the islands and the natural floodplain (forest, scrub, sand) around the city stay. The Antonivskyi road bridge, which stands just outside that boundary, is included as a narrow corridor along the span and its approaches. It is rasterised from OSM at 2 m per voxel.
-- **Streaming world.** Region files load and mesh around the camera in Web Workers. A low-resolution overview mesh fills the horizon.
+- **Streaming world.** Region files load and mesh around the camera in Web Workers. Buildings are extruded from the map footprints (the default). A low-resolution overview mesh fills the horizon. `?renderer=voxel` draws the old blocks instead.
 - **Walk and fly modes**:
   - **Walk:** gravity, step-up, collision with buildings, tree trunks and water.
   - **Fly:** free flight that cannot pass through the ground or buildings.
@@ -57,7 +57,7 @@ The interface is Ukrainian by default, with English available.
 | `lang=uk` / `lang=en` | interface language |
 | `time=HH:MM` | time of day (e.g. `22:30` for night) |
 | `quality=high` / `quality=low` | rendering quality |
-| `renderer=mesh` | city-centre buildings as extruded meshes (the voxel city stays the default) |
+| `renderer=voxel` | draw buildings as voxels (the default is extruded meshes) |
 
 Example: `?mode=fly&x=10900&z=9900&y=180&yaw=135&pitch=-22`
 

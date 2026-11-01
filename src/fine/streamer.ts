@@ -22,10 +22,14 @@ export interface FineStreamerOptions {
   /** Shop sign renderer; signs follow the installed block chunks. */
   signs?: SignLayer;
   /**
-   * Chunks left out of the block tier. The mesh prototype uses this so the centre is not drawn twice
-   * (1 m voxels and extruded meshes). Ground jobs are unaffected.
+   * Chunks left out of the block tier. Ground jobs are unaffected.
    */
   blockExclude?: (gcx: number, gcz: number) => boolean;
+  /**
+   * Mesh mode: the block tier emits street props and shop signs only. It does not draw building
+   * voxels and it does not hide coarse structures (the mesh streamer does that).
+   */
+  propsOnly?: boolean;
 }
 
 const HYSTERESIS = 64;
@@ -145,6 +149,7 @@ export class FineStreamer {
   readonly blockRadius: number;
   private readonly signLayer: SignLayer | null;
   private readonly blockExclude: ((gcx: number, gcz: number) => boolean) | null;
+  private readonly propsOnly: boolean;
 
   private readonly scene: THREE.Scene;
   private readonly coarse: WorldStreamer;
@@ -207,6 +212,7 @@ export class FineStreamer {
     this.blockRadius = opts.blockRadius ?? 0;
     this.signLayer = opts.signs ?? null;
     this.blockExclude = opts.blockExclude ?? null;
+    this.propsOnly = opts.propsOnly === true;
     this.world = new FineWorld(coarse);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     this.chunksX = manifest.regionsX * REGION_CHUNKS;
@@ -268,7 +274,9 @@ export class FineStreamer {
     }
     for (const t of this.btiles.values()) if (t.mesh !== null) t.mesh.visible = !high;
     for (const c of this.fading) if (c.fade?.mesh) c.fade.mesh.visible = !high;
-    for (const c of this.bchunks.values()) if (c.installed) this.coarse.setStructuresHidden(c.gcx, c.gcz, !high);
+    if (!this.propsOnly) {
+      for (const c of this.bchunks.values()) if (c.installed) this.coarse.setStructuresHidden(c.gcx, c.gcz, !high);
+    }
     if (!high) {
       this.lastGcx = -1e9; // rescan at the next update
       this.dirty = true;
@@ -564,7 +572,10 @@ export class FineStreamer {
       }
     }
     const req: FineRequest = { id: job.id, gcx: job.chunk.gcx, gcz: job.chunk.gcz, patch: job.patch, tiles: refs };
-    if (job.chunk.kind === 'blocks') req.kind = 'blocks';
+    if (job.chunk.kind === 'blocks') {
+      req.kind = 'blocks';
+      if (this.propsOnly) req.propsOnly = true;
+    }
     if (job.win !== null) req.win = job.win;
     if (job.tier !== null) req.tier = job.tier;
     this.jobs.set(job.id, job);
@@ -843,9 +854,11 @@ export class FineStreamer {
       if (!again) this.blockCount++;
       this.endFade(c);
     }
-    for (const c of add) {
-      this.coarse.setStructuresHidden(c.gcx, c.gcz, !this.high);
-      this.world.setBlocks(c.gcx, c.gcz, c.tops, c.decks ?? undefined, c.rails ?? undefined);
+    if (!this.propsOnly) {
+      for (const c of add) {
+        this.coarse.setStructuresHidden(c.gcx, c.gcz, !this.high);
+        this.world.setBlocks(c.gcx, c.gcz, c.tops, c.decks ?? undefined, c.rails ?? undefined);
+      }
     }
     if (tile.mesh === null && tile.parts.length === 0 && tile.pending.length === 0) this.btiles.delete(tile.key);
   }
@@ -853,9 +866,11 @@ export class FineStreamer {
   private dropBlocks(c: FChunk): void {
     c.disposed = true;
     if (c.installed) {
-      // unhide the coarse structures first, so there is never a frame without the building
-      this.coarse.setStructuresHidden(c.gcx, c.gcz, false);
-      this.world.setBlocks(c.gcx, c.gcz, null);
+      if (!this.propsOnly) {
+        // unhide the coarse structures first, so there is never a frame without the building
+        this.coarse.setStructuresHidden(c.gcx, c.gcz, false);
+        this.world.setBlocks(c.gcx, c.gcz, null);
+      }
       this.signLayer?.remove(c.key);
       this.blockCount--;
       c.installed = false;
