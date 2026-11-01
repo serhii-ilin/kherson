@@ -53,6 +53,11 @@ export interface BlockInput {
   win: Uint8Array;
   /** Decoded tiles of the chunk's 3x3 region neighbourhood. */
   tiles: readonly VectorTile[];
+  /**
+   * Mesh mode: do not voxelise buildings. Emit street props and shop signs only.
+   * Bridges stay on the coarse (or block) path; the mesh streamer hides building voxels.
+   */
+  propsOnly?: boolean;
 }
 
 export interface BlockMesh extends ChunkMesh {
@@ -376,8 +381,32 @@ function withCoarse(base: ChunkMesh, extra: ChunkMesh & { runs: Float32Array }, 
   };
 }
 
+/**
+ * Street props and shop signs for one chunk, with no building blocks. Used when extruded
+ * meshes already draw the buildings, so the 1 m tier must not draw them again.
+ */
+export function generatePropsChunk(input: BlockInput): BlockMesh {
+  const x0 = input.gcx * CHUNK_M;
+  const z0 = input.gcz * CHUNK_M;
+  const wd = new BlockWindowData(input.win, input.gcx, input.gcz);
+  const bounds = { x0, z0, x1: x0 + CHUNK_M, z1: z0 + CHUNK_M };
+  const props = buildPropMesh(placeProps(input.tiles, bounds, wd, LANDMARK_EXCLUSIONS), x0, z0);
+  const signs = packSigns(placeSigns(input.tiles, bounds, wd.groundAt), x0, z0);
+  const zeros = new Uint8Array(CHUNK_M * CHUNK_M);
+  return {
+    ...props,
+    runs: new Float32Array((props.positions.length / 3) * 2),
+    tops: zeros,
+    decks: new Uint8Array(CHUNK_M * CHUNK_M),
+    rails: new Uint8Array(CHUNK_M * CHUNK_M),
+    signs,
+    propTris: props.indices.length / 3,
+  };
+}
+
 /** 1 m building and bridge blocks for one chunk: generate into a 66x66 window, mesh the inner 64x64. */
 export function generateBlockChunk(input: BlockInput): BlockMesh {
+  if (input.propsOnly) return generatePropsChunk(input);
   const x0 = input.gcx * CHUNK_M, z0 = input.gcz * CHUNK_M;
   if (scratch === null) scratch = new BlockWindow(x0, z0);
   else scratch.clear(x0, z0);

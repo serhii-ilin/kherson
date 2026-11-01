@@ -23,6 +23,8 @@ export interface FineRequest {
   win?: Uint8Array;
   /** Block jobs: tier status of the surrounding chunks (generate.ts makeTierSnapshot). */
   tier?: Uint8Array;
+  /** Block jobs in mesh mode: props and signs only, no building voxels. */
+  propsOnly?: boolean;
   tiles: TileRef[];
 }
 
@@ -71,7 +73,7 @@ scope.onmessage = (e) => {
       return;
     }
     if (kind === 'blocks') {
-      const blocks = generateBlockChunk({ gcx, gcz, win: win!, tier, tiles: decoded });
+      const blocks = generateBlockChunk({ gcx, gcz, win: win!, tier, tiles: decoded, propsOnly: e.data.propsOnly === true });
       scope.postMessage({ id, blocks } satisfies FineResponse, [
         blocks.positions.buffer,
         blocks.normals.buffer,

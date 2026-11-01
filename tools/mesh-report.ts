@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { MESH_NEIGHBOURHOOD } from '../src/mesh/bounds.ts';
 import { buildingsInChunk, buildChunkMesh } from '../src/mesh/chunk.ts';
 import { meshByteSize, triangleCount } from '../src/mesh/extrude.ts';
-import { CHUNK_M } from '../src/world/stream-math.ts';
+import { CHUNK_M, distToChunk } from '../src/world/stream-math.ts';
 import { decodeVectorTile, type VectorTile } from '../src/world/vector-format.ts';
 
 const dir = 'public/world';
@@ -54,16 +54,32 @@ let bytes = 0;
 let chunks = 0;
 const seen = new Set<number>();
 const ground = (): number => 4;
-for (let gcz = gz0; gcz <= gz1; gcz++) {
-  for (let gcx = gx0; gcx <= gx1; gcx++) {
+let viewTris = 0;
+let viewBytes = 0;
+let viewChunks = 0;
+let viewBuildings = 0;
+const SPAWN_X = 10293;
+const SPAWN_Z = 8817;
+const VIEW = 640;
+for (let gcz = gz0 - 8; gcz <= gz1 + 8; gcz++) {
+  for (let gcx = gx0 - 8; gcx <= gx1 + 8; gcx++) {
+    const inBox = gcx >= gx0 && gcx <= gx1 && gcz >= gz0 && gcz <= gz1;
+    const inView = distToChunk(SPAWN_X, SPAWN_Z, gcx, gcz) <= VIEW;
+    if (!inBox && !inView) continue;
     const neigh = neighbourhood(gcx, gcz);
-    for (const b of buildingsInChunk(neigh, gcx, gcz, ground)) seen.add(b.id);
+    if (neigh.length === 0) continue;
     const mesh = buildChunkMesh(neigh, gcx, gcz, ground);
     const n = triangleCount(mesh);
-    if (n === 0) continue;
-    chunks++;
-    tris += n;
-    bytes += meshByteSize(mesh);
+    if (inBox) {
+      for (const b of buildingsInChunk(neigh, gcx, gcz, ground, box)) seen.add(b.id);
+      if (n > 0) { chunks++; tris += n; bytes += meshByteSize(mesh); }
+    }
+    if (inView && n > 0) {
+      viewChunks++;
+      viewTris += n;
+      viewBytes += meshByteSize(mesh);
+      viewBuildings += buildingsInChunk(neigh, gcx, gcz, ground).length;
+    }
   }
 }
 
@@ -81,4 +97,10 @@ console.log(JSON.stringify({
   vectorTileMB: Number((tileBytes / 1e6).toFixed(3)),
   bakedWorldBytes: worldBytes,
   bakedWorldMB: Number((worldBytes / 1e6).toFixed(3)),
+  viewRadiusM: VIEW,
+  viewChunksWithMesh: viewChunks,
+  viewBuildings: viewBuildings,
+  viewTriangles: viewTris,
+  viewGpuBytes: viewBytes,
+  viewGpuMB: Number((viewBytes / 1e6).toFixed(3)),
 }, null, 2));
