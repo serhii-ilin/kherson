@@ -1,3 +1,5 @@
+import { buildRealisticModel } from './realistic.ts';
+
 export const MICRO = 0.5;
 
 export const SPECIES = {
@@ -17,8 +19,10 @@ export interface VegModel {
   indices: Uint32Array;
   height: number;
   radius: number;
-  /** Per vertex: 1 = leaf/blossom (may be cut out by the shader), 0 = wood. Only on the finest model (lod 3). */
+  /** Per vertex: 1 = leaf/blossom (alpha-tested), 0 = wood. On every realistic LOD, and on the voxel finest model. */
   leaf?: Float32Array;
+  /** Bark and leaf-card UVs. Realistic models only; the shader samples procedural textures with these. */
+  uvs?: Float32Array;
 }
 
 function mulberry32(seed: number): () => number {
@@ -781,11 +785,20 @@ function buildLod3(species: number, variant: number, rng: () => number): VegMode
   return out.toModel(plan.height, plan.radius);
 }
 
-/** lod 0 = near (0.5 m voxels), 1 = far boxes, 2 = mid (1 m voxels), 3 = finest (0.2 m, branches and leaf clusters). */
-export function buildModel(species: number, variant: number, lod: 0 | 1 | 2 | 3): VegModel {
+/** Voxel crowns. Used only for `?renderer=voxel`, so a before/after URL still shows the old trees. */
+export function buildVoxelModel(species: number, variant: number, lod: 0 | 1 | 2 | 3): VegModel {
   const rng = mulberry32(species * 7919 + variant * 104729);
   if (lod === 0) return buildLod0(species, variant, rng);
   if (lod === 2) return buildLod2(species, variant, rng);
   if (lod === 3) return buildLod3(species, variant, rng);
   return buildLod1(species, variant, rng);
+}
+
+/**
+ * Default vegetation. `voxel` keeps the micro-voxel crowns (`?renderer=voxel`).
+ * lod 3 = near leaf cards, 0 = simpler cards, 2 = mid, 1 = crossed billboards.
+ */
+export function buildModel(species: number, variant: number, lod: 0 | 1 | 2 | 3, voxel = false): VegModel {
+  if (voxel) return buildVoxelModel(species, variant, lod);
+  return buildRealisticModel(species, variant, lod);
 }

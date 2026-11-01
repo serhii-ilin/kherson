@@ -198,23 +198,25 @@ const base = import.meta.env.BASE_URL;
 async function start(): Promise<void> {
   const manifest = (await (await fetch(versioned(`${base}world/manifest.json`))).json()) as Manifest;
   const viewRadius = isMobile ? 384 : 640;
+  const q = new URLSearchParams(location.search);
+  // Extruded buildings and leaf-card trees are the default. ?renderer=voxel keeps both old looks.
+  const voxelRenderer = q.get('renderer') === 'voxel';
   const streamer = new WorldStreamer(scene, manifest, { viewRadius, waterMaterial });
   const vegetation = new Vegetation(scene, {
     nearRadius: isMobile ? 150 : 250,
     farRadius: viewRadius,
     fineRadius: isMobile ? 25 : 40,
     exclusions: getVegetationExclusions(manifest.bbox),
+    voxel: voxelRenderer,
   });
   streamer.onRegionData = (rx, rz, data) => vegetation.setRegion(rx, rz, data ? data.features : null, data?.cells);
-  const q = new URLSearchParams(location.search);
   // Fine tier (0.2 m ground near the camera): High quality + baked vector tiles; ?fine=0|1 overrides.
   const fineParam = q.get('fine');
   const fineOn = fineParam === '0' ? false : fineParam === '1' ? true : quality === 'high' && manifest.vectors === true;
   // Block tier (1 m buildings and bridges within 250 m, 100 m on phones): High quality; ?blocks=0|1 overrides.
   const blocksParam = q.get('blocks');
   const blocksOn = blocksParam === '0' ? false : blocksParam === '1' ? true : quality === 'high';
-  // Extruded buildings are the default. ?renderer=voxel keeps the 1 m / 2 m blocks for comparison.
-  const meshOn = q.get('renderer') !== 'voxel' && manifest.vectors === true;
+  const meshOn = !voxelRenderer && manifest.vectors === true;
   const fine = fineOn
     ? new FineStreamer(scene, streamer, manifest, {
       radius: isMobile ? 70 : 150,
@@ -488,6 +490,10 @@ async function start(): Promise<void> {
           meshTris: mesh?.triangles ?? 0,
           meshGpuBytes: mesh?.gpuBytes ?? 0,
           meshTileBytes: mesh?.downloadedBytes ?? 0,
+          vegInstances: vegetation.stats.instances,
+          vegNear: vegetation.stats.near,
+          vegFine: vegetation.stats.fine,
+          vegTris: vegetation.stats.triangles,
           worldEncodedBytes: encoded,
           worldTransferBytes: transfer,
         };

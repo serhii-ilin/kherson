@@ -34,6 +34,8 @@ export class VegModelQueue {
     private readonly create: () => VegTransport,
     private readonly onModel: (key: number, model: VegModel) => void,
     private readonly maxInFlight = 2,
+    /** Ask the worker for micro-voxel crowns (`?renderer=voxel`). */
+    private readonly voxel = false,
   ) {}
 
   /** True once `key` has been requested (done, in flight or waiting). */
@@ -91,7 +93,7 @@ export class VegModelQueue {
       const id = this.nextId++;
       this.pending.set(id, bk);
       this.inFlight++;
-      this.transport.post({ id, species: w.species, variant: w.variant, lod: w.lod });
+      this.transport.post({ id, species: w.species, variant: w.variant, lod: w.lod, voxel: this.voxel });
     }
   }
 }

@@ -45,16 +45,17 @@ describe('buildModel', () => {
   });
 
   it('lod 0 triangle count within bounds', () => {
+    // Constitution cap is still 1,500. The floor is a trunk plus leaf cards, not a voxel shell.
     for (const species of TREE_SPECIES) {
       for (let v = 0; v < VARIANTS; v++) {
         const triangles = buildModel(species, v, 0).indices.length / 3;
-        expect(triangles).toBeGreaterThanOrEqual(150);
+        expect(triangles).toBeGreaterThanOrEqual(20);
         expect(triangles).toBeLessThanOrEqual(1500);
       }
     }
     for (const species of BUSH_SPECIES) {
       const triangles = buildModel(species, 0, 0).indices.length / 3;
-      expect(triangles).toBeGreaterThanOrEqual(30);
+      expect(triangles).toBeGreaterThanOrEqual(12);
       expect(triangles).toBeLessThanOrEqual(200);
     }
   });
@@ -195,7 +196,8 @@ describe('finest model (lod 3, 0.2 m)', () => {
         const m = buildModel(s, v, 3);
         const tris = m.indices.length / 3;
         const isBush = s >= SPECIES.BUSH;
-        expect(tris, `species ${s} variant ${v}`).toBeGreaterThan(isBush ? 100 : 1500);
+        // Constitution caps stay 6,000 / 1,500. Cards replace the old 0.2 m shell, so the floor is lower.
+        expect(tris, `species ${s} variant ${v}`).toBeGreaterThan(isBush ? 20 : 60);
         expect(tris, `species ${s} variant ${v}`).toBeLessThanOrEqual(isBush ? 1500 : 6000);
         expect(m.leaf).toBeInstanceOf(Float32Array);
         expect(m.leaf!.length).toBe(m.positions.length / 3);
@@ -246,34 +248,17 @@ describe('finest model (lod 3, 0.2 m)', () => {
     }
   });
 
-  it('crown is a dense mass with small gaps (side projection 70-97% filled)', () => {
-    const C = 0.2;
+  it('leaf cards carry uvs and reach the crown', () => {
     for (const s of TREE_SPECIES) {
       const m = buildModel(s, 0, 3);
-      // project every quad facing +-z onto the xy plane; filled cells = leaf silhouette
-      const filled = new Set<string>();
-      for (let i = 0; i < m.indices.length; i += 6) {
-        const a = m.indices[i]!;
-        if (Math.abs(m.normals[a * 3 + 2]!) < 0.5 || m.leaf![a] === 0) continue;
-        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-        for (const k of [0, 1, 2, 5]) {
-          const id = m.indices[i + k]!;
-          x0 = Math.min(x0, m.positions[id * 3]!); x1 = Math.max(x1, m.positions[id * 3]!);
-          y0 = Math.min(y0, m.positions[id * 3 + 1]!); y1 = Math.max(y1, m.positions[id * 3 + 1]!);
-        }
-        for (let x = Math.floor(x0 / C + 1e-6); x < Math.round(x1 / C); x++) {
-          for (let y = Math.floor(y0 / C + 1e-6); y < Math.round(y1 / C); y++) filled.add(`${x},${y}`);
-        }
-      }
+      expect(m.uvs, `species ${s}`).toBeInstanceOf(Float32Array);
+      expect(m.uvs!.length).toBe((m.positions.length / 3) * 2);
+      let leaves = 0;
+      for (let i = 0; i < m.leaf!.length; i++) if (m.leaf![i]! > 0.5) leaves++;
+      expect(leaves / m.leaf!.length, `species ${s}`).toBeGreaterThan(0.4);
       const b = bbox(m);
-      const yLo = m.height * 0.45, yHi = m.height * 0.8;
-      let inside = 0, hit = 0;
-      for (let x = -b.r * 0.6; x <= b.r * 0.6; x += C) for (let y = yLo; y <= yHi; y += C) {
-        inside++;
-        if (filled.has(`${Math.floor(x / C + 1e-6)},${Math.floor(y / C + 1e-6)}`)) hit++;
-      }
-      expect(hit / inside, `species ${s}`).toBeGreaterThanOrEqual(0.7);
-      expect(hit / inside, `species ${s}`).toBeLessThanOrEqual(1);
+      expect(b.r, `species ${s}`).toBeGreaterThan(m.radius * 0.7);
+      expect(b.h, `species ${s}`).toBeGreaterThan(m.height * 0.75);
     }
   });
 
@@ -300,9 +285,9 @@ describe('finest model (lod 3, 0.2 m)', () => {
     }
   });
 
-  it('flowering bushes carry blossom-coloured voxels', () => {
+  it('flowering bushes carry blossom-coloured cards', () => {
     const m = buildModel(SPECIES.BUSH_LILAC, 0, 3);
-    // blossom colour #b48ad6: blue channel clearly above green
+    // blossom colour: blue channel clearly above green
     let blossom = 0, green = 0;
     for (let i = 0; i < m.colors.length; i += 3) {
       if (m.colors[i + 2]! > m.colors[i + 1]! * 1.15) blossom++;
@@ -310,5 +295,20 @@ describe('finest model (lod 3, 0.2 m)', () => {
     }
     expect(blossom).toBeGreaterThan(0);
     expect(green).toBeGreaterThan(0);
+    const pink = buildModel(SPECIES.BUSH_PINK, 0, 3);
+    let pinkVerts = 0;
+    for (let i = 0; i < pink.colors.length; i += 3) {
+      if (pink.colors[i]! > pink.colors[i + 1]! && pink.colors[i]! > pink.colors[i + 2]!) pinkVerts++;
+    }
+    expect(pinkVerts).toBeGreaterThan(0);
+  });
+
+  it('?renderer=voxel still builds the heavier micro-voxel crown', () => {
+    const cards = buildModel(SPECIES.CHESTNUT, 0, 3);
+    const voxel = buildModel(SPECIES.CHESTNUT, 0, 3, true);
+    expect(cards.uvs).toBeInstanceOf(Float32Array);
+    expect(voxel.uvs).toBeUndefined();
+    expect(voxel.indices.length).toBeGreaterThan(cards.indices.length);
+    expect(voxel.indices.length / 3).toBeLessThanOrEqual(6000);
   });
 });

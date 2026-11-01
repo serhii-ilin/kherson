@@ -21,8 +21,8 @@ The interface is Ukrainian by default, with English available.
   - **Fly:** free flight that cannot pass through the ground or buildings.
 - **Touch controls** for phones and tablets: virtual joystick, look-drag, and up/down/mode buttons.
 - **Nature**:
-  - **Trees:** about 396k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 74k street trees.
-  - **Bushes:** about 313k, including flowering lilac and pink bushes.
+  - **Trees:** about 396k trees of seven species (chestnut, linden, acacia, poplar, willow, pine, plane), including about 74k street trees. The default model is a low-poly trunk and branches with alpha-tested summer leaf cards, four levels of detail, wind sway, and a different colour and scale per tree. `?renderer=voxel` keeps the old micro-voxel crowns.
+  - **Bushes:** about 313k, including flowering lilac and pink bushes, drawn with the same leaf cards.
   - **Water:** tessellated with a wave shader, shore foam and sky reflection.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
 - **Share a link**: the 🔗 button copies a URL for your exact spot and view (`x`, `z`, `yaw`, `pitch`, `time`, plus `mode=fly&y=` when flying).
@@ -57,7 +57,7 @@ The interface is Ukrainian by default, with English available.
 | `lang=uk` / `lang=en` | interface language |
 | `time=HH:MM` | time of day (e.g. `22:30` for night) |
 | `quality=high` / `quality=low` | rendering quality |
-| `renderer=voxel` | draw buildings as voxels (the default is extruded meshes) |
+| `renderer=voxel` | draw buildings and trees as voxels (the default is extruded meshes and leaf-card trees) |
 
 Example: `?mode=fly&x=10900&z=9900&y=180&yaw=135&pitch=-22`
 
@@ -98,7 +98,7 @@ data/osm/kherson.json.gz  ──bake──►  public/world/            ──�
 - **World grid:** 1 voxel is 2 m. A chunk is 32 × 32 cells (64 m); a region is 8 × 8 chunks (512 m), giving 36 × 31 regions.
 - **Cells (2.5D columns):** each cell stores 5 bytes: ground material, ground height, structure height, wall material and roof material.
 - **Features:** region files also carry a list of features (trees, bushes, bridge decks), each with a species and a seed. Vegetation is rendered with instancing, separately from the voxel grid.
-- **Fine tier:** within 150 m of the camera (High quality), workers rebuild the ground at 0.2 m from per-region vector tiles: real road widths, raised sidewalks with kerbs, lane markings, zebra crossings and tram rails. Within 250 m, buildings and bridges are rebuilt as 1 m blocks with carved windows, entrances, balconies, cornices, pitched roofs, domes, decks, railings and piers, plus street lamps, traffic lights, bus shelters, benches, fences and shop signs with their real Ukrainian names. Trees within 40 m use 0.2 m micro-voxels.
+- **Fine tier:** within 150 m of the camera (High quality), workers rebuild the ground at 0.2 m from per-region vector tiles: real road widths, raised sidewalks with kerbs, lane markings, zebra crossings and tram rails. Within 250 m, buildings and bridges are rebuilt as 1 m blocks with carved windows, entrances, balconies, cornices, pitched roofs, domes, decks, railings and piers, plus street lamps, traffic lights, bus shelters, benches, fences and shop signs with their real Ukrainian names. Trees within 40 m use the full leaf-card crown (trunk, branches, alpha-tested leaves). Bark and leaf images are procedural, not KTX2: a Basis transcoder would be another runtime binary, which the constitution does not allow. `?renderer=voxel` switches those crowns back to 0.2 m micro-voxels. High quality casts shadows from the near and mid crowns.
 - **Determinism:** the bake is deterministic. Every random choice is a hash of the coordinates or the OSM id, so the same snapshot always yields the same world.
 
 ### Project layout

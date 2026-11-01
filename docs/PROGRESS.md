@@ -25,7 +25,34 @@ _Last updated: 2026-11-01_
 | Time of day: sun for Kherson in June, golden hour, moonlit night with stars, lit windows and lamps, time button (uk/en), `?time=HH:MM` | ✅ | `efeb49b` |
 | Pre-war restoration on the full OSM snapshot (bridge corridor, restoration table) | ✅ | `e446c4e` |
 | Mesh prototype: extruded buildings for the centre, behind `?renderer=mesh` | ✅ | `738c88f` |
-| Whole-city mid meshes, on by default; props and signs stay | 🟡 | this branch |
+| Whole-city mid meshes, on by default; props and signs stay | ✅ | `3f6017f` |
+| Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | 🟡 | this branch |
+
+## Realistic trees and bushes
+
+The default vegetation is no longer micro-voxels. Each of the seven tree species, and the bushes (plain, lilac, pink), is an instanced low-poly trunk with alpha-tested summer leaf cards. Wind sway, per-instance colour and scale, and trunk collision are unchanged: collision is still the baked tree position, not the mesh. `?renderer=voxel` keeps the old crowns and the old buildings, so one URL is the before/after. Bark and leaves are procedural `DataTexture`s. KTX2 was not used, because decoding it needs a Basis transcoder, which would be another runtime binary.
+
+Levels of detail are the existing four slots. Radii are unchanged (full model 40 m, simpler cards 70 m, mid 250 m, billboard out to the view radius; phones use 25 / 40 / 150 / 384 m). Article 4 caps still hold. The heaviest variant of each species, in triangles:
+
+| | Near (lod 3, cap 6,000) | 70 m (lod 0, cap 1,500) | Mid (lod 2, cap 400) | Far (lod 1, cap 24) |
+|---|---:|---:|---:|---:|
+| Poplar, the heaviest tree | 260 | 94 | 40 | 14 |
+| Bush / lilac / pink | 104–116 | 54–58 | 30 | 6 |
+
+The bake still places about 396k trees and 313k bushes. Only the ones inside the view are drawn, and only the nearest use the full model. Headless Chrome (SwiftShader, 1280×720, `quality=high`) after the scene settled. The same instances are in both columns; the leaf-card path is fewer triangles. The frame interval is about 2 s and is not a laptop frame time.
+
+| Pose | Path | Scene triangles | Draws | Vegetation |
+|---|---|---:|---:|---|
+| Street `x=10270&z=8850&yaw=-75&pitch=4` | `?renderer=voxel` | 989,970 | 188 | 9,283 instances, 369,988 tris |
+| Same street | default | 502,855 | 189 | 9,283 instances, 133,036 tris |
+| Aerial `mode=fly&x=10340&z=9000&y=90&yaw=-15&pitch=-32` | voxel | 1,282,456 | 206 | 11,448 instances, 521,856 tris |
+| Same aerial | default | 534,280 | 205 | 11,448 instances, 158,978 tris |
+
+High quality casts shadows from every crown except the far billboard. Both poses stay inside the scene caps (about 2.5M triangles and 400 draws).
+
+### Next
+
+Hotel «Фрегат» and the other hero glTFs, the far skyline, collision and the overview off voxel columns, then delete the voxel renderer.
 
 ## Whole-city meshes (phase 1)
 
@@ -98,7 +125,7 @@ Both poses stay inside the constitution caps (about 2.5M triangles and 400 draws
 ## Open tasks
 
 ### Next
-- ⬜ Hero landmarks as photo-based glTF, starting with Hotel «Фрегат» (way 116810729). The centre's generic buildings can be compared with `?renderer=mesh`.
+- ⬜ Hero landmarks as photo-based glTF, starting with Hotel «Фрегат» (way 116810729). Then the far skyline, collision and the overview off voxel columns, then delete the voxel renderer.
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ✅ Landmark detail layer, first pass (see Done).
