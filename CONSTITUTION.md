@@ -44,6 +44,7 @@ Measure with the dev HUD (`renderer.info`) at the spawn point (Freedom Square), 
 | Vegetation, mid model (1 m) | 250 m or less, at most 400 triangles | 150 m or less |
 | Birds | at most about 170 | at most about 90 |
 | Concurrent audio voices | at most 24 | at most 24 |
+| Bird recordings, encoded (Opus/WebM and AAC/M4A together) | at most 1.5 MB, mono, fetched only after a user gesture | same |
 | Baked world (`public/world/`) | at most 30 MB | same |
 
 A **Low** quality setting must exist so any device can fall back to the 2 m tier without shadows.
@@ -85,7 +86,7 @@ A change is done only when all of these hold:
 ## Article 8: Licensing and attribution
 
 1. **Attribution:** map data is © OpenStreetMap contributors, under ODbL. The attribution must be visible in the README and in the running app (bottom-left on desktop, bottom centre on phones). The baked world is a derived database under ODbL.
-2. **Assets:** prefer procedurally generated assets (models, sounds). Any external asset needs a licence compatible with public redistribution (CC0, CC-BY or public domain), credited in the README.
+2. **Assets:** prefer procedurally generated assets (models, sounds). Wind and water stay synthesised. Any other external asset needs a licence compatible with public redistribution (CC0, CC-BY or public domain) and credit in the README. **Bird recordings are the exception to “prefer procedural”, and a tighter one:** they may replace a synthetic voice only when the file is CC0 or public domain (no BY, NC, SA or ND, and no ripped audio). Provenance — source URL, author, licence — goes in `docs/AUDIO_CREDITS.md`. The encoded set stays inside the Article 4 budget, is mono, and is fetched only after a user gesture. A species with no suitable recording stays synthesised. The app may show a short CC0 line beside the map credit; that line is provenance, not a licence condition.
 3. **Code licence:** none chosen yet; the owner decides.
 
 ## Article 9: How the work is done (AI-assisted workflow)
@@ -122,3 +123,4 @@ These are known gaps against this constitution. Fix them before adding new featu
 
 1. **Process:** amend this document through a normal commit that changes only `CONSTITUTION.md`. Explain the reason in the commit message, and get the owner's approval.
 2. **Code follows the rules:** code changes that depend on an amendment come after it, never before it.
+3. **2026-11-01 — recorded birds.** The owner rejected the synthetic doves and swifts: they do not resemble the real birds. Article 4 gains a 1.5 MB budget for encoded bird recordings, loaded only after a gesture. Article 8.2 allows that set under CC0 or public domain only. Wind and water stay procedural. Approved by the owner in the request for this change.
