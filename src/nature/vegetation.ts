@@ -475,44 +475,30 @@ export class Vegetation {
 function makeLeafTexture(): THREE.DataTexture {
   const N = 64;
   const data = new Uint8Array(N * N * 4);
-  // Overlapping leaves fill most of the card. The margin and a few holes stay clear so the quad is not a solid rectangle.
-  const blobs: [number, number, number, number, number][] = [];
-  let seed = 19;
-  const rnd = (): number => {
-    seed = (Math.imul(seed, 16807) + 11) >>> 0;
-    return (seed & 65535) / 65535;
-  };
-  for (let i = 0; i < 22; i++) {
-    blobs.push([0.14 + rnd() * 0.72, 0.12 + rnd() * 0.76, 0.18 + rnd() * 0.16, 0.2 + rnd() * 0.18, rnd() * Math.PI]);
-  }
-  const holes: readonly (readonly [number, number, number])[] = [[0.38, 0.46, 0.07], [0.62, 0.58, 0.055], [0.5, 0.28, 0.05], [0.72, 0.36, 0.045]];
+  // A filled leaf cluster: opaque enough that a crown stays solid past 40 m, with holes and a ragged edge up close.
+  const holes: readonly (readonly [number, number, number])[] = [
+    [0.32, 0.4, 0.055], [0.62, 0.55, 0.06], [0.48, 0.72, 0.045], [0.7, 0.32, 0.04], [0.4, 0.22, 0.035],
+  ];
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const u = (x + 0.5) / N;
       const v = (y + 0.5) / N;
-      let alpha = 0;
-      let shade = 1;
-      for (const [cx, cy, rx, ry, rot] of blobs) {
-        const du = u - cx;
-        const dv = v - cy;
-        const cs = Math.cos(rot);
-        const sn = Math.sin(rot);
-        const lx = (du * cs + dv * sn) / rx;
-        const ly = (-du * sn + dv * cs) / ry;
-        const d = lx * lx + ly * ly;
-        if (d >= 1) continue;
-        const edge = Math.sqrt(d);
-        alpha = Math.max(alpha, edge < 0.86 ? 1 : (1 - edge) / 0.14);
-        const vein = Math.abs(lx) < 0.06 ? 0.78 : 1;
-        shade = Math.min(shade, vein * (0.84 + 0.16 * (1 - edge)));
-      }
+      const du = (u - 0.5) / 0.46;
+      const dv = (v - 0.5) / 0.48;
+      const d = du * du + dv * dv;
+      let alpha = d < 1 ? 1 : 0;
+      const edge = Math.sqrt(Math.max(d, 0));
+      if (edge > 0.82 && Math.sin(u * 48 + v * 17) * Math.sin(v * 41) > 0.15) alpha = 0;
       for (const [hx, hy, hr] of holes) {
         if ((u - hx) * (u - hx) + (v - hy) * (v - hy) < hr * hr) alpha = 0;
       }
+      const vein = Math.abs(du) < 0.08 ? 0.72 : 1;
+      const fleck = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(u * 30) * Math.cos(v * 26));
+      const shade = vein * fleck * (edge < 1 ? 0.9 + 0.1 * (1 - edge) : 1);
       const i = (y * N + x) * 4;
-      data[i] = Math.round(236 * shade);
-      data[i + 1] = Math.round(248 * shade);
-      data[i + 2] = Math.round(214 * shade);
+      data[i] = Math.round(228 * shade);
+      data[i + 1] = Math.round(246 * shade);
+      data[i + 2] = Math.round(206 * shade);
       data[i + 3] = alpha > 0.5 ? 255 : 0;
     }
   }

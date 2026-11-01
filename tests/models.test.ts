@@ -303,6 +303,46 @@ describe('finest model (lod 3, 0.2 m)', () => {
     expect(pinkVerts).toBeGreaterThan(0);
   });
 
+  it('near crowns are many small cards, not one crown-sized plane', () => {
+    for (const s of TREE_SPECIES) {
+      const m = buildModel(s, 0, 3);
+      let quads = 0;
+      let maxDiag = 0;
+      for (let i = 0; i < m.indices.length; i += 6) {
+        const a = m.indices[i]!;
+        if ((m.leaf?.[a] ?? 0) < 0.5) continue;
+        quads++;
+        const ids = [m.indices[i]!, m.indices[i + 1]!, m.indices[i + 2]!, m.indices[i + 5]!];
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const id of ids) {
+          x0 = Math.min(x0, m.positions[id * 3]!); x1 = Math.max(x1, m.positions[id * 3]!);
+          y0 = Math.min(y0, m.positions[id * 3 + 1]!); y1 = Math.max(y1, m.positions[id * 3 + 1]!);
+          z0 = Math.min(z0, m.positions[id * 3 + 2]!); z1 = Math.max(z1, m.positions[id * 3 + 2]!);
+        }
+        maxDiag = Math.max(maxDiag, Math.hypot(x1 - x0, y1 - y0, z1 - z0));
+      }
+      expect(quads, `species ${s}`).toBeGreaterThan(80);
+      // A crown-sized plane is about as long as the tree is tall. These cards stay shorter than that.
+      expect(maxDiag, `species ${s}`).toBeLessThan(m.height * 0.85);
+    }
+  });
+
+  it('leaf normals fan outward instead of one flat facing', () => {
+    const m = buildModel(SPECIES.CHESTNUT, 0, 3);
+    let ref: [number, number, number] | null = null;
+    let differ = 0;
+    let leaves = 0;
+    for (let i = 0; i < m.leaf!.length; i++) {
+      if (m.leaf![i]! < 0.5) continue;
+      const n: [number, number, number] = [m.normals[i * 3]!, m.normals[i * 3 + 1]!, m.normals[i * 3 + 2]!];
+      if (ref === null) { ref = n; continue; }
+      leaves++;
+      const dot = n[0] * ref[0] + n[1] * ref[1] + n[2] * ref[2];
+      if (dot < 0.92) differ++;
+    }
+    expect(differ).toBeGreaterThan(leaves * 0.4);
+  });
+
   it('?renderer=voxel still builds the heavier micro-voxel crown', () => {
     const cards = buildModel(SPECIES.CHESTNUT, 0, 3);
     const voxel = buildModel(SPECIES.CHESTNUT, 0, 3, true);
