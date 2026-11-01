@@ -1,4 +1,4 @@
-import { fillPolygon, type Pt } from "./rasterize.ts";
+import { bufferLine, fillPolygon, type Pt } from "./rasterize.ts";
 import type { Tags } from "./osm.ts";
 
 // Pure helpers for limiting the world to the city boundary (see CITY_RELATION in config.ts).
@@ -50,6 +50,24 @@ export function buildCityMask(rings: readonly (readonly Pt[])[], cellsX: number,
     }
   }
   return m;
+}
+
+/** Mark every cell whose centre lies within `radiusCells` of a polyline. Returns how many new cells were set. */
+export function stampCorridor(mask: CityMask, lines: readonly (readonly Pt[])[], radiusCells: number): number {
+  if (radiusCells <= 0) return 0;
+  let added = 0;
+  for (const line of lines) {
+    if (line.length === 0) continue;
+    bufferLine(line, radiusCells, (cx, cz) => {
+      if (cx < 0 || cz < 0 || cx >= mask.cellsX || cz >= mask.cellsZ) return;
+      const i = cz * mask.cellsX + cx;
+      if (mask.bits[i] === 0) {
+        mask.bits[i] = 1;
+        added++;
+      }
+    });
+  }
+  return added;
 }
 
 /**

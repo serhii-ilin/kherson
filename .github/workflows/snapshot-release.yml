@@ -1,0 +1,39 @@
+# Manual only. Publishes the frozen pre-war OSM snapshot as a GitHub Release.
+# It does not run on push and it is not part of the Pages deploy (.github/workflows/deploy.yml).
+# Do not run it until the owner wants the release created. tools/publish-snapshot.ts prepares
+# the same files locally and prints the gh command without uploading.
+name: Publish OSM snapshot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install osmium
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y osmium-tool
+      - name: Download the 2022-01-01 Ukraine extract and clip it
+        run: npm run fetch-osm -- --geofabrik
+      - name: Pack release files
+        run: npm run publish-snapshot
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create osm-2022-01-01 \
+            data/osm/release/kherson.json.gz \
+            data/osm/release/kherson-bbox.osm.pbf \
+            data/osm/release/SHA256SUMS \
+            --repo ${{ github.repository }} \
+            --title "OSM snapshot 2022-01-01 (pre-war Kherson)" \
+            --notes-file data/osm/release/NOTES.md

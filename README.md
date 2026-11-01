@@ -14,22 +14,22 @@ The interface is Ukrainian by default, with English available.
 
 ## Features
 
-- **The city of Kherson only**, limited to its OSM boundary (relation 2175078, plus a 20 m margin): about 10,100 buildings, the road and tram network, parks and landuse. Suburbs and villages (Oleshky, Chornobaivka, Komyshany, ...) are not baked. The Dnipro, Koshova, the islands and the natural floodplain (forest, scrub, sand) around the city stay. It is rasterised from OSM at 2 m per voxel.
+- **The city of Kherson only**, limited to its OSM boundary (relation 2175078, plus a 20 m margin): the road and tram network, parks and landuse. Suburbs and villages (Oleshky, Chornobaivka, Komyshany, ...) are not baked. The Dnipro, Koshova, the islands and the natural floodplain (forest, scrub, sand) around the city stay. The Antonivskyi road bridge, which stands just outside that boundary, is included as a narrow corridor along the span and its approaches. It is rasterised from OSM at 2 m per voxel.
 - **Streaming world.** Region files load and mesh around the camera in Web Workers. A low-resolution overview mesh fills the horizon.
 - **Walk and fly modes**:
   - **Walk:** gravity, step-up, collision with buildings, tree trunks and water.
   - **Fly:** free flight that cannot pass through the ground or buildings.
 - **Touch controls** for phones and tablets: virtual joystick, look-drag, and up/down/mode buttons.
 - **Nature**:
-  - **Trees:** about 340k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 119k street trees.
-  - **Bushes:** about 200k, including flowering lilac and pink bushes.
+  - **Trees:** about 325k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 74k street trees. Almost all of those are placed by the bake along streets; the 2022-01-01 extract has very few individually mapped trees.
+  - **Bushes:** about 244k, including flowering lilac and pink bushes.
   - **Water:** tessellated with a wave shader, shore foam and sky reflection.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
 - **Share a link**: the 🔗 button copies a URL for your exact spot and view (`x`, `z`, `yaw`, `pitch`, `time`, plus `mode=fly&y=` when flying).
 - **Time of day**: morning, noon, golden evening and a moonlit night with stars, lit windows and glowing street lamps (button next to the language switch, or `?time=HH:MM`).
 - **Ambient sound**, synthesised in real time with WebAudio (no audio files): songbirds, screaming swift fly-bys with Doppler shift, cooing doves, wind and water. There is a mute toggle.
 - **UI**:
-  - Places search and teleport, in Cyrillic or Latin: 161 landmarks and 686 streets. Former street names work too (e.g. «Ушакова» finds проспект Незалежності), and a street result puts you on the street, looking along it.
+  - Places search and teleport, in Cyrillic or Latin: 114 landmarks and 386 streets. Former names work when OSM recorded an `old_name`. In this snapshot the main avenue is still проспект Ушакова (it was renamed Незалежності later). A street result puts you on the street, looking along it.
   - A minimap.
   - A language switcher (УКР | EN).
   - Shareable URL poses.
@@ -79,7 +79,8 @@ npm run dev       # http://localhost:5173/kherson/
 | `npm run preview` | serve the production build |
 | `npm test` | Vitest unit tests |
 | `npm run bake` | convert `data/osm/kherson.json.gz` into region files, overview and places |
-| `npm run fetch-osm` | download a fresh OSM snapshot from Overpass (tiled, with retries) |
+| `npm run fetch-osm` | rebuild `data/osm/kherson.json.gz` (Overpass attic at 2022-02-01 by default; `--geofabrik` or `--pbf` offline; `--from-release` for the frozen release) |
+| `npm run publish-snapshot` | pack the snapshot, bbox clip and checksums for a GitHub Release (does not upload) |
 
 ## How it works
 
@@ -109,7 +110,7 @@ src/
   player/               input, walk physics, fly, touch controls, controller
   ui/                   places menu, minimap, styles
 tools/
-  fetch-osm.ts          Overpass download (tiled, cached in data/osm/tiles/)
+  fetch-osm.ts          Overpass attic download, or an offline build from a Geofabrik PBF
   bake.ts, bake/        projection, rasterisation, species placement, encoding
 tests/                  Vitest unit tests
 docs/DEPLOYMENT.md      build, deploy and data-refresh guide
@@ -129,7 +130,7 @@ CONSTITUTION.md         project principles, budgets and working rules
 
 Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/). The baked world in `public/world/` is a derived database and stays under ODbL.
 
-The OSM data reflects what mappers have recorded. Damaged or destroyed structures, such as the Antonivskyi bridge, are shown as OSM records them.
+The committed snapshot is pre-war Kherson: Geofabrik `ukraine-220101.osm.pbf`, OpenStreetMap as of **2022-01-01** (the extract was written on 2022-01-02), before the invasion of 24 February 2022. `npm run fetch-osm` asks Overpass for the attic instant **2022-02-01T00:00:00Z** by default; the file in git was built from the Geofabrik extract because the public Overpass instance was not accepting queries. Structures are shown as that snapshot records them. Later damage tags, including the destroyed Antonivskyi bridge, are not in it. The road bridge is drawn intact, in a corridor outside the city polygon.
 
 ## License
 

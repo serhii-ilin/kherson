@@ -47,7 +47,7 @@ the exact release, URL, checksum, byte size, and count.
 ## Local baseline
 
 The checked-in OSM snapshot is `data/osm/kherson.json.gz`, covering roughly
-46.58--46.72 N, 32.48--32.72 E. In the requested Filatova-area bbox
+46.58--46.72 N, 32.48--32.73 E. In the requested Filatova-area bbox
 `46.642--46.653 N, 32.582--32.606 E`, a local Node inspection counted building
 ways whose mean node coordinate fell inside the bbox:
 
