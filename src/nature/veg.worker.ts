@@ -5,6 +5,8 @@ export interface VegRequest {
   species: number;
   variant: number;
   lod: 0 | 1 | 2 | 3;
+  /** Micro-voxel crowns. Absent or false builds the leaf-card model. */
+  voxel?: boolean;
 }
 
 export interface VegResponse {
@@ -21,9 +23,9 @@ interface WorkerScope {
 const scope = self as unknown as WorkerScope;
 
 scope.onmessage = (e) => {
-  const { id, species, variant, lod } = e.data;
+  const { id, species, variant, lod, voxel } = e.data;
   try {
-    const model = buildModel(species, variant, lod);
+    const model = buildModel(species, variant, lod, voxel === true);
     const transfer: Transferable[] = [
       model.positions.buffer as ArrayBuffer,
       model.normals.buffer as ArrayBuffer,
@@ -32,6 +34,7 @@ scope.onmessage = (e) => {
       model.indices.buffer as ArrayBuffer,
     ];
     if (model.leaf) transfer.push(model.leaf.buffer as ArrayBuffer);
+    if (model.uvs) transfer.push(model.uvs.buffer as ArrayBuffer);
     scope.postMessage({ id, model } satisfies VegResponse, transfer);
   } catch (err) {
     scope.postMessage({ id, error: String(err) } satisfies VegResponse);

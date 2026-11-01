@@ -16,8 +16,10 @@ export interface VegetationOptions {
   lod0Radius?: number;
   /** Finest 0.2 m models (lod 3: branches and leaf clusters) up to this distance; default 40 m (25 m on phones). */
   fineRadius?: number;
-  /** Alpha-tested ~5 cm leaf holes on the finest models, in the colour and shadow passes; default false. */
+  /** Alpha-tested ~5 cm leaf holes on the voxel finest models; default false. Realistic trees use a leaf texture instead. */
   leafCutout?: boolean;
+  /** Micro-voxel crowns, for `?renderer=voxel`. The default is trunk meshes plus leaf cards. */
+  voxel?: boolean;
   /** Narrow treeless paving/hand-item clearances; broad landmark footprints are never accepted here. */
   exclusions?: readonly ExclusionPolygon[];
 }
@@ -79,6 +81,7 @@ function toGeometry(m: VegModel): THREE.BufferGeometry {
   g.setAttribute('color', new THREE.BufferAttribute(m.colors, 3));
   g.setAttribute('sway', new THREE.BufferAttribute(m.sway, 1));
   if (m.leaf) g.setAttribute('leaf', new THREE.BufferAttribute(m.leaf, 1));
+  if (m.uvs) g.setAttribute('aLeafUv', new THREE.BufferAttribute(m.uvs, 2));
   g.setIndex(new THREE.BufferAttribute(m.indices, 1));
   return g;
 }
@@ -108,6 +111,8 @@ export class Vegetation {
   /** Every model LOD except the far boxes is built in a Web Worker (key = model * SLOTS + slot); far boxes are built synchronously. */
   private readonly queue: VegModelQueue;
   private readonly exclusions: readonly ExclusionPolygon[];
+  private readonly voxel: boolean;
+  private readonly textures: THREE.Texture[] = [];
   private camX = 0;
   private camZ = 0;
   private lastCx = -1e9;
@@ -117,6 +122,7 @@ export class Vegetation {
   constructor(scene: THREE.Scene, opts: VegetationOptions) {
     this.scene = scene;
     this.exclusions = opts.exclusions ?? [];
+    this.voxel = opts.voxel === true;
     this.queue = new VegModelQueue(
       () => {
         const w = new Worker(new URL('./veg.worker.ts', import.meta.url), { type: 'module' });
@@ -128,6 +134,8 @@ export class Vegetation {
         this.geoms[key] = toGeometry(m);
         this.dirty = true; // instances switch from their stand-in model on the next update
       },
+      2,
+      this.voxel,
     );
     const rf = opts.fineRadius ?? 40;
     const r0 = Math.max(rf, opts.lod0Radius ?? (opts.nearRadius < 200 ? 40 : 70));
@@ -141,13 +149,7 @@ export class Vegetation {
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true });
     const uTime = this.uTime;
     this.depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    const patch = (shader: THREE.WebGLProgramParametersWithUniforms): void => {
-      shader.uniforms.uTime = uTime;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float sway;\nuniform float uTime;')
-        .replace(
-          '#include <project_vertex>',
-          `vec4 mvPosition = vec4( transformed, 1.0 );
+    const swayProject = `vec4 mvPosition = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
   mvPosition = instanceMatrix * mvPosition;
 #endif
@@ -159,19 +161,71 @@ export class Vegetation {
     mvPosition.xz += vec2( sway * 0.04 * sin( uTime * 7.0 + phase * 3.0 ) );
   }
   mvPosition = viewMatrix * mvPosition;
-  gl_Position = projectionMatrix * mvPosition;`,
-        );
+  gl_Position = projectionMatrix * mvPosition;`;
+    const patch = (shader: THREE.WebGLProgramParametersWithUniforms): void => {
+      shader.uniforms.uTime = uTime;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float sway;\nuniform float uTime;')
+        .replace('#include <project_vertex>', swayProject);
     };
     this.material.onBeforeCompile = patch;
     this.depthMaterial.onBeforeCompile = patch;
 
-    // finest LOD: same sway, plus ~5 cm leaf holes keyed on the (un-swayed) world position
     this.fineMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.fineDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    if (opts.leafCutout !== true) {
+    if (!this.voxel) {
+      // Summer leaf cards: procedural bark and an alpha-tested leaf cluster. No KTX2 file —
+      // a Basis transcoder would be another runtime binary (CONSTITUTION Art. 1 and Art. 8).
+      const bark = makeBarkTexture();
+      const leaf = makeLeafTexture();
+      this.textures.push(bark, leaf);
+      const uBark = { value: bark };
+      const uLeaf = { value: leaf };
+      for (const mat of [this.material, this.depthMaterial, this.fineMaterial, this.fineDepthMaterial]) mat.side = THREE.DoubleSide;
+      const patchCards = (colorPass: boolean) => (shader: THREE.WebGLProgramParametersWithUniforms): void => {
+        shader.uniforms.uTime = uTime;
+        shader.uniforms.uBark = uBark;
+        shader.uniforms.uLeaf = uLeaf;
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nattribute float sway;\nattribute float leaf;\nattribute vec2 aLeafUv;\nuniform float uTime;\nvarying float vLeaf;\nvarying vec2 vLeafUv;',
+          )
+          .replace('#include <project_vertex>', `vLeaf = leaf;\n  vLeafUv = aLeafUv;\n  ${swayProject}`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nvarying float vLeaf;\nvarying vec2 vLeafUv;\nuniform sampler2D uBark;\nuniform sampler2D uLeaf;',
+          );
+        if (colorPass) {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <color_fragment>',
+            `#include <color_fragment>
+  if ( vLeaf > 0.5 ) {
+    vec4 tex = texture2D( uLeaf, vLeafUv );
+    if ( tex.a < 0.4 ) discard;
+    diffuseColor.rgb *= tex.rgb;
+  } else {
+    diffuseColor.rgb *= texture2D( uBark, vLeafUv ).rgb;
+  }`,
+          );
+        } else {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <clipping_planes_fragment>',
+            `#include <clipping_planes_fragment>
+  if ( vLeaf > 0.5 && texture2D( uLeaf, vLeafUv ).a < 0.4 ) discard;`,
+          );
+        }
+      };
+      this.material.onBeforeCompile = patchCards(true);
+      this.fineMaterial.onBeforeCompile = patchCards(true);
+      this.depthMaterial.onBeforeCompile = patchCards(false);
+      this.fineDepthMaterial.onBeforeCompile = patchCards(false);
+    } else if (opts.leafCutout !== true) {
       this.fineMaterial.onBeforeCompile = patch;
       this.fineDepthMaterial.onBeforeCompile = patch;
     } else {
+      // finest voxel LOD: same sway, plus ~5 cm leaf holes keyed on the (un-swayed) world position
       const patchFine = (fade: boolean) => (shader: THREE.WebGLProgramParametersWithUniforms): void => {
         patch(shader);
         shader.vertexShader = shader.vertexShader
@@ -300,6 +354,7 @@ export class Vegetation {
     this.depthMaterial.dispose();
     this.fineMaterial.dispose();
     this.fineDepthMaterial.dispose();
+    for (const tex of this.textures) tex.dispose();
   }
 
   // ---------------------------------------------------------------- internals
@@ -309,7 +364,7 @@ export class Vegetation {
     let g = this.geoms[gi];
     if (g) return g;
     // only the far box (slot 3) is built here; the other slots arrive from the worker (see rebuild)
-    g = toGeometry(buildModel(SPECIES_LIST[Math.floor(model / VARIANTS)]!, model % VARIANTS, LOD_OF_SLOT[slot]!));
+    g = toGeometry(buildModel(SPECIES_LIST[Math.floor(model / VARIANTS)]!, model % VARIANTS, LOD_OF_SLOT[slot]!, this.voxel));
     this.geoms[gi] = g;
     return g;
   }
@@ -414,4 +469,91 @@ export class Vegetation {
     this.stats.fine = fine;
     this.stats.triangles = tris;
   }
+}
+
+/** Summer leaf cluster, authored here (public domain). RGB is a multiplier on the vertex colour; alpha is the cut-out. */
+function makeLeafTexture(): THREE.DataTexture {
+  const N = 64;
+  const data = new Uint8Array(N * N * 4);
+  // Overlapping leaves fill most of the card. The margin and a few holes stay clear so the quad is not a solid rectangle.
+  const blobs: [number, number, number, number, number][] = [];
+  let seed = 19;
+  const rnd = (): number => {
+    seed = (Math.imul(seed, 16807) + 11) >>> 0;
+    return (seed & 65535) / 65535;
+  };
+  for (let i = 0; i < 22; i++) {
+    blobs.push([0.14 + rnd() * 0.72, 0.12 + rnd() * 0.76, 0.18 + rnd() * 0.16, 0.2 + rnd() * 0.18, rnd() * Math.PI]);
+  }
+  const holes: readonly (readonly [number, number, number])[] = [[0.38, 0.46, 0.07], [0.62, 0.58, 0.055], [0.5, 0.28, 0.05], [0.72, 0.36, 0.045]];
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const u = (x + 0.5) / N;
+      const v = (y + 0.5) / N;
+      let alpha = 0;
+      let shade = 1;
+      for (const [cx, cy, rx, ry, rot] of blobs) {
+        const du = u - cx;
+        const dv = v - cy;
+        const cs = Math.cos(rot);
+        const sn = Math.sin(rot);
+        const lx = (du * cs + dv * sn) / rx;
+        const ly = (-du * sn + dv * cs) / ry;
+        const d = lx * lx + ly * ly;
+        if (d >= 1) continue;
+        const edge = Math.sqrt(d);
+        alpha = Math.max(alpha, edge < 0.86 ? 1 : (1 - edge) / 0.14);
+        const vein = Math.abs(lx) < 0.06 ? 0.78 : 1;
+        shade = Math.min(shade, vein * (0.84 + 0.16 * (1 - edge)));
+      }
+      for (const [hx, hy, hr] of holes) {
+        if ((u - hx) * (u - hx) + (v - hy) * (v - hy) < hr * hr) alpha = 0;
+      }
+      const i = (y * N + x) * 4;
+      data[i] = Math.round(236 * shade);
+      data[i + 1] = Math.round(248 * shade);
+      data[i + 2] = Math.round(214 * shade);
+      data[i + 3] = alpha > 0.5 ? 255 : 0;
+    }
+  }
+  const tex = new THREE.DataTexture(data, N, N);
+  tex.colorSpace = THREE.LinearSRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Vertical bark grain. RGB multiplies the trunk vertex colour. */
+function makeBarkTexture(): THREE.DataTexture {
+  const N = 64;
+  const data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const u = x / N;
+      const v = y / N;
+      const wave = Math.sin(u * Math.PI * 16 + Math.sin(v * 28) * 0.35);
+      const ridge = 0.88 + 0.18 * Math.abs(wave);
+      const crack = Math.abs(wave) < 0.12 ? 0.78 : 1;
+      const fleck = Math.sin(u * 40 + v * 17) > 0.92 ? 0.86 : 1;
+      const shade = ridge * crack * fleck;
+      const i = (y * N + x) * 4;
+      data[i] = Math.round(188 * shade);
+      data[i + 1] = Math.round(164 * shade);
+      data[i + 2] = Math.round(132 * shade);
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, N, N);
+  tex.colorSpace = THREE.LinearSRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
 }

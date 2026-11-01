@@ -43,7 +43,7 @@ The skyline stays blocky, which fails the "whole city" direction as soon as you 
 | Mid (to the Article 4 full-detail radius: 640 m / 384 m) | The same extruder, simplified: walls, one roof, no parapet thickness, no dome rings | The next blocks |
 | Far | Not a building each. A merged low-poly mesh per region, or the existing overview height field used as an impostor skyline | Horizon |
 
-Ground stays a height field (the fine raster up close, the overview farther out), not a column of voxels with a building stuffed in the same cell. Water, vegetation and birds stay as they are.
+Ground stays a height field (the fine raster up close, the overview farther out), not a column of voxels with a building stuffed in the same cell. Water and birds stay as they are. Vegetation is instanced leaf-card trees and bushes by default; `?renderer=voxel` still builds the micro-voxel crowns.
 
 ## Decision
 
@@ -105,6 +105,8 @@ PR #2 is merged and this branch is rebased onto that main. `npm test`, `npm run 
 | 5 | delete the voxel buildings | Remove the coarse struct mesher, the 1 m block tier, and the building branch of the facade shader. Ground, water, vegetation, birds stay | **Voxel building renderer deleted** |
 
 Phase 5 is the recommendation, not a maybe. It waits until phase 4 has removed the last reader. If a laptop misses 60 fps, the constitution table changes in a commit of its own before phase 5.
+
+Vegetation was pulled ahead of phase 2. The default crowns are trunk meshes plus alpha-tested summer leaf cards (near, mid, and a far billboard). Bark and leaf images are procedural. KTX2 is not used: a Basis transcoder would be another runtime binary. `?renderer=voxel` keeps the micro-voxel trees together with the voxel buildings. Trunk collision is still the baked tree position. Phase 2, Hotel «Фрегат», is still the next building phase.
 
 ## Consequences
 
