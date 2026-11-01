@@ -60,7 +60,7 @@ Primary target: **laptops**, including **integrated GPU**. Phones and desktops a
 | ID | Requirement | Priority |
 |---|---|---|
 | NFR-D01 | Stay within GitHub Pages limits: **≤1 GB site**, **≤100 MB per file** (`CONSTITUTION` Art. 1.2). | MUST |
-| NFR-D02 | Prefer streaming / tiling so first paint does not require downloading the entire city. Bake measured 2026-11-01 under `public/world/`: **20.9 MB** apparent (`du -sb` = 20,904,363 bytes). `du -sh` prints 26M because the ~2,000 small region and vector files are stored in 4 KiB blocks. The **≤30 MB** constitution budget applies until amended for a mesh/texture world. | MUST |
+| NFR-D02 | Prefer streaming / tiling so first paint does not require downloading the entire city. Bake measured 2026-11-01 after the restoration rebase, under `public/world/`: **22.1 MB** apparent (`du -sb` = 22,076,877 bytes). `du -sh` prints 27M because the small region and vector files are stored in 4 KiB blocks. The **≤30 MB** constitution budget applies until amended for a mesh/texture world. | MUST |
 | NFR-D03 | Runtime network access is limited to the site’s own origin — no third-party scripts, CDNs, fonts, or trackers at runtime (`CONSTITUTION` Art. 1.3). | MUST |
 
 ### 3.3 Offline resilience
@@ -119,8 +119,8 @@ Primary target: **laptops**, including **integrated GPU**. Phones and desktops a
 | ID | Question | Needed from |
 |---|---|---|
 | OQ-01 | Renderer: stay on voxels, or move to a hybrid. **Decided 2026-11-01:** hybrid, for the whole city, not a centre box. Fabric is streamed OSM meshes (near detail, mid extrusion, far skyline). Memorable sites become photo-based glTF later (Meshopt/KTX2). The voxel buildings are deleted in a later PR, after collision no longer reads them. Record: [ADR 0001](adr/0001-rendering-architecture.md). The centre `?renderer=mesh` box is only the first slice. | Owner — decided |
-| OQ-02 | Bring Antonivskyi bridge / Karantynnyi back past the city cut? | Owner |
-| OQ-03 | Freedom Square tree_rows (post-2022 OSM ids) — exclude? | Owner |
+| OQ-02 | Bring Antonivskyi bridge / Karantynnyi back past the city cut? **Bridge decided** in the restoration pass: the road bridge (Q4067525) is included intact, with a 30 m corridor and 450 m of trunk approaches. The city polygon is not widened. The railway bridge (Q4067523) is not included. Karantynnyi island is still open. | Owner — bridge decided |
+| OQ-03 | Freedom Square tree_rows (post-2022 OSM ids) — exclude? **Decided** in the restoration pass: tree rows mapped after January 2022 stay. They were missing from the 2022-01-01 extract, not missing from the city. | Owner — decided |
 | OQ-04 | Phone default quality HQ vs LQ? | Owner |
 | OQ-05 | Choose a code licence. | Owner |
 | OQ-06 | Locations of timber monument (#34) and standing statue (#36). | Owner |
@@ -153,3 +153,4 @@ Each requirement traces to a source statement or document. Date: **2026-11-01** 
 | 2026-11-01 | Initial capture from Serhii’s statements + constitution fold-in. |
 | 2026-11-01 | Committed. Baked-world size corrected to the measured apparent bytes (20.9 MB; 26M was 4 KiB block allocation). OQ-01 recorded as decided. |
 | 2026-11-01 | OQ-01 clarified: realism is the whole city. Migration and budgets are in ADR 0001. |
+| 2026-11-01 | Rebased onto the restoration pass. Centre box remeasured: 863 buildings, 34,501 triangles, 5.12 MB. Baked world 22.1 MB apparent. OQ-02 (bridge) and OQ-03 (tree rows) recorded as decided. |
