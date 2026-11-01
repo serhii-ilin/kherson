@@ -7,11 +7,13 @@ import { FEATURE_BRIDGE_DECK, FEATURE_BUSH, FEATURE_TREE, encodeRegion, packStru
 import { SPECIES } from "../src/nature/models.ts";
 import { MAT } from "../src/world/materials.ts";
 import { BBOX, CITY_DILATE_M, CITY_RELATION } from "./bake/config.ts";
-import { buildCityMask, keepOutsideGround, ringCentroid, type CityMask } from "./bake/city-mask.ts";
+import { CORRIDOR_RADIUS_M, selectAntonivskyiCorridor, type CorridorWay } from "./bake/bridge-corridor.ts";
+import { buildCityMask, keepOutsideGround, ringCentroid, stampCorridor, type CityMask } from "./bake/city-mask.ts";
 import { WORLD_H, WORLD_W } from "./bake/project.ts";
 import { Grid, DEFAULT_CELLS } from "./bake/grid.ts";
 import { buildOverview } from "./bake/overview.ts";
 import { loadOsm, type OsmData, type Tags } from "./bake/osm.ts";
+import { readRestoration, loadOptionsFromRestoration } from "./bake/restoration.ts";
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
 import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
 import { dedupePlaces, nudgeToWalkable, type Place } from "./bake/places.ts";
@@ -21,6 +23,7 @@ import { distanceTransform, DIST_UNIT } from "./bake/distance.ts";
 import { encodeVectorTile } from "../src/world/vector-format.ts";
 import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./bake/classes.ts";
 import { collectStreets } from "./bake/streets.ts";
+import { ensureSnapshot } from "./snapshot-fallback.ts";
 
 const INPUT = process.argv[2] ?? "data/osm/kherson.json.gz";
 const OUT_DIR = process.argv[3] ?? "public/world";
@@ -180,8 +183,12 @@ const TREE_LINED = new Set(["residential", "living_street", "tertiary", "seconda
 // ---------------------------------------------------------------- main
 
 async function main(): Promise<void> {
+  await ensureSnapshot(INPUT);
   if (!fs.existsSync(INPUT)) throw new Error(`missing ${INPUT}`);
-  const osm = await loadOsm(INPUT);
+  const restoration = readRestoration();
+  const loaded = restoration ? loadOptionsFromRestoration(restoration) : null;
+  if (loaded) console.log(`restoration: rows ${loaded.stats.rows}, additions ${loaded.stats.additions}, drops ${loaded.stats.drops}`);
+  const osm = await loadOsm(INPUT, loaded?.options);
   stage(`loaded ${osm.counts.nodes} nodes, ${osm.counts.ways} ways, ${osm.counts.relations} relations`);
   const { areas, lines, barriers } = main_(osm);
   stage(`geometry: ${areas.length} areas, ${lines.length} lines`);
@@ -192,8 +199,40 @@ async function main(): Promise<void> {
   const cityArea = areas.find((a) => a.id === CITY_RELATION && a.tags.place === "city");
   if (!cityArea) throw new Error(`city boundary relation ${CITY_RELATION} not found in ${INPUT}; refusing to bake everything`);
   const mask = buildCityMask(cityArea.rings, cellsX, cellsZ, CITY_DILATE_M / VOXEL);
+  const corridorWays: CorridorWay[] = [];
+  for (const w of osm.ways.values()) {
+    const pts: Pt[] = [];
+    const nodeIds: number[] = [];
+    for (const id of w.nodes) {
+      const i = osm.nodes.find(id);
+      if (i < 0) continue;
+      pts.push([osm.nodes.xs[i]!, osm.nodes.zs[i]!]);
+      nodeIds.push(id);
+    }
+    if (pts.length >= 2) corridorWays.push({ id: w.id, tags: w.tags, nodeIds, pts });
+  }
+  const corridor = selectAntonivskyiCorridor(corridorWays, osm.relations);
+  const beforeBits = mask.bits.slice();
+  const corridorCells = stampCorridor(mask, corridor.polylines, CORRIDOR_RADIUS_M / VOXEL);
+  let corridorBuildings = 0;
+  for (const a of areas) {
+    if (!has(a.tags.building)) continue;
+    const r0 = a.rings[0];
+    if (!r0?.length) continue;
+    let sx = 0, sz = 0;
+    for (const p of r0) { sx += p[0]; sz += p[1]; }
+    const cx = Math.floor(sx / r0.length), cz = Math.floor(sz / r0.length);
+    if (cx < 0 || cz < 0 || cx >= cellsX || cz >= cellsZ) continue;
+    const i = cz * cellsX + cx;
+    if (mask.bits[i] === 1 && beforeBits[i] === 0) corridorBuildings++;
+  }
   const inCity = (cx: number, cz: number): boolean => mask.hasCell(cx, cz);
-  stage("city mask");
+  stage(
+    `city mask; Antonivskyi corridor +${corridorCells} cells, ${corridor.lengthM.toFixed(0)} m, ` +
+      `${corridorBuildings} buildings in the new cells`,
+  );
+  console.log(`Antonivskyi bridge ways: ${corridor.bridgeWayIds.join(",") || "(none)"}`);
+  console.log(`Antonivskyi approaches: ${corridor.approachWayIds.join(",") || "(none)"}`);
   const stats = { buildings: 0, water: 0, landuse: 0, roads: 0, rails: 0, bridgeDecks: 0, trees: 0, streetTrees: 0, bushes: 0, plazas: 0 };
 
   // a. ground areas

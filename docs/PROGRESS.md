@@ -6,7 +6,7 @@ Plan details are in [REALISM_PLAN.md](REALISM_PLAN.md); rules and budgets in [CO
 
 Status: ✅ done · 🟡 in progress · ⬜ not started · ⛔ blocked (waiting on the owner)
 
-_Last updated: 2026-10-19_
+_Last updated: 2026-11-01_
 
 ## Phases
 
@@ -45,7 +45,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 26 | P3 | Banks of water that exists only as an OSM line (e.g. Koshova by the Ostrivske bridge) still follow the 2 m grid; the shoreline smoothing needs a water polygon | trace polygons from the line buffers in the bake |
 | 27 | P3 | 1 m khrushchevka is 3,720 triangles (test bound 3,800): further facade detail needs trimming elsewhere | |
 | 28 | P3 | The Ushakova embankment is not in the Places menu | add it to the bake's landmark list and re-bake `public/world` |
-| 29 | P3 | Tree rows between Freedom Square and the administration come from OSM `tree_row` ways drawn after 2022 (ids ~1.17e9); the owner says the square has few or no trees | owner to confirm whether they stood there before 2022; if not, exclude them |
+| 29 | P3 | Tree rows between Freedom Square and the administration came from OSM `tree_row` ways drawn after 2022 | the 2022-01-01 snapshot has 14 `tree_row` ways, none with id > 1e9 (was 798, of which 789 had id > 1e9). Owner to confirm the square in the browser |
 | 30 | P3 | Thin grass slivers remain at the edges of Freedom Square's paving; its pavers are in the plain opaque mesh, so the fine ground (polygonOffset −1/−4) can also show through them at grazing angles, as it did on the embankment | clip edge pavers to the polygon; move the pavers to the `paving` mesh kind |
 | 32 | P3 | Hotel «Фрегат» (owner's photo) still has the generic tower facade: no sail-shaped crown on the stair tower, no yellow balcony bands | landmark-style facade override for way 116810729 |
 | 33 | P3 | Embankment pavers are 1.5 m slabs; the photos show small grey-beige cobbles (a 0.5 m grid would be ~3× the 129k triangles) | texture or shader pattern instead of geometry |
@@ -62,13 +62,15 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 - ✅ **Frame rates measured (2026-10-18)**: MacBook Air 16 GB steady 60 fps (display cap), owner's phone 60–90 fps, both on LQ and HQ.
 - ⛔ **Code licence**: none chosen yet (all rights reserved).
 - ⛔ **Phone default**: phones start in LQ, so they don't see the 0.2 m ground and 1 m blocks unless switched to HQ. The owner's phone runs HQ at 60–90 fps; switch the phone default to HQ?
-- ⛔ **Landmarks removed by the city cut**: bring back the Antonivskyi bridge and/or the Karantynnyi island entry?
+- ⛔ **Karantynnyi island entry** was removed by the city cut. Bring it back?
+- ✅ **Antonivskyi road bridge** (owner, 2026-11-01): include the pre-war span. The city polygon stays relation 2175078. A 30 m corridor covers the carriageways (ways 4424601 and 118181459, outline 188496941, Wikidata Q4067525) and 450 m of trunk approach. The railway bridge (Q4067523) is not included. World bbox east is 32.73 so the span fits; west and north are unchanged. The new cells contain 3 buildings.
 - ⛔ **Ambient sound**: owner's listening feedback, now including the 17 synthesised Kherson species (sparrows, pigeons, collared doves, crows, gulls by the river…, see [BIRDS.md](BIRDS.md)).
 
 ## Done (recent fixes)
 
 | Fix | Commit |
 |---|---|
+| Pre-war restoration on the current OSM snapshot, not a rollback to the January 2022 extract (that extract dropped buildings and tree rows that were mapped later). `data/osm/restoration.json` reverts ruin/lifecycle tags, restores the Antonivskyi carriageways, puts street names back to the 2022-01-01 reference (current name kept in `old_name`), re-adds 1,016 deleted buildings that were not redrawn, and drops 13 war additions. `building=ruins/destroyed/damaged` 156 → 5. Baked buildings 10,118 → 10,956; tree rows stay 798. Corridor mask unchanged | (this commit) |
 | #39 No more 1 m staircases on skewed apartment blocks: flat-roofed khrushchevka/panel/Stalin/brick/apartment blocks whose walls are > 4° off the grid are drawn true-angle in the block tier (`src/fine/smooth.ts`): walls along the real polygon edges, flat roof with a low parapet, windows painted along each wall by the facade shader, entrances with canopies and stair windows on the long wall facing the service drive, balcony stacks on long walls; physics keeps the 1 m column raster; the chunk holding the ring's first vertex emits the mesh. Fine worker +12 kB | (next commit) |
 | Khrushchevka facade matched to the owner's photos of Filatova 28: warm grey pebble-dash (1.5 cm stones, 5 cm clusters, faint 3.2 × 3 m joints), 1.5 m windows with 2 m piers (2-wide openings in 4 m bays, kept off corners), an entrance every 4 bays with a light portal and a concrete canopy, some painted wooden frames (blue, brown) among white ones; 5-storey slabs are no longer picked as Stalin-era at random (Filatova 28 had tall Stalin windows; Stalin styles 63) | (next commit) |
 | Share a link: 🔗 button copies a URL with position, height (fly), view direction, tilt and time of day (share sheet on phones); `?pitch=` now also applies in walk mode | `cbf91b1` |

@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "fetch-osm": "node --experimental-strip-types tools/fetch-osm.ts",
+    "publish-snapshot": "node --experimental-strip-types tools/publish-snapshot.ts",
+    "build-restoration": "node --experimental-strip-types tools/build-restoration.ts",
     "bake": "node --experimental-strip-types --max-old-space-size=8192 tools/bake.ts",
     "height-report": "node --experimental-strip-types tools/height-report.ts"
   },

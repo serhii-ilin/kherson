@@ -80,8 +80,15 @@ export interface OsmData {
   counts: { nodes: number; ways: number; relations: number };
 }
 
+export interface LoadOptions {
+  /** Return null to drop the element, or a replacement. */
+  mutate?: (el: Record<string, unknown>) => Record<string, unknown> | null;
+  /** Inserted after the file, nodes before ways. Used for objects re-added from the pre-war reference. */
+  extra?: Record<string, unknown>[];
+}
+
 /** Stream-parse the top-level "elements" array of an Overpass JSON.gz without holding the whole text. */
-export async function loadOsm(file: string): Promise<OsmData> {
+export async function loadOsm(file: string, options?: LoadOptions): Promise<OsmData> {
   const data: OsmData = {
     nodes: new NodeIndex(),
     taggedNodes: [],
@@ -152,7 +159,13 @@ export async function loadOsm(file: string): Promise<OsmData> {
             const s = pending + chunk.slice(start < 0 ? 0 : start, i + 1);
             pending = "";
             start = -1;
-            handle(JSON.parse(s));
+            let el = JSON.parse(s) as Record<string, unknown>;
+            if (options?.mutate) {
+              const next = options.mutate(el);
+              if (!next) continue;
+              el = next;
+            }
+            handle(el);
           }
         }
       }
@@ -162,5 +175,6 @@ export async function loadOsm(file: string): Promise<OsmData> {
       }
     }
   }
+  for (const extra of options?.extra ?? []) handle(extra);
   return data;
 }

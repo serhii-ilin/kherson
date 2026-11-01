@@ -14,22 +14,22 @@ The interface is Ukrainian by default, with English available.
 
 ## Features
 
-- **The city of Kherson only**, limited to its OSM boundary (relation 2175078, plus a 20 m margin): about 10,100 buildings, the road and tram network, parks and landuse. Suburbs and villages (Oleshky, Chornobaivka, Komyshany, ...) are not baked. The Dnipro, Koshova, the islands and the natural floodplain (forest, scrub, sand) around the city stay. It is rasterised from OSM at 2 m per voxel.
+- **The city of Kherson only**, limited to its OSM boundary (relation 2175078, plus a 20 m margin): the road and tram network, parks and landuse. Suburbs and villages (Oleshky, Chornobaivka, Komyshany, ...) are not baked. The Dnipro, Koshova, the islands and the natural floodplain (forest, scrub, sand) around the city stay. The Antonivskyi road bridge, which stands just outside that boundary, is included as a narrow corridor along the span and its approaches. It is rasterised from OSM at 2 m per voxel.
 - **Streaming world.** Region files load and mesh around the camera in Web Workers. A low-resolution overview mesh fills the horizon.
 - **Walk and fly modes**:
   - **Walk:** gravity, step-up, collision with buildings, tree trunks and water.
   - **Fly:** free flight that cannot pass through the ground or buildings.
 - **Touch controls** for phones and tablets: virtual joystick, look-drag, and up/down/mode buttons.
 - **Nature**:
-  - **Trees:** about 340k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 119k street trees.
-  - **Bushes:** about 200k, including flowering lilac and pink bushes.
+  - **Trees:** about 396k trees of seven species, built from 0.5 m micro-voxels with three levels of detail and wind sway. They include about 74k street trees.
+  - **Bushes:** about 313k, including flowering lilac and pink bushes.
   - **Water:** tessellated with a wave shader, shore foam and sky reflection.
   - **Birds:** boids-driven swift flocks, and dove groups that take off when you approach.
 - **Share a link**: the 🔗 button copies a URL for your exact spot and view (`x`, `z`, `yaw`, `pitch`, `time`, plus `mode=fly&y=` when flying).
 - **Time of day**: morning, noon, golden evening and a moonlit night with stars, lit windows and glowing street lamps (button next to the language switch, or `?time=HH:MM`).
 - **Ambient sound**, synthesised in real time with WebAudio (no audio files): songbirds, screaming swift fly-bys with Doppler shift, cooing doves, wind and water. There is a mute toggle.
 - **UI**:
-  - Places search and teleport, in Cyrillic or Latin: 161 landmarks and 686 streets. Former street names work too (e.g. «Ушакова» finds проспект Незалежності), and a street result puts you on the street, looking along it.
+  - Places search and teleport, in Cyrillic or Latin: 171 landmarks and 773 streets. The displayed street name is the pre-war one; the current OSM name stays searchable (проспект Незалежності still finds проспект Ушакова). A street result puts you on the street, looking along it.
   - A minimap.
   - A language switcher (УКР | EN).
   - Shareable URL poses.
@@ -79,7 +79,9 @@ npm run dev       # http://localhost:5173/kherson/
 | `npm run preview` | serve the production build |
 | `npm test` | Vitest unit tests |
 | `npm run bake` | convert `data/osm/kherson.json.gz` into region files, overview and places |
-| `npm run fetch-osm` | download a fresh OSM snapshot from Overpass (tiled, with retries) |
+| `npm run fetch-osm` | refresh the base snapshot from live Overpass (`--date` for an attic instant, `--geofabrik` for the 2022 reference clip, `--from-release` if the base file is missing) |
+| `npm run build-restoration` | rebuild `data/osm/restoration.json` from the base snapshot and the 2022 reference |
+| `npm run publish-snapshot` | pack the base snapshot, restoration table, 2022 clip and checksums for a GitHub Release (does not upload) |
 
 ## How it works
 
@@ -109,7 +111,7 @@ src/
   player/               input, walk physics, fly, touch controls, controller
   ui/                   places menu, minimap, styles
 tools/
-  fetch-osm.ts          Overpass download (tiled, cached in data/osm/tiles/)
+  fetch-osm.ts          Overpass attic download, or an offline build from a Geofabrik PBF
   bake.ts, bake/        projection, rasterisation, species placement, encoding
 tests/                  Vitest unit tests
 docs/DEPLOYMENT.md      build, deploy and data-refresh guide
@@ -129,7 +131,15 @@ CONSTITUTION.md         project principles, budgets and working rules
 
 Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/). The baked world in `public/world/` is a derived database and stays under ODbL.
 
-The OSM data reflects what mappers have recorded. Damaged or destroyed structures, such as the Antonivskyi bridge, are shown as OSM records them.
+The committed snapshot `data/osm/kherson.json.gz` is the current OpenStreetMap extract, which is fuller than the January 2022 dump: buildings and tree rows mapped after 2022 stay, because they were missing from the old extract, not missing from the city. A restoration table (`data/osm/restoration.json`, regenerated with `npm run build-restoration`) undoes war effects on that base, using Geofabrik `ukraine-220101` (OSM as of **2022-01-01**) as the reference:
+
+- `building=ruins` / `destroyed` / `damaged` and lifecycle prefixes (`abandoned:`, `demolished:`, `was:`, `disused:`, …) that were not already set on 2022-01-01 are put back. A footprint mapped only later and tagged ruins is kept as `building=yes`, not deleted.
+- Buildings present on 2022-01-01 and missing now are re-added, unless the same nodes already belong to a current building (a redraw).
+- The Antonivskyi road bridge is the pre-war span (tags and node list), drawn in a corridor outside the city polygon.
+- Street `name` is the pre-war name. The current name is appended to `old_name`, so search still finds it.
+- Checkpoints, barricades, `military=*` and `memorial=war_memorial` objects that are not in the 2022 reference are dropped. Ordinary monuments mapped later are kept.
+
+Manual exceptions go in `data/osm/restoration-overrides.json`. The reference clip is `data/osm/reference/kherson-2022-01-01.osm.pbf`.
 
 ## License
 

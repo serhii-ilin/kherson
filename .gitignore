@@ -1,8 +1,14 @@
 node_modules
 dist
 data/osm/*.json
+!data/osm/restoration.json
+!data/osm/restoration-overrides.json
 .DS_Store
 data/osm/tiles/
+data/osm/upstream/
+data/osm/release/
+data/osm/*.pbf
+data/osm/*.partial
 public/world/
 
 # owner reference photos: private evidence, never committed (CONSTITUTION 7.5)

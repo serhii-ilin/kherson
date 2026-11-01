@@ -2,8 +2,8 @@ import type { Bbox } from '../world/manifest.ts';
 
 const M_PER_DEG_LAT = 110540;
 
-/** Default project bounds, also used by the fine worker for static landmark exclusions. */
-export const DEFAULT_BBOX: Bbox = { south: 46.58, west: 32.48, north: 46.72, east: 32.72 };
+/** Default project bounds, also used by the fine worker for static landmark exclusions. Kept in step with tools/bake/config.ts. */
+export const DEFAULT_BBOX: Bbox = { south: 46.58, west: 32.48, north: 46.72, east: 32.73 };
 
 /** World metres (x east, z south of the NW corner) from a WGS84 latitude/longitude. */
 export function fromLatLon(bbox: Bbox, lat: number, lon: number): { x: number; z: number } {
