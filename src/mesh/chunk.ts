@@ -11,6 +11,7 @@ import type { Aabb } from './bounds.ts';
 import {
   emptyMesh, extrudeBuilding, mergeMeshes, type CityMesh, type ExtrudeBuilding,
 } from './extrude.ts';
+import { HERO_WAY_IDS } from './heroes.ts';
 
 const REGION_M = 512;
 
@@ -102,6 +103,7 @@ function one(
   b: VBuilding, ox: number, oz: number, gcx: number, gcz: number,
   groundAt: (x: number, z: number) => number, box: Aabb | undefined,
 ): ExtrudeBuilding[] {
+  if (HERO_WAY_IDS.has(b.id)) return [];
   const ring0 = b.rings[0];
   if (ring0 === undefined || ring0.length < 6) return [];
   const rings = b.rings.map((r) => ringMetres(r, ox, oz));

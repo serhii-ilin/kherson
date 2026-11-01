@@ -30,6 +30,7 @@ import { LandmarkPhysics } from './landmarks/physics.ts';
 import { getVegetationExclusions } from './landmarks/exclusions.ts';
 import { meshViewRadius } from './mesh/bounds.ts';
 import { MeshStreamer } from './mesh/streamer.ts';
+import { FregatHero } from './landmarks/fregat.ts';
 
 const SKY = 0x9cc8ef;
 const SURROUNDING_RADII = [12, 30, 60, 100, 150] as const;
@@ -235,6 +236,9 @@ async function start(): Promise<void> {
     : null;
   const basePhysics = fine !== null ? fine.world : streamer;
   landmarkLayer = new LandmarkLayer(scene, createLandmarks(manifest.bbox), basePhysics, quality);
+  const fregat = meshOn
+    ? new FregatHero(scene, versioned(`${base}landmarks/hotel-fregat.glb`), shadowsOn, (x, z) => streamer.groundHeightAt(x, z))
+    : null;
   landmarkLayer.setNight(dayFactor);
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
   const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
@@ -413,6 +417,7 @@ async function start(): Promise<void> {
     fine?.update(camera.position.x, camera.position.z, agl);
     mesh?.update(camera.position.x, camera.position.z);
     landmarkLayer?.update(camera.position.x, camera.position.z);
+    fregat?.update();
     vegetation.update(camera.position.x, camera.position.z, now / 1000);
     if (overview !== null) {
       if (!overview.done) overview.build(4);
