@@ -33,9 +33,14 @@ export function sideMaterial(m: number): number {
     case MAT.SIDEWALK:
     case MAT.PAVING:
     case MAT.PLAZA:
+    case MAT.PAVERS:
       return MAT.KERB;
+    case MAT.GRANITE:
+      // granite kerb tops keep their stone on the 15 cm face instead of turning into concrete
+      return MAT.GRANITE;
     case MAT.MARKING:
     case MAT.STEEL:
+    case MAT.STOP_LINE:
       return MAT.ASPHALT;
     default:
       return m;
