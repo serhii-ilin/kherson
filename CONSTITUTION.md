@@ -6,6 +6,8 @@ These are the principles every change to this project must respect. Where they c
 
 Give anyone, anywhere, a free and faithful way to walk the streets of Kherson: its squares, its tree-lined avenues, its embankment and the Dnipro. It must work on an ordinary laptop or phone, in Ukrainian first.
 
+The goal is a **realistic** view of the city. Buildings, trees, streets and water should look like Kherson's, not like blocks. Voxels are a means (streaming, collision, distant detail), not the look.
+
 ## Article 1: Serverless, static and free to run
 
 1. The site is static files only: no backend, database, server-side rendering, accounts or API keys.
@@ -95,16 +97,17 @@ The project is built with AI agents under a cost-aware division of labour:
 
 | Role | Model | Responsibilities |
 |---|---|---|
-| Architect and reviewer | Claude Opus | plans, specs and interfaces; reviewing every diff; verification (tests, screenshots, perf); tricky bugs; commits and deploys |
-| Implementer | Codex `gpt-5.6-luna`, reasoning high | features from Opus specs (`codex exec`), one run at a time; leaves changes uncommitted for review |
-| Fallback | Claude Sonnet / Haiku | when a Codex run stalls or fails twice |
+| Architect and verifier | Claude Opus | plans, specs and interfaces; verification (gates, screenshots, perf); tricky bugs; merges, commits and deploys |
+| Implementer | opencode `opencode-go/deepseek-v4.1-flash` | features from Opus specs, one git worktree and branch per task, committed on that branch for review |
+| Reviewer | Claude Sonnet (agent) | reviews every implementer diff against its spec before merge |
+| Fallback | Claude Sonnet / Haiku | when an implementer task fails two fix rounds |
 
-Free opencode models were used for boilerplate until 2026-10-18; after repeated stalls the owner moved all delegation to Anthropic models. From 2026-10-18 the owner chose Codex `gpt-5.6-luna` (high) as the implementer, with every diff reviewed by Claude Opus.
+Free opencode models were used for boilerplate until 2026-10-18; after repeated stalls the owner moved all delegation to Anthropic models. From 2026-10-18 the owner chose Codex `gpt-5.6-luna` (high) as the implementer, with every diff reviewed by Claude Opus. From 2026-11-06 the implementer is opencode `opencode-go/deepseek-v4.1-flash` and a Claude Sonnet agent reviews every diff; Opus plans and verifies.
 
 Working rules:
 1. **Specs first:** every delegated task gets a self-contained spec naming the files it owns, the interfaces, conventions and acceptance commands.
 2. **No parallel conflicts:** agents working at the same time must not edit the same files.
-3. **Review before merge:** delegated output is reviewed before it is committed. Reported numbers are re-measured, and loosened tests are rejected.
+3. **Review before merge:** delegated output is reviewed before it is merged. Reported numbers are re-measured, and loosened tests are rejected.
 4. **Owner approval:** outward-facing actions (creating repositories, publishing, changing visibility) need the owner's approval.
 
 ## Open items
@@ -126,3 +129,4 @@ These are known gaps against this constitution. Fix them before adding new featu
 3. **2026-11-01 — recorded birds.** The owner rejected the synthetic doves and swifts: they do not resemble the real birds. Article 4 gains a 1.5 MB budget for encoded bird recordings, loaded only after a gesture. Article 8.2 allows that set under CC0 or public domain only. Wind and water stay procedural. Approved by the owner in the request for this change.
 4. **2026-11-06 — no synthetic birds.** The owner asked for the bird voices that do not sound natural to go. Article 8.2 now voices birds only with CC0 or public-domain recordings: a species without one is left out, and a failed download is silent instead of synthesised. Wind, water and the fish splash stay procedural, and the 1.5 MB budget is unchanged. Approved by the owner in the request for this change.
 5. **2026-11-06 — gulls over the Dnipro.** The owner asked to hear gulls now and then over the river, and the recording set had 26 KB left. Article 4 raises the bird-recording budget from 1.5 MB to 1.6 MB. It stays mono, CC0 or public domain, and fetched only after a gesture. Approved by the owner, who chose 1.6 MB over dropping existing clips or going to 2 MB.
+6. **2026-11-06 — realistic Kherson; new delegation.** The owner changed the project's goal to a realistic view of the city, so the Purpose now says voxels are a means, not the look. The owner also moved implementation to opencode agents on `opencode-go/deepseek-v4.1-flash`, with a Claude Sonnet agent reviewing every diff and Opus planning and verifying (Article 9). Approved by the owner with the realistic-trees plan.
