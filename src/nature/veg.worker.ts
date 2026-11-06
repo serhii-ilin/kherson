@@ -35,6 +35,7 @@ scope.onmessage = (e) => {
     ];
     if (model.leaf) transfer.push(model.leaf.buffer as ArrayBuffer);
     if (model.uvs) transfer.push(model.uvs.buffer as ArrayBuffer);
+    if (model.tex) transfer.push(model.tex.buffer as ArrayBuffer);
     scope.postMessage({ id, model } satisfies VegResponse, transfer);
   } catch (err) {
     scope.postMessage({ id, error: String(err) } satisfies VegResponse);

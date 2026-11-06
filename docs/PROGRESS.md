@@ -29,6 +29,7 @@ _Last updated: 2026-11-06_
 | Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | ✅ | `8fb1ee8` |
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
 | Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | ✅ | `078cd08`…`2648062` |
+| Kherson trees: 15 species with a surveyed mix, branch skeletons, leaf clumps, per-species leaf and bark textures, translucency, whitewashed street trunks ([TREES.md](TREES.md)) | 🟡 contract and species research done; textures, bake mix, models and renderer in progress | — |
 
 ## Near crowns
 

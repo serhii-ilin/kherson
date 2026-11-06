@@ -1,15 +1,9 @@
 import { buildRealisticModel } from './realistic.ts';
+import { SPECIES } from './species.ts';
 
 export const MICRO = 0.5;
 
-export const SPECIES = {
-  GENERIC: 0, CHESTNUT: 1, LINDEN: 2, ACACIA: 3, POPLAR: 4, WILLOW: 5, PINE: 6, PLANE: 7,
-  BUSH: 16, BUSH_LILAC: 17, BUSH_PINK: 18,
-} as const;
-
-export const TREE_SPECIES: readonly number[] = [1, 2, 3, 4, 5, 6, 7];
-export const BUSH_SPECIES: readonly number[] = [16, 17, 18];
-export const VARIANTS = 3;
+export { SPECIES, TREE_SPECIES, BUSH_SPECIES, VARIANTS } from './species.ts';
 
 export interface VegModel {
   positions: Float32Array;
@@ -23,6 +17,11 @@ export interface VegModel {
   leaf?: Float32Array;
   /** Bark and leaf-card UVs. Realistic models only; the shader samples procedural textures with these. */
   uvs?: Float32Array;
+  /**
+   * Per vertex: texture-array layer (see tree-atlas.ts), a LEAF_LAYER index where leaf = 1 and a
+   * BARK_LAYER index where leaf = 0. Realistic models only.
+   */
+  tex?: Float32Array;
 }
 
 function mulberry32(seed: number): () => number {
@@ -55,8 +54,21 @@ interface SpeciesShape {
   bushCap?: number;
 }
 
+/** The voxel renderer has shapes for the original species only; later species borrow the nearest one. */
+const VOXEL_SHAPE_OF: Readonly<Record<number, number>> = {
+  [SPECIES.MAPLE]: SPECIES.LINDEN,
+  [SPECIES.ELM]: SPECIES.CHESTNUT,
+  [SPECIES.GLEDITSIA]: SPECIES.ACACIA,
+  [SPECIES.MULBERRY]: SPECIES.CHESTNUT,
+  [SPECIES.AILANTHUS]: SPECIES.ACACIA,
+  [SPECIES.CATALPA]: SPECIES.PLANE,
+  [SPECIES.THUJA]: SPECIES.PINE,
+  [SPECIES.WALNUT]: SPECIES.CHESTNUT,
+};
+
 function getSpeciesShape(species: number, variant: number, rng: () => number): SpeciesShape {
-  const speciesId = species === SPECIES.GENERIC ? (variant === 1 ? SPECIES.LINDEN : SPECIES.CHESTNUT) : species;
+  const known = VOXEL_SHAPE_OF[species] ?? species;
+  const speciesId = known === SPECIES.GENERIC ? (variant === 1 ? SPECIES.LINDEN : SPECIES.CHESTNUT) : known;
 
   const variation = 1 + (rng() - 0.5) * 0.3;
 
@@ -162,7 +174,8 @@ function getSpeciesShape(species: number, variant: number, rng: () => number): S
 type Profile = 'round' | 'cone' | 'column' | 'dome';
 
 function profileOf(species: number, variant: number): Profile {
-  const id = species === SPECIES.GENERIC ? (variant === 1 ? SPECIES.LINDEN : SPECIES.CHESTNUT) : species;
+  const known = VOXEL_SHAPE_OF[species] ?? species;
+  const id = known === SPECIES.GENERIC ? (variant === 1 ? SPECIES.LINDEN : SPECIES.CHESTNUT) : known;
   if (id === SPECIES.PINE) return 'cone';
   if (id === SPECIES.POPLAR) return 'column';
   if (id >= SPECIES.BUSH) return 'dome';
