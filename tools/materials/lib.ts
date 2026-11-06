@@ -136,6 +136,10 @@ export function validateManifest(m: unknown, names: readonly string[], options: 
         errors.push(`${label}: ${field} missing or empty`);
       }
     }
+    // assetId becomes a path under data/material-sources/ and an API query: letters, digits, underscore only
+    if (nonEmptyString(entry.assetId) && !/^[A-Za-z0-9_]+$/.test(entry.assetId)) {
+      errors.push(`${label}: assetId must match [A-Za-z0-9_]+`);
+    }
     if (typeof entry.licence !== 'string' || !(MATERIAL_LICENCES as readonly string[]).includes(entry.licence)) {
       errors.push(`${label}: licence must be one of ${MATERIAL_LICENCES.join(', ')}`);
     }
