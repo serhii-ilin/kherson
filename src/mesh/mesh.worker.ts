@@ -1,15 +1,17 @@
 import { decodeVectorTile, type VectorTile } from '../world/vector-format.ts';
 import { buildChunkMesh, groundAtFromGrid } from './chunk.ts';
-import type { CityMeshRequest, CityMeshResponse, MeshTileRef } from './protocol.ts';
+import type { CityMeshRequest, CityMeshResponse, MeshTileRef, MeshWorkerMessage } from './protocol.ts';
 
 interface WorkerScope {
-  onmessage: ((e: MessageEvent<CityMeshRequest>) => void) | null;
+  onmessage: ((e: MessageEvent<MeshWorkerMessage>) => void) | null;
   postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 
 const scope = self as unknown as WorkerScope;
 const CACHE_MAX = 24;
 const cache = new Map<number, VectorTile>();
+/** OSM keys (`w<id>` / `r<id>`) of buildings replaced by landmarks or facade descriptors. */
+let hidden: ReadonlySet<string> = new Set<string>();
 
 function remember(key: number, tile: VectorTile): void {
   cache.delete(key);
@@ -18,7 +20,11 @@ function remember(key: number, tile: VectorTile): void {
 }
 
 scope.onmessage = (e) => {
-  const { id, gcx, gcz, ground, tiles } = e.data;
+  if ('type' in e.data && e.data.type === 'hidden') {
+    hidden = new Set(e.data.keys);
+    return;
+  }
+  const { id, gcx, gcz, ground, tiles, lod } = e.data as CityMeshRequest;
   const missing: number[] = [];
   const decoded: VectorTile[] = [];
   try {
@@ -30,12 +36,12 @@ scope.onmessage = (e) => {
       scope.postMessage({ id, missing } satisfies CityMeshResponse);
       return;
     }
-    const mesh = buildChunkMesh(decoded, gcx, gcz, groundAtFromGrid(gcx, gcz, ground));
+    const mesh = buildChunkMesh(decoded, gcx, gcz, groundAtFromGrid(gcx, gcz, ground), undefined, { lod, hidden });
     const transfer: Transferable[] = [];
     if (mesh.indices.length > 0) {
       transfer.push(
         mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.colors.buffer,
-        mesh.facade.buffer, mesh.style.buffer, mesh.indices.buffer,
+        mesh.facade.buffer, mesh.style.buffer, mesh.pbr.buffer, mesh.indices.buffer,
       );
     }
     scope.postMessage({
@@ -46,6 +52,7 @@ scope.onmessage = (e) => {
       colors: mesh.colors,
       facade: mesh.facade,
       style: mesh.style,
+      pbr: mesh.pbr,
       indices: mesh.indices,
     } satisfies CityMeshResponse, transfer);
   } catch (err) {

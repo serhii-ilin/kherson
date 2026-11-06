@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAT } from '../src/world/materials';
+import { PBR_LAYER_COUNT } from '../src/world/pbr-layers';
 import { ROOF, type VBuilding, type VectorTile } from '../src/world/vector-format';
 import { chunkInMeshRadius, meshViewRadius } from '../src/mesh/bounds';
 import { buildingsInChunk, buildChunkMesh } from '../src/mesh/chunk';
@@ -46,6 +47,7 @@ function assertMesh(mesh: CityMesh): void {
   expect(mesh.colors.length).toBe(nv * 3);
   expect(mesh.facade.length).toBe(nv * 4);
   expect(mesh.style.length).toBe(nv);
+  expect(mesh.pbr.length).toBe(nv);
   expect(mesh.indices.length % 3).toBe(0);
   for (let i = 0; i < nv; i++) {
     const n = normal(mesh, i);
@@ -222,6 +224,20 @@ describe('extrudeBuilding', () => {
     expect(Array.from(a.indices)).toEqual(Array.from(b.indices));
     expect(Array.from(a.uvs)).toEqual(Array.from(b.uvs));
     expect(meshByteSize(a)).toBeGreaterThan(0);
+  });
+
+  it('writes a valid pbr layer on every vertex and includes it in the byte size', () => {
+    const mesh = extrudeBuilding(building({ material: 2, roofMaterial: 3 }));
+    expect(mesh.pbr.length).toBe(mesh.positions.length / 3);
+    for (const p of mesh.pbr) {
+      expect(Number.isInteger(p)).toBe(true);
+      expect(p === -1 || (p >= 0 && p < PBR_LAYER_COUNT)).toBe(true);
+    }
+    expect(meshByteSize(mesh)).toBe(
+      mesh.positions.byteLength + mesh.normals.byteLength + mesh.uvs.byteLength
+      + mesh.colors.byteLength + mesh.facade.byteLength + mesh.style.byteLength
+      + mesh.pbr.byteLength + mesh.indices.byteLength,
+    );
   });
 
   it('skips a degenerate footprint', () => {

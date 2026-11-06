@@ -15,7 +15,17 @@ export interface CityMeshRequest {
   /** Coarse ground heights in voxels, `GW * GW`, origin at the chunk minus the block-window margin. */
   ground: Uint8Array;
   tiles: MeshTileRef[];
+  /** Detail level; omitted means `mid` (the legacy shader-painted facade). */
+  lod?: 'near' | 'mid';
 }
+
+/** Replaces the worker's hidden-building set; applies to every later chunk job. */
+export interface CityMeshHidden {
+  type: 'hidden';
+  keys: string[];
+}
+
+export type MeshWorkerMessage = CityMeshRequest | CityMeshHidden;
 
 export interface CityMeshResponse {
   id: number;
@@ -26,6 +36,7 @@ export interface CityMeshResponse {
   colors?: Float32Array;
   facade?: Float32Array;
   style?: Float32Array;
+  pbr?: Float32Array;
   indices?: Uint32Array;
   error?: string;
 }
