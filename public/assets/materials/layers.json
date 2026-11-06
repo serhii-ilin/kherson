@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "size": {
+    "hi": 512,
+    "lo": 256
+  },
+  "layers": [
+    {
+      "name": "stucco_smooth",
+      "assetId": "Plaster001",
+      "meanSrgb": [
+        215,
+        211,
+        208
+      ],
+      "tileM": 2
+    },
+    {
+      "name": "stucco_rough",
+      "assetId": "Plaster003",
+      "meanSrgb": [
+        215,
+        212,
+        208
+      ],
+      "tileM": 2
+    },
+    {
+      "name": "plaster_painted",
+      "assetId": "PaintedPlaster017",
+      "meanSrgb": [
+        190,
+        191,
+        187
+      ],
+      "tileM": 2
+    },
+    {
+      "name": "limestone_shell",
+      "assetId": "Bricks084",
+      "meanSrgb": [
+        159,
+        150,
+        118
+      ],
+      "tileM": 1.5
+    },
+    {
+      "name": "brick_red",
+      "assetId": "Bricks085",
+      "meanSrgb": [
+        135,
+        105,
+        89
+      ],
+      "tileM": 1
+    },
+    {
+      "name": "brick_silicate",
+      "assetId": "Bricks060",
+      "meanSrgb": [
+        199,
+        194,
+        191
+      ],
+      "tileM": 1
+    },
+    {
+      "name": "pebbledash",
+      "assetId": "Concrete049",
+      "meanSrgb": [
+        105,
+        96,
+        86
+      ],
+      "tileM": 1.5
+    },
+    {
+      "name": "panel_concrete",
+      "assetId": "Concrete042A",
+      "meanSrgb": [
+        93,
+        89,
+        85
+      ],
+      "tileM": 3
+    },
+    {
+      "name": "concrete",
+      "assetId": "Concrete036",
+      "meanSrgb": [
+        152,
+        148,
+        136
+      ],
+      "tileM": 2
+    },
+    {
+      "name": "granite",
+      "assetId": "Granite002B",
+      "meanSrgb": [
+        181,
+        177,
+        173
+      ],
+      "tileM": 1.5
+    },
+    {
+      "name": "roof_tin_seam",
+      "assetId": "CorrugatedSteel007A",
+      "meanSrgb": [
+        118,
+        159,
+        171
+      ],
+      "tileM": 2
+    },
+    {
+      "name": "roof_clay_tile",
+      "assetId": "RoofingTiles014A",
+      "meanSrgb": [
+        116,
+        74,
+        55
+      ],
+      "tileM": 1.5
+    },
+    {
+      "name": "roof_eternit",
+      "assetId": "CorrugatedSteel005",
+      "meanSrgb": [
+        109,
+        110,
+        112
+      ],
+      "tileM": 1.8
+    },
+    {
+      "name": "roof_bitumen",
+      "assetId": "Asphalt025C",
+      "meanSrgb": [
+        40,
+        39,
+        37
+      ],
+      "tileM": 3
+    },
+    {
+      "name": "asphalt",
+      "assetId": "Road012A",
+      "meanSrgb": [
+        50,
+        50,
+        48
+      ],
+      "tileM": 3
+    },
+    {
+      "name": "asphalt_worn",
+      "assetId": "Road012B",
+      "meanSrgb": [
+        54,
+        53,
+        51
+      ],
+      "tileM": 3
+    },
+    {
+      "name": "pavers_behaton",
+      "assetId": "PavingStones128",
+      "meanSrgb": [
+        146,
+        141,
+        129
+      ],
+      "tileM": 1
+    },
+    {
+      "name": "sett_granite",
+      "assetId": "PavingStones046",
+      "meanSrgb": [
+        145,
+        147,
+        145
+      ],
+      "tileM": 1
+    },
+    {
+      "name": "concrete_slabs",
+      "assetId": "Concrete033",
+      "meanSrgb": [
+        66,
+        63,
+        55
+      ],
+      "tileM": 3
+    },
+    {
+      "name": "gravel",
+      "assetId": "Gravel041",
+      "meanSrgb": [
+        128,
+        126,
+        107
+      ],
+      "tileM": 2
+    }
+  ]
+}
