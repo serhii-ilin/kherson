@@ -29,7 +29,39 @@ _Last updated: 2026-11-06_
 | Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | ✅ | `8fb1ee8` |
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
 | Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | ✅ | `078cd08`…`2648062` |
-| Kherson trees: 15 species with a surveyed mix, branch skeletons, leaf clumps, per-species leaf and bark textures, translucency, whitewashed street trunks ([TREES.md](TREES.md)) | 🟡 contract and species research done; textures, bake mix, models and renderer in progress | — |
+| Kherson trees: 15 species with a surveyed mix, branch skeletons, leaf clumps, per-species leaf and bark textures, translucency, whitewashed street trunks ([TREES.md](TREES.md)) | ✅ | `c0fbeda`, `daf4584`, `a3763a1`, `1c2ab10`, (this commit) |
+
+## Kherson trees
+
+The trees are the species that actually grow in Kherson, and they look like trees. OSM records almost no species here (259 of 2,193 tree nodes, nearly all just `broadleaved`), so the mix comes from surveys of the city's plantings. Sources, species and weights are in [TREES.md](TREES.md).
+
+**What changed**
+- **15 tree species:** chestnut, linden, robinia, pyramidal poplar, willow, pine, plane, maple, elm (*U. pumila*), gleditsia, mulberry, ailanthus, catalpa, thuja and walnut. Robinia and elm lead on streets, and willows stay on natural banks: within 6 m of water in parks (before, a park within 20 m of water was 60% willow, which put weeping willows behind the stone embankment; owner's photo 03 shows lindens and chestnuts there).
+- **Models:** every tree is a deterministic branch skeleton (trunk with lean and flare, scaffold limbs, child branches, short twigs) carrying leaf clumps that fill the species' crown envelope with sky gaps. The pine is a bare trunk under a flat umbrella, the poplar a column, the willow hangs curtains to about 1 m, and the thuja is a dense cone. Leaf cards are 0.45–0.9 m, so leaves come out at their real size.
+- **Textures:** 12 procedural leaf-cluster layers (palmate, heart, lobed, pinnate, needle tufts, scale sprays, blossom…) and 6 bark layers (the plane's camouflage, robinia furrows, the pine's plates…), drawn as texture arrays with no external files.
+- **Light:** leaf normals fan out from below the crown centre, so the lower crown is not black. Back faces keep their authored normal. Leaves glow slightly against the sun, and a soft wrap term is added.
+- **Whitewash:** 78,239 street and tree-row trees have white trunks up to about 1.2 m.
+- **Draw calls:** the mid and far models are shared by the three variants of a species and scaled, and on phones there are now fewer draw calls than before. `?renderer=voxel` folds the new species onto the voxel shapes they borrow, so it stays at its old cost.
+
+**Delegation.** Implemented by opencode `opencode-go/deepseek-v4.1-flash` in five tasks (bake mix, textures, models, renderer, willow rule), about $0.55 in total. A Sonnet agent reviewed every diff; Opus planned, verified and fixed the last renderer issues (buffer release order, voxel draw calls).
+
+**Triangles per tree** (heaviest variant): near 780–2,710 (cap 3,000 in the tests, 6,000 in Article 4), 70 m 340–1,150 (cap 1,200 / 1,500), mid ≤ 152 (cap 160 / 400), far 14 (cap 24).
+
+**Measured** (headless Chrome, SwiftShader, `time=13`; the frame interval is not a laptop frame time). Before is `8f75c7c`, after is this commit. The same instances are in both columns.
+
+| Pose | Before: triangles, draws | After: triangles, draws | Vegetation after |
+|---|---|---|---|
+| Street `x=10270&z=8850&yaw=-75&pitch=4`, desktop High | 772,151 · 228 | 1,070,071 · 227 | 347,628 tris |
+| Aerial `mode=fly&x=10340&z=9000&y=90&yaw=-15&pitch=-32` | 845,652 · 244 | 1,248,496 · 239 | 433,100 tris |
+| Under the plane tree `x=10276.5&z=8858.5&pitch=58` | 668,263 · 191 | 969,773 · 179 | 357,086 tris |
+| Park `x=10656&z=9349&yaw=0&pitch=2` | 1,177,401 · 272 | 2,030,047 · 303 | 825,714 tris |
+| Hydropark `mode=fly&x=7379&z=12980&y=12&yaw=30&pitch=-10` | 826,024 · 296 | 1,452,866 · 327 | 527,226 tris |
+| Street, phone (Android UA, touch, 390×844) | 234,145 · 114 | 276,131 · 95 | |
+| Park, phone | 375,131 · 125 | 548,367 · 114 | |
+| Hydropark, phone | 270,932 · 139 | 398,746 · 124 | |
+| Park, `?renderer=voxel` | 2,012,232 · 283 | 2,066,708 · 289 | |
+
+Every pose is inside the budgets: desktop ≤ about 2.5M triangles and 400 draws, phone ≤ 0.9M and 200. The densest park is at 81% of the desktop triangle budget (#40). The baked world is 27 MB (budget 30 MB).
 
 ## Near crowns
 
@@ -173,6 +205,9 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 36 | P3 | A standing statue on a tall red-and-grey pedestal (owner's photos 04, 05, 14, 15 in [EVIDENCE.md](EVIDENCE.md)) is not modelled: it is not in the current OSM (perhaps the Ushakov monument removed in 2022) and its spot is unknown | owner to point at it on the map |
 | 37 | P3 | The railing-free stretch with the bathing steps is ±15 m around the quay point nearest the fountain, estimated from photos 13–15 | owner to confirm where it starts and ends |
 | 38 | P3 | Filatova 28 courtyard (west side, facing school 28-А) is modelled from the owner's photos as a landmark (`src/landmarks/courtyard.ts`), but positions inside the yard are estimated; the house facade (entrance, glazed balcony) and the ivy are generic; the yard is sparser than in the photos (no trees or bushes of its own) | owner to confirm the layout in a real browser; compare with photos 01–03 |
+| 40 | P3 | The densest park pose is 2.03M triangles on desktop High (81% of the 2.5M budget); 0.83M of it is vegetation | if a denser spot crosses the budget: drop the near radius to 35 m or trim lod 0 cards in parks |
+| 41 | P3 | Mid-distance trees (70–250 m) are see-through up close: their cards tile the leaf cluster 2×2 and show the transparent gaps | denser mid cards, or a crown-filling cluster layer for mid LOD only |
+| 42 | P3 | Frame rate of the new trees is not yet measured on a real laptop or phone (headless SwiftShader only) | owner to check the park and Hydropark poses on the MacBook Air and phone |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
 ## Waiting on the owner
@@ -189,6 +224,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
+| Kherson trees: species mix from surveys, skeleton + clump models, texture arrays, translucency, whitewash; willows off the embankment park (owner's photo 03) | (this commit) |
 | Pages deploy timeout: run 42239220239 was aborted after GitHub Pages queued and synced for 10 min (the `deploy-pages` default limit); the limit is now 30 min | (this commit) |
 | Reload keeps your place: walk/fly mode, position and view direction are saved in `localStorage` (`vk-pose`) about once a second and when the tab is hidden, and restored on load; `?x=&z=` links still win. Checked in headless Chromium for walk and fly | `d7d5202` |
 | Gulls over the Dnipro: CC0 black-headed gull calls and a herring-gull laughing call (standing in for yellow-legged and Caspian), only near the water, about once a minute at the edge. Bird-recording budget raised to 1.6 MB (constitution amendment 5); 50 clips, 1,568,087 bytes | `6771c7f`, `2648062` |
