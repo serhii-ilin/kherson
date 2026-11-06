@@ -152,6 +152,8 @@ let vegetationRef: Vegetation | null = null;
 let birdSystem: BirdSystem | null = null;
 /** Sky reflections for glass and metal (PMREM of the sky dome); off on Low. */
 const skyEnvironment = quality === 'high' ? new SkyEnvironment(renderer, sky) : null;
+let skyEnvTexture: THREE.Texture | null = null;
+let meshRef: MeshStreamer | null = null;
 let fishSystem: FishSystem | null = null;
 function applyTime(hours: number): void {
   const d = daylightAt(hours);
@@ -165,7 +167,10 @@ function applyTime(hours: number): void {
   renderer.toneMappingExposure = d.exposure;
   sky.setDaylight(d);
   const env = skyEnvironment?.update(hours * 60);
-  if (env) scene.environment = env;
+  if (env) {
+    skyEnvTexture = env;
+    meshRef?.setEnvironment(env);
+  }
   const fog = scene.fog as THREE.Fog;
   fog.color.setRGB(d.fog[0], d.fog[1], d.fog[2], THREE.SRGBColorSpace);
   (scene.background as THREE.Color).copy(fog.color);
@@ -256,6 +261,8 @@ async function start(): Promise<void> {
   landmarkLayer.setNight(dayFactor);
   // buildings replaced by hero landmarks are never extruded
   mesh?.setHiddenBuildings(landmarkLayer.replacedKeys());
+  meshRef = mesh;
+  mesh?.setEnvironment(skyEnvTexture);
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
   const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
   const input = new Input();

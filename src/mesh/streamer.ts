@@ -194,6 +194,16 @@ export class MeshStreamer {
    * the installed chunks. Rare call; the old slots stay visible until each new result arrives.
    * A job already in flight is rebuilt afterwards if it was computed with the older set.
    */
+  /**
+   * Sky reflections for the facade material only (glass and metal). Setting it as `scene.environment` would add the
+   * sky's light to every standard material on top of the hemisphere light and wash the scene out.
+   */
+  setEnvironment(env: THREE.Texture | null, intensity = 0.35): void {
+    this.material.envMap = env;
+    this.material.envMapIntensity = intensity;
+    this.material.needsUpdate = true;
+  }
+
   setHiddenBuildings(keys: ReadonlySet<string>): void {
     const list = [...keys];
     this.hiddenVersion++;
