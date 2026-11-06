@@ -222,3 +222,21 @@ guesses above where they disagree:
   steps lead down into the river and people bathed. White concrete parapets with a short
   railing close each end. The paving there has red-brown bands fanning out from the
   fountain, which has a red-brown granite wall, a white coping and a teal mosaic basin.
+
+## Hero models (2026-11-06 photo pass)
+
+Part of the [realistic-buildings plan](../BUILDINGS_PLAN.md). These parametric hero models replace the extruded OSM buildings.
+
+| Building | OSM | Footprint (min-area rect) | Storeys | Photo references (dated, licence) |
+|---|---|---|---|---|
+| Hotel «Фрегат» | way 116810729 (Ushakova 2, Wikidata Q56357564) | 78 × 64 m at 112° (an L/compound plan, 23 nodes) | 15 | Visem, «Hotel Fregat in Kherson», 2017-08-26, CC BY-SA 4.0; Vladimir Yaitskiy (panoramio), 2009, CC BY-SA 3.0; 7777777kz (panoramio), 2009 and 2012, CC BY 3.0. Owner's private photo 06 is the evidence check. |
+| River station (Річморвокзал) | way 108158686 | 60 × 21 m at 158° | 3 | to collect |
+| «Зелений театр» | way 1112919132 | 49 × 30 m at 102° | 3 | to collect |
+
+**Hotel «Фрегат»** (2017 photo):
+- **Main slab:** light grey and white concrete. Full-width open balconies run in a regular grid on the long face, roughly 11 storeys by 12 bays visible. Thin metal rails; slabs project about 1.2 m.
+- **Yellow bands** (≈ `#e8d26a`) with round porthole windows in white rings: one along the top two storeys and one at the low podium band over the lobby.
+- **Right: the stair and lift tower.** White, with 3–4 full-height vertical fins, rising about 1.5 storeys above the roof. It is crowned by **three gold pointed "sail/flame" spikes** above a red sign. These are the sail-shaped crown of issue #32.
+- **Left: a narrow end tower.** White, with a vertical blue stripe carrying round yellow medallions, and a tall antenna mast on top.
+- **Roof:** a technical penthouse with the red letters «ГОТЕЛЬ ФРЕГАТ».
+- **Ground floor:** a glazed lobby (teal glass) under a projecting first-floor canopy slab.

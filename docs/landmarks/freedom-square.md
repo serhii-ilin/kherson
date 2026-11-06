@@ -236,3 +236,21 @@ mix, exact plinth dimensions/height, exact lamp model/spacing, tree species,
 the number and placement of flagpoles, and whether a second fountain stood in
 the main forecourt. Keep those values as adjustable estimates and do not fill
 the gaps with post-2022 imagery.
+
+## Hero models (2026-11-06 photo pass)
+
+Part of the [realistic-buildings plan](../BUILDINGS_PLAN.md). These are built as parametric hero models that replace the extruded OSM buildings (`Landmark.replaces`). Footprints, rotations and centroids come from the snapshot. Facade details come from the dated photos below; the photos are references and are not copied into the repo unless they are listed in `docs/ASSET_CREDITS.md`.
+
+| Building | OSM | Footprint (min-area rect) | Storeys | Photo references (dated, licence) |
+|---|---|---|---|---|
+| Regional administration | relation 2168547 (outer way 130741413, courtyard 161949999) | 61 × 81 m at 22° | 4 + attic | Mitte27, «Херсон, 2019, 03» and «…05», 2019-08-03, CC BY-SA 4.0 (front-on); A1, 2018-07-28, CC0; Zagorulya «KhersonODA», 2015-07-05, CC BY-SA 4.0 |
+| Court | way 130741412 | 66 × 17 m at 112° | 4 | to collect |
+| «Україна» cinema | way 130756586 | 62 × 44 m at 20° | 4 | to collect |
+
+**Administration, corrections to the section above** (2019 photo, front-on):
+- The centre of the main facade is a recessed bay behind **10 giant-order square pilasters** rising from the ground-floor plinth to the entablature, with ornate Corinthian-like capitals. One window column sits between each pair of pilasters, four rows high. Ground-floor windows have grilles.
+- Three wooden double doors in the middle bays sit up a broad flight of granite steps.
+- A heavy entablature and cornice run the full width. A tall plain attic above carries a carved coat-of-arms cartouche at the centre, with the flagpole above it.
+- The side wings are flat-faced, with the same four rows of windows and a plain cornice.
+- Cladding is pale beige limestone-like blocks (`LIMESTONE_SHELL` / `STUCCO_SMOOTH` layers, tint ≈ `#d9d2c0`). Window frames are white, and a few windows have air-conditioner boxes (pre-war detail).
+- In front, slightly right of the axis: the 2014–2022 memorial pad, a red-and-black embroidery-pattern panel with a flag mast, plus a photo-board fence. It is already part of the square landmark (`src/landmarks/freedom-square.ts`).
