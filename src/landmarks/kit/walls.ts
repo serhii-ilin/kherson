@@ -8,7 +8,7 @@
  * only around the perimeter, not through the holes.
  */
 import type { Color } from '../shapes.ts';
-import { detailSegments, emitBox, type Detail, type Frame, type KitBuilder, type Vec2 } from './builder.ts';
+import { emitBox, type Detail, type Frame, type KitBuilder, type Vec2 } from './builder.ts';
 import { openingTop, type OpeningShape } from './openings.ts';
 
 export interface WallOpening {
@@ -66,7 +66,7 @@ export function wallWithOpenings(b: KitBuilder, f: Frame, spec: WallWithOpenings
     holes.push({ x0: left, x1: right, bottom: o.y, o });
     cuts.add(left); cuts.add(right);
     if (o.shape !== 'rect') {
-      const n = Math.max(2, detailSegments(8, o.detail ?? detail));
+      const n = Math.max(2, (o.detail ?? detail) === 'far' ? 4 : 8);
       for (let i = 1; i < n; i++) cuts.add(left + ((right - left) * i) / n);
     }
   }

@@ -6,7 +6,7 @@
  * x runs along the facade, y up, z outward; the wall plane is z = 0 and glass sits at z = -depth.
  */
 import type { Color } from '../shapes.ts';
-import { detailSegments, emitBox, type Detail, type Frame, type KitBuilder } from './builder.ts';
+import { emitBox, type Detail, type Frame, type KitBuilder } from './builder.ts';
 
 export type OpeningShape = 'rect' | 'arched' | 'segmental';
 
@@ -198,7 +198,8 @@ export function addOpening(
   b: KitBuilder, f: Frame, o: Opening, colours: OpeningColours = {}, detail: Detail = 'near',
 ): void {
   if (o.w <= 0 || o.h <= 0) return;
-  const segments = Math.max(2, Math.round(o.segments ?? detailSegments(8, detail)));
+  // Openings use 8 arch segments near and 4 far, the count the kit's openings were specified with.
+  const segments = Math.max(2, Math.round(o.segments ?? (detail === 'far' ? 4 : 8)));
   const pbr = colours.pbr ?? -1;
   const trimPbr = colours.trimPbr ?? pbr;
   const reveal = colours.reveal ?? REVEAL;
@@ -246,7 +247,7 @@ export interface DoorwaySpec {
  */
 export function doorway(b: KitBuilder, f: Frame, spec: DoorwaySpec): void {
   const depth = Math.max(0.05, spec.depth ?? 0.25);
-  const segments = Math.max(2, detailSegments(8, spec.detail ?? 'near'));
+  const segments = Math.max(2, (spec.detail ?? 'near') === 'far' ? 4 : 8);
   const pbr = spec.pbr ?? -1;
   const trim = spec.frame ?? TRIM;
   const trimPbr = spec.trimPbr ?? pbr;
