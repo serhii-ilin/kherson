@@ -93,8 +93,15 @@ describe('LandmarkLayer registration', () => {
     const a = stub({ replaces: [{ type: 'way', id: 10 }, { type: 'relation', id: 20 }] });
     const b = stub({ replaces: [{ type: 'way', id: 10 }] });
     const { layer } = layerFor([a.landmark, b.landmark]);
-    expect([...layer.replacedKeys].sort()).toEqual(['r20', 'w10']);
-    expect(layer.replacedKeys.size).toBe(2);
+    expect([...layer.replacedKeys()].sort()).toEqual(['r20', 'w10']);
+    expect(layer.replacedKeys().size).toBe(2);
+  });
+
+  it('names each built group for its landmark', () => {
+    const { landmark } = stub();
+    const { layer, scene } = layerFor([landmark]);
+    layer.update(0, 0);
+    expect(scene.children.map((child) => child.name)).toContain('landmark:stub');
   });
 
   it('builds replaced heroes at 700 m and drops them at 950 m', () => {
@@ -216,6 +223,66 @@ describe('LandmarkLayer textured materials', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('disposes a photo that resolves after the landmark was dropped, without creating a material', async () => {
+    let resolveLoad!: (texture: THREE.Texture) => void;
+    const loadTexture = vi.fn((_url: string) => new Promise<THREE.Texture>((resolve) => { resolveLoad = resolve; }));
+    const { landmark } = stub({ meshes: [meshData('textured', 'late')] });
+    const { layer, scene } = layerFor([landmark], { base: '/base/', loadTexture });
+
+    layer.update(0, 0);
+    expect(loadTexture).toHaveBeenCalledTimes(1);
+    expect(layer.texturedMaterials).toBe(1);
+
+    layer.update(1000, 0);
+    expect(sceneMeshes(scene)).toHaveLength(0);
+    expect(layer.texturedMaterials).toBe(0);
+
+    const texture = new THREE.Texture();
+    const textureDispose = vi.spyOn(texture, 'dispose');
+    resolveLoad(texture);
+    await flush();
+
+    expect(textureDispose).toHaveBeenCalledTimes(1);
+    expect(layer.texturedMaterials).toBe(0);
+    expect(layer.photoTextures).toBe(0);
+    expect(sceneMeshes(scene)).toHaveLength(0);
+  });
+
+  it('keeps the shared photo material and texture across an LOD rebuild and disposes the old geometry', async () => {
+    const texture = new THREE.Texture();
+    const textureDispose = vi.spyOn(texture, 'dispose');
+    const loadTexture = vi.fn(async (_url: string) => texture);
+    const { landmark } = stub({ meshes: [meshData('textured', 'hero')] });
+    const { layer, scene } = layerFor([landmark], { base: '/base/', loadTexture });
+
+    layer.update(0, 0);
+    await flush();
+
+    const before = sceneMeshes(scene)[0]!;
+    const material = before.material as THREE.MeshStandardMaterial;
+    const materialDispose = vi.spyOn(material, 'dispose');
+    const geometryDispose = vi.spyOn(before.geometry, 'dispose');
+
+    layer.update(301, 0);
+
+    expect(loadTexture).toHaveBeenCalledTimes(1);
+    expect(materialDispose).not.toHaveBeenCalled();
+    expect(textureDispose).not.toHaveBeenCalled();
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(layer.texturedMaterials).toBe(1);
+    expect(layer.photoTextures).toBe(1);
+
+    const after = sceneMeshes(scene)[0]!;
+    expect(after).not.toBe(before);
+    expect(after.material).toBe(material);
+    expect(after.geometry).not.toBe(before.geometry);
+    expect(scene.children.map((child) => child.name)).toContain('landmark:stub');
+
+    layer.update(240, 0);
+    expect(loadTexture).toHaveBeenCalledTimes(1);
+    expect(textureDispose).not.toHaveBeenCalled();
   });
 
   it('defaults aPbr to -1 when a textured mesh has no PBR layer', () => {

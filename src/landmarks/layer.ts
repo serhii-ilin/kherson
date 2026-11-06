@@ -112,7 +112,7 @@ export class LandmarkLayer {
   }
 
   /** Every OSM building hidden by a registered landmark (`w<id>` / `r<id>`), computed once. */
-  get replacedKeys(): ReadonlySet<string> {
+  replacedKeys(): ReadonlySet<string> {
     return this.replaced;
   }
 
@@ -206,7 +206,7 @@ export class LandmarkLayer {
 
   private build(entry: Instance, context: LandmarkBuildContext, distance: number, lod: LandmarkLod): void {
     const build = entry.landmark.build(context);
-    const parts = this.instantiate(build);
+    const parts = this.instantiate(build, entry.landmark.id);
     entry.build = build;
     entry.surfaces = build.surfaces;
     entry.group = parts.group;
@@ -221,7 +221,7 @@ export class LandmarkLayer {
     const context = this.context(lod);
     if (entry.landmark.ready?.(context) === false) return;
     const build = entry.landmark.build(context);
-    const parts = this.instantiate(build);
+    const parts = this.instantiate(build, entry.landmark.id);
     const oldGroup = entry.group;
     const oldHandles = entry.handles;
     entry.build = build;
@@ -235,8 +235,9 @@ export class LandmarkLayer {
     if (distance <= PHOTO_RADIUS) this.requestPhotos(entry);
   }
 
-  private instantiate(build: LandmarkBuild): GroupParts {
+  private instantiate(build: LandmarkBuild, id: string): GroupParts {
     const group = new THREE.Group();
+    group.name = `landmark:${id}`;
     const handles: TexturedMaterialHandle[] = [];
     for (const data of build.meshes) {
       if (data.indices.length === 0) continue;

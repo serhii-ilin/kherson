@@ -18,6 +18,9 @@ import { versioned } from '../version.ts';
 const PBR_KEY = 'pbr';
 const ROUGHNESS = 0.85;
 
+/** Photo ids already reported: a missing facade file warns once per page, not once per approach. */
+const warnedPhotos = new Set<string>();
+
 export type TextureLoader = (url: string) => Promise<THREE.Texture>;
 
 export interface TexturedMaterialOptions {
@@ -30,7 +33,6 @@ export interface TexturedMaterialOptions {
 /** A reference-counted lease on one shared textured material. */
 export interface TexturedMaterialHandle {
   readonly material: THREE.MeshStandardMaterial;
-  readonly hasPhoto: boolean;
   /** Idempotent: starts the photo download once; later calls do nothing. */
   requestPhoto(): void;
   /** Drops one reference; disposes the material (+ texture) when the last one goes. */
@@ -196,7 +198,6 @@ export class TexturedMaterialCache {
     const owned = entry;
     return {
       material: owned.material,
-      hasPhoto: owned.photo !== null,
       requestPhoto: () => this.requestPhoto(owned),
       release: () => this.release(owned),
     };
@@ -211,7 +212,8 @@ export class TexturedMaterialCache {
   private requestPhoto(entry: Entry): void {
     if (entry.photo === null || entry.requested || entry.disposed) return;
     entry.requested = true;
-    const url = versioned(`${this.base}assets/facades/${entry.photo}.webp`);
+    const photo = entry.photo;
+    const url = versioned(`${this.base}assets/facades/${photo}.webp`);
     this.options.loadTexture(url).then(
       (texture) => {
         prepareTexture(texture);
@@ -226,8 +228,9 @@ export class TexturedMaterialCache {
         }
       },
       () => {
-        if (entry.disposed) return;
-        console.warn(`landmark: facade photo ${entry.photo} failed to load; keeping vertex colours`);
+        if (entry.disposed || warnedPhotos.has(photo)) return;
+        warnedPhotos.add(photo);
+        console.warn(`landmark: facade photo ${photo} failed to load; keeping vertex colours`);
       },
     );
   }
