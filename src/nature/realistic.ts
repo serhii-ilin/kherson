@@ -85,9 +85,9 @@ function baseProfile(height: number, trunkH: number, crownR: number, leaf: RGB):
 function profile(species: number): Profile {
   switch (species) {
     case SPECIES.CHESTNUT:
-      return { ...baseProfile(13, 2.6, 4.2, GREEN(70, 112, 46)), trunkR: 0.26, angleMin: 40, angleMax: 50, near: 275, cardW: 0.85 };
+      return { ...baseProfile(13, 2.6, 4.2, GREEN(70, 112, 46)), trunkR: 0.26, angleMin: 40, angleMax: 50, child: 3, near: 275, cardW: 0.85 };
     case SPECIES.LINDEN:
-      return { ...baseProfile(14, 2.8, 3.6, GREEN(88, 130, 56)), trunkR: 0.25, angleMin: 35, angleMax: 45, crown: 'ovoid', near: 275, cardW: 0.85, special: 'leader' };
+      return { ...baseProfile(14, 2.8, 3.6, GREEN(88, 130, 56)), trunkR: 0.25, angleMin: 35, angleMax: 45, crown: 'ovoid', child: 3, near: 275, cardW: 0.85, special: 'leader' };
     case SPECIES.ACACIA:
       return {
         ...baseProfile(13, 2.4, 4, GREEN(130, 160, 74)),
@@ -122,12 +122,12 @@ function profile(species: number): Profile {
         child: 1, near: 284, cardW: 0.9,
       };
     case SPECIES.MAPLE:
-      return { ...baseProfile(12, 2.4, 4, GREEN(82, 128, 54)), trunkR: 0.23, angleMin: 42, angleMax: 48, near: 275, cardW: 0.85 };
+      return { ...baseProfile(12, 2.4, 4, GREEN(82, 128, 54)), trunkR: 0.23, angleMin: 42, angleMax: 48, child: 3, near: 275, cardW: 0.85 };
     case SPECIES.ELM:
       return {
         ...baseProfile(11, 2.2, 4, GREEN(86, 122, 58)),
         trunkR: 0.19, bark: DARK_BARK, scaffolds: 7, angleMin: 35, angleMax: 62,
-        child: 2, near: 275, cardW: 0.57, crown: 'irregular',
+        child: 3, near: 272, cardW: 0.57, crown: 'irregular',
       };
     case SPECIES.GLEDITSIA:
       return {
@@ -139,7 +139,7 @@ function profile(species: number): Profile {
       return {
         ...baseProfile(7, 1.2, 3.5, GREEN(80, 126, 52)),
         trunkR: 0.16, bark: DARK_BARK, scaffolds: 3, angleMin: 35, angleMax: 55,
-        child: 2, near: 260, cardW: 0.57, crown: 'dome',
+        child: 3, near: 260, cardW: 0.57, crown: 'dome',
         special: 'mulberry', crownBase: 0.6,
       };
     case SPECIES.AILANTHUS:
@@ -153,7 +153,7 @@ function profile(species: number): Profile {
       return {
         ...baseProfile(10, 2.2, 4.5, GREEN(132, 176, 82)),
         trunkR: 0.23, scaffolds: 5, angleMin: 45, angleMax: 62,
-        child: 2, near: 275, cardW: 0.9, crown: 'irregular',
+        child: 3, near: 275, cardW: 0.9, crown: 'irregular',
       };
     case SPECIES.THUJA:
       return {
@@ -166,7 +166,7 @@ function profile(species: number): Profile {
       return {
         ...baseProfile(14, 2.5, 5.5, GREEN(78, 118, 52)),
         trunkR: 0.27, bark: GREY_BARK, scaffolds: 6, angleMin: 45, angleMax: 60,
-        child: 2, near: 270, cardW: 0.85, aspect: 2.2,
+        child: 3, near: 270, cardW: 0.85, aspect: 2.2,
         crown: 'dome', special: 'walnut',
       };
     case SPECIES.BUSH:
@@ -240,7 +240,7 @@ function envelope(p: Profile, y: number): number {
     case 'umbrella':
       return p.crownR * (0.55 + 0.45 * Math.sin(Math.PI * clamp(0.06 + 0.55 * t, 0, 1)));
     case 'cone':
-      return p.crownR * (0.55 + 0.45 * Math.sin(Math.PI * (0.22 + 0.6 * t)));
+      return p.crownR * Math.min(1, 1.6 * t + 0.35) * Math.pow(1 - t, 0.6);
     case 'flat':
       return p.crownR * (0.58 + 0.42 * Math.sin(Math.PI * (0.06 + 0.84 * t)));
     case 'weeping':
@@ -302,9 +302,16 @@ export interface SkeletonLimb {
   points: Node[];
 }
 
+export interface SkeletonTwig {
+  a: { x: number; y: number; z: number };
+  b: { x: number; y: number; z: number };
+  r: number;
+}
+
 export interface Skeleton {
   trunk: Node[];
   limbs: SkeletonLimb[];
+  twigs: SkeletonTwig[];
 }
 
 /** The deterministic wood skeleton of a near model, for tests and tooling. */
@@ -315,6 +322,11 @@ export function skeletonOf(species: number, variant: number): Skeleton {
   return {
     trunk: plan.trunk.map(at),
     limbs: plan.limbs.map((l) => ({ child: l.child, stub: l.stub, points: l.pts.map(at) })),
+    twigs: planTwigs(plan).map((t) => ({
+      a: { x: t.ax * k, y: t.ay * k, z: t.az * k },
+      b: { x: t.bx * k, y: t.by * k, z: t.bz * k },
+      r: t.r * k,
+    })),
   };
 }
 
@@ -465,7 +477,7 @@ function buildPlan(species: number, variant: number): Plan {
       x: start.x + dx * tipR,
       y: tipY,
       z: start.z + dz * tipR,
-      r: Math.max(0.015, p.trunkR * (0.16 + 0.1 * rng())),
+      r: Math.max(0.045, p.trunkR * (0.16 + 0.1 * rng())),
       sway: clamp(0.15 + 0.3 * (tipY / p.height), 0.15, 0.5),
     };
     const arch = p.special === 'willow' ? (p.crownTop - yStart) * 0.08 : 0;
@@ -480,11 +492,14 @@ function buildPlan(species: number, variant: number): Plan {
 
     // Child branches, near model only.
     for (let c = 0; c < p.child; c++) {
-      const ct = 0.5 + 0.32 * rng();
+      const denseChild = p.child >= 3;
+      const ct = denseChild ? 0.38 + 0.38 * rng() : 0.5 + 0.32 * rng();
       const parent: Limb = { pts: [start, mid, tip], child: false, stub: false };
       const at = pointOnLimb(parent, ct);
       const ca = az + (rng() - 0.5) * 1.1;
-      const cr = p.crownR * (0.18 + 0.2 * rng());
+      const cr = denseChild
+        ? clamp(p.crownR * (0.35 + 0.25 * rng()), 1.5, 3)
+        : p.crownR * (0.18 + 0.2 * rng());
       const cy = Math.min(p.height - 0.15, at.y + (p.crownTop - p.crownBase) * (0.08 + 0.16 * rng()));
       const envAt = envelope(p, cy) * 0.94;
       const ctipR = Math.min(Math.hypot(at.x, at.z) + cr, envAt);
@@ -492,7 +507,7 @@ function buildPlan(species: number, variant: number): Plan {
         x: Math.cos(ca) * ctipR,
         y: cy,
         z: Math.sin(ca) * ctipR,
-        r: Math.max(0.01, at.r * 0.32),
+        r: Math.max(0.045, at.r * 0.32),
         sway: clamp(0.2 + 0.3 * (cy / p.height), 0.2, 0.5),
       };
       pushLimb([at, ctip], true);
@@ -515,7 +530,7 @@ function buildPlan(species: number, variant: number): Plan {
 
   const wood = branchSamples(trunk, limbs);
   const push = (c: Clump, raw = false): void => {
-    if (!raw) {
+    if (!raw && p.special !== 'thuja') {
       const lim = Math.max(0.03, envelope(p, c.y) - c.w * 0.2);
       const r = Math.hypot(c.x, c.z);
       if (r > lim && r > 0.0001) {
@@ -558,11 +573,28 @@ function buildPlan(species: number, variant: number): Plan {
       const outerBias = p.crownR >= 5 && !p.airy ? 6 : 7;
       const rf = i % 10 < outerBias ? 0.7 + 0.3 * rng() : 0.45 + 0.25 * rng();
       const a = i * 2.399963229728653 + rng() * 0.9 + variant * 0.5;
-      const r = env * rf;
+      const widen = p.special === 'thuja' ? 1.25 : 1;
+      const r = env * rf * widen;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      if (x * x + z * z > (env * 1.02) * (env * 1.02)) continue;
+      const keepR = env * (p.special === 'thuja' ? 1.3 : 1.02);
+      if (x * x + z * z > keepR * keepR) continue;
       push(makeClump(p, x, y, z, rng, clumpKind(p)));
+    }
+  }
+
+  if (p.special === 'thuja') {
+    const topStart = p.height * 0.78;
+    for (const c of clumps) {
+      if (c.y >= topStart) {
+        c.w *= 0.55;
+        c.x *= 0.5;
+        c.z *= 0.5;
+      } else if (c.y + c.h * 0.5 > topStart) {
+        c.h = Math.max(0.12, 2 * (topStart - c.y));
+      }
+      const a = nearestWood(c.x, c.y, c.z, wood);
+      c.ax = a.x; c.ay = a.y; c.az = a.z; c.asway = a.sway;
     }
   }
 
@@ -696,7 +728,7 @@ class Bld {
     cx: number, cy: number, cz: number,
     rx: number, ry: number, rz: number,
     ux: number, uy: number, uz: number,
-    color: RGB, sway: number, crownY: number, tex: number, mirror: boolean, horizontal = false,
+    color: RGB, sway: number, normalY: number, tex: number, mirror: boolean, horizontal = false, uvRepeat = 1,
   ): void {
     const fnx = ry * uz - rz * uy;
     const fny = rz * ux - rx * uz;
@@ -704,16 +736,17 @@ class Bld {
     const fl = Math.hypot(fnx, fny, fnz) || 1;
     const n = (x: number, y: number, z: number, u: number, v: number): number => {
       const yy = Math.max(0.02, y);
-      let vx = x, vy = yy - crownY, vz = z;
-      if (horizontal) vy = 0;
+      let vx = x, vy = yy - normalY, vz = z;
+      if (horizontal || vy < 0) vy = 0;
       const rl = Math.hypot(vx, vy, vz) || 1;
       vx /= rl; vy /= rl; vz /= rl;
+      const uu = mirror ? 1 - u : u;
       return this.v(
         x, yy, z,
-        fnx / fl * 0.22 + vx * 0.78,
-        fny / fl * 0.22 + vy * 0.78,
-        fnz / fl * 0.22 + vz * 0.78,
-        color[0], color[1], color[2], sway, mirror ? 1 - u : u, v, 1, tex,
+        vx * 0.65 + fnx / fl * 0.15,
+        vy * 0.65 + 0.20 + fny / fl * 0.15,
+        vz * 0.65 + fnz / fl * 0.15,
+        color[0], color[1], color[2], sway, uu * uvRepeat, v * uvRepeat, 1, tex,
       );
     };
     const a = n(cx - rx - ux, cy - ry - uy, cz - rz - uz, 0, 0);
@@ -760,6 +793,7 @@ function drawClump(b: Bld, p: Profile, c: Clump, scale: number, crownY: number):
   const h = c.h * scale * 0.5;
   const sway = clamp(0.7 + 0.25 * (c.y / p.height), 0.7, 1);
   const tex = c.blossom ? LEAF_LAYER.BLOSSOM : b.leafLayer;
+  const normalY = crownY - 0.35 * (p.crownTop - p.crownBase);
   const a = hash01(c.seed + 3) * Math.PI * 2;
   const ca = Math.cos(a);
   const sa = Math.sin(a);
@@ -768,7 +802,7 @@ function drawClump(b: Bld, p: Profile, c: Clump, scale: number, crownY: number):
       const aa = a + (k / c.cards) * Math.PI;
       const kx = Math.cos(aa) * w;
       const kz = Math.sin(aa) * w;
-      b.card(c.x, c.y, c.z, kx, 0, kz, 0, h, 0, cardColor(p, c, k, crownY), sway, crownY, tex, (c.seed + k) % 2 === 0, true);
+      b.card(c.x, c.y, c.z, kx, 0, kz, 0, h, 0, cardColor(p, c, k, crownY), sway, normalY, tex, (c.seed + k) % 2 === 0, true);
     }
     return;
   }
@@ -781,7 +815,7 @@ function drawClump(b: Bld, p: Profile, c: Clump, scale: number, crownY: number):
     ];
     for (let k = 0; k < c.cards; k++) {
       const q = parts[k % parts.length]!;
-      b.card(c.x, c.y, c.z, q[0], q[1], q[2], q[3], q[4], q[5], cardColor(p, c, k, crownY), sway, crownY, tex, (c.seed + k) % 2 === 0);
+      b.card(c.x, c.y, c.z, q[0], q[1], q[2], q[3], q[4], q[5], cardColor(p, c, k, crownY), sway, normalY, tex, (c.seed + k) % 2 === 0);
     }
     return;
   }
@@ -791,23 +825,38 @@ function drawClump(b: Bld, p: Profile, c: Clump, scale: number, crownY: number):
   ];
   for (let k = 0; k < c.cards; k++) {
     const color = cardColor(p, c, k, crownY);
-    if (k === 0) b.card(c.x, c.y, c.z, ca * w, 0, sa * w, 0, h, 0, color, sway, crownY, tex, (c.seed + k) % 2 === 0);
-    else if (k === 1) b.card(c.x, c.y, c.z, -sa * w, 0, ca * w, 0, h, 0, color, sway, crownY, tex, (c.seed + k) % 2 === 0);
+    if (k === 0) b.card(c.x, c.y, c.z, ca * w, 0, sa * w, 0, h, 0, color, sway, normalY, tex, (c.seed + k) % 2 === 0);
+    else if (k === 1) b.card(c.x, c.y, c.z, -sa * w, 0, ca * w, 0, h, 0, color, sway, normalY, tex, (c.seed + k) % 2 === 0);
     else {
       const t = tilt[(k - 2) % tilt.length]!;
-      b.card(c.x, c.y, c.z, -sa * w, 0, ca * w, t[0] * h, t[1] * h, t[2] * h, color, sway, crownY, tex, (c.seed + k) % 2 === 0);
+      b.card(c.x, c.y, c.z, -sa * w, 0, ca * w, t[0] * h, t[1] * h, t[2] * h, color, sway, normalY, tex, (c.seed + k) % 2 === 0);
     }
   }
 }
 
-function drawTwig(b: Bld, c: Clump): void {
-  const ex = c.x;
-  const ey = c.kind === 'hanging' ? c.y + c.h * 0.5 : c.y;
-  const ez = c.z;
-  const len = Math.hypot(ex - c.ax, ey - c.ay, ez - c.az);
-  if (len < 0.08) return;
-  const r = 0.015 + 0.015 * hash01(c.seed + 7);
-  b.cylinder(c.ax, c.ay, c.az, ex, ey, ez, r, r * 0.7, 4, clamp(c.asway, 0.15, 0.5), 0.7);
+interface TwigSeg {
+  ax: number; ay: number; az: number;
+  bx: number; by: number; bz: number;
+  r: number; asway: number;
+}
+
+/** Every fourth clump hangs from a short twig when there is wood within a metre. */
+function planTwigs(plan: Plan): TwigSeg[] {
+  const out: TwigSeg[] = [];
+  for (let i = 0; i < plan.clumps.length; i += 4) {
+    const c = plan.clumps[i]!;
+    const bx = c.x;
+    const by = c.kind === 'hanging' ? c.y + c.h * 0.5 : c.y;
+    const bz = c.z;
+    const len = Math.hypot(bx - c.ax, by - c.ay, bz - c.az);
+    if (len < 0.08 || len > 1.0) continue;
+    out.push({ ax: c.ax, ay: c.ay, az: c.az, bx, by, bz, r: 0.015 + 0.015 * hash01(c.seed + 7), asway: c.asway });
+  }
+  return out;
+}
+
+function drawTwig(b: Bld, t: TwigSeg): void {
+  b.cylinder(t.ax, t.ay, t.az, t.bx, t.by, t.bz, t.r, t.r * 0.7, 4, clamp(t.asway, 0.15, 0.5), 0.7);
 }
 
 function drawTrunk(b: Bld, trunk: Node[], sides: number): void {
@@ -833,9 +882,7 @@ function drawNear(b: Bld, plan: Plan): void {
   const p = plan.p;
   drawTrunk(b, plan.trunk, p.trunkR < 0.12 ? 5 : 6);
   drawLimbs(b, plan.limbs, 4, true);
-  for (let i = 0; i < plan.clumps.length; i++) {
-    if (i % 4 === 0) drawTwig(b, plan.clumps[i]!);
-  }
+  for (const t of planTwigs(plan)) drawTwig(b, t);
   for (const c of plan.clumps) drawClump(b, p, c, 1, plan.crownY);
 }
 
@@ -843,19 +890,55 @@ function drawLod0(b: Bld, plan: Plan): void {
   const p = plan.p;
   drawTrunk(b, plan.trunk, 5);
   drawLimbs(b, plan.limbs, 4, false);
-  const keep = Math.max(1, Math.round(plan.clumps.length * 0.45));
-  const order = plan.clumps.map((c, i) => ({ i, score: Math.hypot(c.x, c.z) + c.y * 0.08 })).sort((a, b) => b.score - a.score);
+  const n = plan.clumps.length;
+  const keep = Math.max(1, Math.round(n * 0.45));
   const selected = new Set<number>();
-  let top = 0;
-  for (let i = 1; i < plan.clumps.length; i++) if (plan.clumps[i]!.y > plan.clumps[top]!.y) top = i;
-  selected.add(top);
-  for (const o of order) {
+  const outerQuota = Math.max(1, Math.round(keep * 0.2));
+  const stratified = Math.max(1, keep - outerQuota);
+  const byHeight = plan.clumps.map((c, i) => ({ i, y: c.y })).sort((a, b) => a.y - b.y);
+  for (let j = 0; j < stratified && j < n; j++) {
+    selected.add(byHeight[Math.min(n - 1, Math.floor(((j + 0.5) * n) / stratified))]!.i);
+  }
+  const outer = plan.clumps
+    .map((c, i) => ({ i, score: Math.hypot(c.x, c.z) + c.y * 0.05 }))
+    .sort((a, b) => b.score - a.score);
+  for (const o of outer) {
     if (selected.size >= keep) break;
     selected.add(o.i);
   }
-  for (let i = 0; i < plan.clumps.length; i++) {
+  for (let i = 0; i < n; i++) {
     if (selected.has(i)) drawClump(b, p, plan.clumps[i]!, 1.5, plan.crownY);
   }
+}
+
+function farthestClumps(plan: Plan, count: number): Clump[] {
+  const cs = plan.clumps;
+  if (cs.length <= count) return cs.slice();
+  const chosen: number[] = [];
+  let seed = 0;
+  let seedScore = -1;
+  for (let i = 0; i < cs.length; i++) {
+    const s = Math.hypot(cs[i]!.x, cs[i]!.z) + cs[i]!.y * 0.15;
+    if (s > seedScore) { seedScore = s; seed = i; }
+  }
+  chosen.push(seed);
+  while (chosen.length < count) {
+    let best = -1;
+    let bestD = -1;
+    for (let i = 0; i < cs.length; i++) {
+      if (chosen.includes(i)) continue;
+      let minD = Infinity;
+      for (const j of chosen) {
+        const a = cs[i]!, b = cs[j]!;
+        const d = (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+        if (d < minD) minD = d;
+      }
+      if (minD > bestD) { bestD = minD; best = i; }
+    }
+    if (best < 0) break;
+    chosen.push(best);
+  }
+  return chosen.map((i) => cs[i]!);
 }
 
 function drawMid(b: Bld, plan: Plan): void {
@@ -871,22 +954,35 @@ function drawMid(b: Bld, plan: Plan): void {
       b.cylinder(a.x, a.y, a.z, c.x, c.y, c.z, a.r, c.r, 4, a.sway, c.sway);
     }
   }
-  const cards = Math.max(8, Math.min(14, plan.clumps.length));
-  const sorted = plan.clumps.map((c, i) => ({ c, a: Math.atan2(c.z, c.x), i })).sort((a, b) => a.a - b.a);
   const crownH = Math.max(1, p.crownTop - p.crownBase);
-  for (let k = 0; k < cards; k++) {
-    const c = sorted[Math.floor((k + 0.5) * sorted.length / cards)]!.c;
+  const normalY = plan.crownY - 0.35 * crownH;
+  const picks = farthestClumps(plan, Math.min(20, plan.clumps.length));
+  for (let k = 0; k < picks.length; k++) {
+    const c = picks[k]!;
+    const a = Math.atan2(c.z, c.x);
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
     const tex = c.blossom ? LEAF_LAYER.BLOSSOM : b.leafLayer;
     const sway = clamp(0.7 + 0.25 * (c.y / p.height), 0.7, 1);
-    const a = Math.atan2(c.z, c.x);
-    if (p.special === 'willow') {
-      const size = Math.max(0.6, p.crownR * 0.22);
-      b.card(c.x, plan.crownY, c.z, Math.cos(a) * size * 0.5, 0, Math.sin(a) * size * 0.5, 0, crownH * 0.38, 0, cardColor(p, c, k, plan.crownY), sway, plan.crownY, tex, k % 2 === 0, true);
-    } else {
-      const w = Math.max(c.w * 4, p.crownR * 0.75);
-      const h = Math.max(c.h * 4, crownH * 0.45);
-      b.card(c.x, c.y, c.z, Math.cos(a) * w * 0.5, 0, Math.sin(a) * w * 0.5, 0, h * 0.5, 0, cardColor(p, c, k, plan.crownY), sway, plan.crownY, tex, k % 2 === 0);
+    const willow = p.special === 'willow';
+    const w = willow ? Math.max(0.5, c.w * 2.2) : c.w * 2.6;
+    const h = willow ? Math.min(crownH * 0.72, c.h * 2.2) : c.h * 2.6;
+    const radLimit = p.special === 'thuja'
+      ? Math.max(0.05, p.crownR * 1.02 - w * 0.5)
+      : Math.max(0.05, envelope(p, c.y) - (p.crownR < 2 ? w * 0.4 : w * 0.45));
+    let cx = c.x;
+    let cz = c.z;
+    const rr = Math.hypot(cx, cz);
+    if (rr > radLimit && rr > 0.0001) {
+      const f = radLimit / rr;
+      cx *= f;
+      cz *= f;
     }
+    const cy = clamp(c.y, Math.max(h * 0.5 + 0.02, p.crownBase), p.crownTop - h * 0.5);
+    const col0 = cardColor(p, c, k * 2, plan.crownY);
+    const col1 = cardColor(p, c, k * 2 + 1, plan.crownY);
+    b.card(cx, cy, cz, ca * w * 0.5, 0, sa * w * 0.5, 0, h * 0.5, 0, col0, sway, normalY, tex, k % 2 === 0, willow, 2);
+    b.card(cx, cy, cz, -sa * w * 0.5, 0, ca * w * 0.5, 0, h * 0.5, 0, col1, sway, normalY, tex, k % 2 === 1, willow, 2);
   }
 }
 
@@ -900,9 +996,10 @@ function drawFar(b: Bld, plan: Plan): void {
   const shell = p.blossom !== undefined && p.blossomFrac >= 0.45 ? p.blossom : p.leaf;
   const tex = p.blossom !== undefined && p.blossomFrac >= 0.45 ? LEAF_LAYER.BLOSSOM : b.leafLayer;
   const cy = y0 + span * 0.48;
-  b.card(0, mid, 0, p.crownR * 1.15, 0, 0, 0, halfH, 0, shell, 0.35, cy, tex, false);
-  b.card(0, mid, 0, 0, 0, p.crownR * 1.15, 0, halfH, 0, shell, 0.35, cy, tex, true);
-  b.card(0, mid + halfH * 0.15, 0, p.crownR, 0, 0, 0, 0, p.crownR, shell, 0.35, cy, tex, false);
+  const normalY = cy - 0.35 * (p.height - y0);
+  b.card(0, mid, 0, p.crownR * 1.15, 0, 0, 0, halfH, 0, shell, 0.35, normalY, tex, false);
+  b.card(0, mid, 0, 0, 0, p.crownR * 1.15, 0, halfH, 0, shell, 0.35, normalY, tex, true);
+  b.card(0, mid + halfH * 0.15, 0, p.crownR, 0, 0, 0, 0, p.crownR, shell, 0.35, normalY, tex, false);
 }
 
 /** Near, mid, or far mesh for one species variant. */

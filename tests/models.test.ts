@@ -703,6 +703,149 @@ describe('realistic tree models: skeleton, clumps and texture layers', () => {
     }
   });
 
+  it('keeps leaf normals facing up and outward', () => {
+    for (const s of ALL) {
+      const m = buildModel(s, 0, 3);
+      let leaves = 0, down = 0;
+      for (let i = 0; i < m.positions.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        leaves++;
+        if (m.normals[i + 1]! < -0.15) down++;
+      }
+      expect(down / leaves, `species ${s}`).toBeLessThan(0.05);
+    }
+  });
+
+  it('keeps thin wood segments short', () => {
+    for (const s of ALL) {
+      const sk = skeletonOf(s, 0);
+      const check = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number): void => {
+        const len = Math.hypot(bx - ax, by - ay, bz - az);
+        if (r < 0.04) expect(len, `species ${s}`).toBeLessThanOrEqual(1.05);
+      };
+      for (let i = 1; i < sk.trunk.length; i++) {
+        const a = sk.trunk[i - 1]!, b = sk.trunk[i]!;
+        check(a.x, a.y, a.z, b.x, b.y, b.z, Math.min(a.r, b.r));
+      }
+      for (const l of sk.limbs) {
+        for (let i = 1; i < l.points.length; i++) {
+          const a = l.points[i - 1]!, b = l.points[i]!;
+          check(a.x, a.y, a.z, b.x, b.y, b.z, Math.min(a.r, b.r));
+        }
+      }
+      for (const t of sk.twigs) check(t.a.x, t.a.y, t.a.z, t.b.x, t.b.y, t.b.z, t.r);
+    }
+  });
+
+  it('tapers thuja to a pointed ovoid cone', () => {
+    const m = buildModel(SPECIES.THUJA, 0, 3);
+    let top = 0, middle = 0;
+    for (let i = 0; i < m.positions.length; i += 3) {
+      if (m.leaf![i / 3]! < 0.5) continue;
+      const y = m.positions[i + 1]!;
+      const r = Math.hypot(m.positions[i]!, m.positions[i + 2]!);
+      if (y > m.height * 0.8) top = Math.max(top, r);
+      if (y > m.height * 0.2 && y < m.height * 0.4) middle = Math.max(middle, r);
+    }
+    expect(top).toBeLessThan(middle * 0.45);
+  });
+
+  it('keeps lod 0 leaf distribution close to lod 3', () => {
+    const shares = (m: VegModel): number[] => {
+      const out = [0, 0, 0, 0];
+      let total = 0;
+      for (let i = 0; i < m.positions.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        const b = Math.min(3, Math.floor((m.positions[i + 1]! / m.height) * 4));
+        out[b]!++;
+        total++;
+      }
+      return out.map((n) => n / Math.max(1, total));
+    };
+    for (const s of TREE_SPECIES) {
+      const near = shares(buildModel(s, 0, 3));
+      const coarse = shares(buildModel(s, 0, 0));
+      for (let b = 0; b < 4; b++) {
+        expect(Math.abs(near[b]! - coarse[b]!), `species ${s} band ${b}`).toBeLessThanOrEqual(0.15);
+      }
+    }
+  });
+
+  it('keeps lod 2 close to the near crown and tiled', () => {
+    const coverage1 = (m: VegModel): number => {
+      const p = m.positions;
+      let minY = Infinity, maxY = -Infinity;
+      for (let i = 0; i < p.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        minY = Math.min(minY, p[i + 1]!);
+        maxY = Math.max(maxY, p[i + 1]!);
+      }
+      const R = m.radius;
+      const cy = (minY + maxY) * 0.5;
+      const halfH = Math.max(0.01, (maxY - minY) * 0.5);
+      const cell = 0.25;
+      const x0 = -R - cell, y0 = minY - cell;
+      const nx = Math.ceil((2 * R) / cell) + 3;
+      const ny = Math.ceil((maxY - minY) / cell) + 3;
+      const counts = new Uint16Array(nx * ny);
+      const inPoly = (px: number, py: number, v: [number, number][]): boolean => {
+        let inside = false;
+        for (let i = 0, j = v.length - 1; i < v.length; j = i++) {
+          const xi = v[i]![0], yi = v[i]![1], xj = v[j]![0], yj = v[j]![1];
+          if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+      };
+      for (let i = 0; i < m.indices.length; i += 6) {
+        const ids = [m.indices[i]!, m.indices[i + 1]!, m.indices[i + 2]!, m.indices[i + 5]!];
+        if (m.leaf![ids[0]!]! < 0.5) continue;
+        const quad = ids.map((id): [number, number] => [p[id * 3]!, p[id * 3 + 1]!]);
+        const qx0 = Math.min(...quad.map((q) => q[0])), qx1 = Math.max(...quad.map((q) => q[0]));
+        const qy0 = Math.min(...quad.map((q) => q[1])), qy1 = Math.max(...quad.map((q) => q[1]));
+        const gx0 = Math.max(0, Math.floor((qx0 - x0) / cell)), gx1 = Math.min(nx - 1, Math.ceil((qx1 - x0) / cell));
+        const gy0 = Math.max(0, Math.floor((qy0 - y0) / cell)), gy1 = Math.min(ny - 1, Math.ceil((qy1 - y0) / cell));
+        for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+          if (inPoly(x0 + gx * cell, y0 + gy * cell, quad)) counts[gx + gy * nx]!++;
+        }
+      }
+      let inside = 0, covered = 0;
+      for (let gy = 0; gy < ny; gy++) for (let gx = 0; gx < nx; gx++) {
+        const px = x0 + gx * cell, py = y0 + gy * cell;
+        if ((px / R) ** 2 + ((py - cy) / halfH) ** 2 > 1) continue;
+        inside++;
+        if (counts[gx + gy * nx]! >= 1) covered++;
+      }
+      return inside === 0 ? 0 : covered / inside;
+    };
+    const bbox = (m: VegModel): { h: number; r: number } => {
+      let h = 0, r = 0;
+      for (let i = 0; i < m.positions.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        h = Math.max(h, m.positions[i + 1]!);
+        r = Math.max(r, Math.abs(m.positions[i]!), Math.abs(m.positions[i + 2]!));
+      }
+      return { h, r };
+    };
+    const dense: number[] = [SPECIES.CHESTNUT, SPECIES.LINDEN, SPECIES.MAPLE, SPECIES.CATALPA, SPECIES.WALNUT, SPECIES.THUJA, SPECIES.POPLAR];
+    for (const s of TREE_SPECIES) {
+      const near = buildModel(s, 0, 3);
+      const mid = buildModel(s, 0, 2);
+      const b3 = bbox(near);
+      const b2 = bbox(mid);
+      expect(Math.abs(b2.h - b3.h), `species ${s} lod2 height`).toBeLessThanOrEqual(b3.h * 0.15);
+      expect(Math.abs(b2.r - b3.r), `species ${s} lod2 radius`).toBeLessThanOrEqual(b3.r * 0.15);
+      if (dense.includes(s)) expect(coverage1(mid), `species ${s} lod2 coverage`).toBeGreaterThanOrEqual(0.75);
+      let uMin = Infinity, uMax = -Infinity;
+      for (let i = 0; i < mid.positions.length; i += 3) {
+        if (mid.leaf![i / 3]! < 0.5) continue;
+        uMin = Math.min(uMin, mid.uvs![(i / 3) * 2]!, mid.uvs![(i / 3) * 2 + 1]!);
+        uMax = Math.max(uMax, mid.uvs![(i / 3) * 2]!, mid.uvs![(i / 3) * 2 + 1]!);
+      }
+      expect(uMin, `species ${s} lod2 uv min`).toBeLessThanOrEqual(0.01);
+      expect(uMax, `species ${s} lod2 uv max`).toBeGreaterThanOrEqual(1.99);
+    }
+  });
+
   it('keeps lod 1 and lod 2 a pure uniform scale of variant 0', () => {
     for (const s of ALL) {
       for (let v = 0; v < VARIANTS; v++) {
