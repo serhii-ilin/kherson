@@ -51,6 +51,14 @@ describe('groupOf', () => {
     }
     expect(groups.size).toBe(N_SPECIES * (VARIANTS * 2 + 2));
   });
+
+  it('keeps every voxel variant in its own group', () => {
+    for (let m = 0; m < N_MODELS; m++) {
+      for (let s = 0; s < SLOTS; s++) {
+        expect(groupOf(m, s, true), `model ${m} slot ${s}`).toBe(m * SLOTS + s);
+      }
+    }
+  });
 });
 
 describe('slotScale', () => {
@@ -69,6 +77,14 @@ describe('slotScale', () => {
         for (const s of [2, 3]) {
           expect(slotScale(m, s), `model ${m} slot ${s}`).toBeCloseTo(ratio, 6);
         }
+      }
+    }
+  });
+
+  it('never rescales voxel variants', () => {
+    for (let m = 0; m < N_MODELS; m++) {
+      for (let s = 0; s < SLOTS; s++) {
+        expect(slotScale(m, s, true), `model ${m} slot ${s}`).toBe(1);
       }
     }
   });

@@ -67,6 +67,8 @@ interface RegionVeg {
 
 interface Group {
   mesh: THREE.InstancedMesh | null;
+  /** Per-instance whitewash flag; kept here so the fill pass needs no geometry lookup. */
+  white: THREE.InstancedBufferAttribute | null;
   capacity: number;
   tris: number;
 }
@@ -76,18 +78,18 @@ function baseModel(model: number): number {
   return model - (model % VARIANTS);
 }
 
-/** Group index of an instance: slots 2 (mid) and 3 (far) share their species' variant-0 model. */
-export function groupOf(model: number, slot: number): number {
-  return (slot >= 2 ? baseModel(model) : model) * SLOTS + slot;
+/** Group index of an instance: slots 2 (mid) and 3 (far) share their species' variant-0 model on the realistic path. */
+export function groupOf(model: number, slot: number, voxel = false): number {
+  return (slot >= 2 && !voxel ? baseModel(model) : model) * SLOTS + slot;
 }
 
 /** Uniform scale of a variant relative to variant 0; the shared mid/far models are scaled back by this. */
 const VARIANT_SCALE = new Float32Array(VARIANTS);
 for (let v = 0; v < VARIANTS; v++) VARIANT_SCALE[v] = variantScale(v) / variantScale(0);
 
-/** Instance scale multiplier of a group; slots 0 and 1 use the model at its own size. */
-export function slotScale(model: number, slot: number): number {
-  return slot >= 2 ? VARIANT_SCALE[model % VARIANTS]! : 1;
+/** Instance scale multiplier of a group; slots 0 and 1 use the model at its own size, and voxel variants are never rescaled. */
+export function slotScale(model: number, slot: number, voxel = false): number {
+  return slot >= 2 && !voxel ? VARIANT_SCALE[model % VARIANTS]! : 1;
 }
 
 /** 1 for street and tree-row trees (spring whitewash), 0 for everything else. */
@@ -186,11 +188,14 @@ const CARD_NORMAL_FRAGMENT = `#include <normal_fragment_begin>
 
 const CARD_EMISSIVE_FRAGMENT = `#include <emissivemap_fragment>
   if ( vLeaf > 0.5 ) {
-    // Light through the leaves: a yellow-green glow when looking towards the sun, plus a soft terminator.
+    // Light through the leaves: a deep glow only where the card turns away from the sun, plus a small
+    // terminator lift. uSunDir is world space; normal is view space after the back-face fix.
+    vec3 sunView = ( viewMatrix * vec4( uSunDir, 0.0 ) ).xyz;
     vec3 viewDir = normalize( vWorldPos - cameraPosition );
-    float back = pow( max( dot( viewDir, uSunDir ), 0.0 ), 4.0 );
-    totalEmissiveRadiance += diffuseColor.rgb * uSunColor * back * 0.35;
-    totalEmissiveRadiance += 0.12 * uSunColor * diffuseColor.rgb;
+    float back = pow( max( dot( viewDir, uSunDir ), 0.0 ), 6.0 );
+    float away = 1.0 - max( dot( normal, sunView ), 0.0 );
+    totalEmissiveRadiance += diffuseColor.rgb * uSunColor * back * 0.22 * away;
+    totalEmissiveRadiance += 0.05 * uSunColor * diffuseColor.rgb;
   }`;
 
 /** The GLSL injected into the realistic card materials, for tests. */
@@ -262,7 +267,7 @@ export class Vegetation {
     this.nearSq = opts.nearRadius * opts.nearRadius;
     this.farRadius = opts.farRadius;
     this.farSq = opts.farRadius * opts.farRadius;
-    for (let i = 0; i < N_MODELS * SLOTS; i++) this.groups.push({ mesh: null, capacity: 0, tris: 0 });
+    for (let i = 0; i < N_MODELS * SLOTS; i++) this.groups.push({ mesh: null, white: null, capacity: 0, tris: 0 });
 
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true });
     const uTime = this.uTime;
@@ -494,10 +499,13 @@ export class Vegetation {
     }
     const cap = Math.max(64, Math.ceil(need * 1.5));
     const fine = gi % SLOTS === 0;
-    const mesh = new THREE.InstancedMesh(this.geometry(Math.floor(gi / SLOTS), gi % SLOTS), fine ? this.fineMaterial : this.material, cap);
+    const geometry = this.geometry(Math.floor(gi / SLOTS), gi % SLOTS);
+    // Capacity grew: replace the whitewash attribute, releasing the previous GL buffer.
+    geometry.deleteAttribute('aWhite');
+    const mesh = new THREE.InstancedMesh(geometry, fine ? this.fineMaterial : this.material, cap);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
     const white = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
-    mesh.geometry.setAttribute('aWhite', white);
+    geometry.setAttribute('aWhite', white);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     white.setUsage(THREE.DynamicDrawUsage);
@@ -509,6 +517,7 @@ export class Vegetation {
     mesh.customDepthMaterial = fine ? this.fineDepthMaterial : this.depthMaterial;
     this.scene.add(mesh);
     grp.mesh = mesh;
+    grp.white = white;
     grp.capacity = cap;
     grp.tris = this.geometry(Math.floor(gi / SLOTS), gi % SLOTS).index!.count / 3;
     return mesh;
@@ -516,7 +525,7 @@ export class Vegetation {
 
   /** Re-assigns an LOD to every instance around the camera and refills the instance buffers. */
   private rebuild(): void {
-    const { camX, camZ, fineSq, lod0Sq, nearSq, farSq } = this;
+    const { camX, camZ, fineSq, lod0Sq, nearSq, farSq, voxel } = this;
     const counts = this.counts;
     counts.fill(0);
     const reach = this.farRadius + REGION_M * 1.5;
@@ -534,13 +543,13 @@ export class Vegetation {
         // models are built in a worker, nearest first; until the wanted LOD arrives the next coarser one that
         // exists stands in (finally the far box, built on demand), so nothing pops out of existence
         const m = r.model[i]!;
-        if (s >= 0 && s < 3 && this.geoms[groupOf(m, s)] === null) {
-          const gm = s >= 2 ? baseModel(m) : m;
-          this.queue.request(groupOf(m, s), SPECIES_LIST[Math.floor(gm / VARIANTS)]!, gm % VARIANTS, LOD_OF_SLOT[s]!, d2);
-          do s++; while (s < 3 && this.geoms[groupOf(m, s)] === null);
+        if (s >= 0 && s < 3 && this.geoms[groupOf(m, s, voxel)] === null) {
+          const gm = !voxel && s >= 2 ? baseModel(m) : m;
+          this.queue.request(groupOf(m, s, voxel), SPECIES_LIST[Math.floor(gm / VARIANTS)]!, gm % VARIANTS, LOD_OF_SLOT[s]!, d2);
+          do s++; while (s < 3 && this.geoms[groupOf(m, s, voxel)] === null);
         }
         r.slot[i] = s;
-        if (s >= 0) counts[groupOf(m, s)]!++;
+        if (s >= 0) counts[groupOf(m, s, voxel)]!++;
       }
     }
     // pass 2: fill
@@ -554,11 +563,12 @@ export class Vegetation {
         const s = r.slot[i]!;
         if (s < 0) continue;
         const m = r.model[i]!;
-        const gi = groupOf(m, s);
-        const mesh = this.groups[gi]!.mesh!;
+        const gi = groupOf(m, s, voxel);
+        const grp = this.groups[gi]!;
+        const mesh = grp.mesh!;
         const k = cursor[gi]!++;
         const mtx = mesh.instanceMatrix.array as Float32Array;
-        const sc = r.scale[i]! * slotScale(m, s);
+        const sc = r.scale[i]! * slotScale(m, s, voxel);
         const rot = r.rot[i]!;
         const c = rot === 0 ? 1 : rot === 2 ? -1 : 0;
         const sn = rot === 1 ? 1 : rot === 3 ? -1 : 0;
@@ -569,8 +579,7 @@ export class Vegetation {
         mtx[o + 12] = r.x[i]!; mtx[o + 13] = r.y[i]!; mtx[o + 14] = r.z[i]!; mtx[o + 15] = 1;
         const ca = mesh.instanceColor!.array as Float32Array;
         ca[k * 3] = r.tint[i * 3]!; ca[k * 3 + 1] = r.tint[i * 3 + 1]!; ca[k * 3 + 2] = r.tint[i * 3 + 2]!;
-        const wa = mesh.geometry.getAttribute('aWhite') as THREE.InstancedBufferAttribute;
-        (wa.array as Float32Array)[k] = r.white[i]!;
+        (grp.white!.array as Float32Array)[k] = r.white[i]!;
         total++;
         if (s <= 1) near++;
         if (s === 0) fine++;
@@ -585,7 +594,7 @@ export class Vegetation {
       g.mesh.visible = n > 0;
       g.mesh.instanceMatrix.needsUpdate = true;
       g.mesh.instanceColor!.needsUpdate = true;
-      (g.mesh.geometry.getAttribute('aWhite') as THREE.InstancedBufferAttribute).needsUpdate = true;
+      g.white!.needsUpdate = true;
       tris += n * g.tris;
     }
     this.stats.instances = total;
