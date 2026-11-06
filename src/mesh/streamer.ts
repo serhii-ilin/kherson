@@ -414,7 +414,6 @@ export class MeshStreamer {
     }
     chunk.lod = lod;
     chunk.pending = null;
-    chunk.reload = false;
     chunk.ready = true;
     if (!this.chunkHasBridge(chunk.gcx, chunk.gcz)) {
       this.coarse.setStructuresHidden(chunk.gcx, chunk.gcz, true);
