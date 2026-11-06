@@ -51,9 +51,9 @@ function parseArgs(argv: readonly string[]): Arguments {
   return args;
 }
 
-function loadManifest(): MaterialsManifest {
+function loadManifest(allowEmptyUrls: boolean): MaterialsManifest {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8')) as MaterialsManifest;
-  const errors = validateManifest(manifest, PBR_LAYER_NAMES);
+  const errors = validateManifest(manifest, PBR_LAYER_NAMES, { allowEmptyUrls });
   if (errors.length > 0) throw new Error(`${MANIFEST} is invalid:\n${errors.join('\n')}`);
   return manifest;
 }
@@ -120,9 +120,9 @@ function resolvedUrl(asset: unknown, resolution: string): string | null {
   return null;
 }
 
-async function resolveLayer(layer: MaterialLayer, userAgent: string): Promise<string> {
-  const url = `${API}?id=${encodeURIComponent(layer.assetId)}&include=downloadData`;
-  const response = await fetch(url, { headers: { 'User-Agent': userAgent } });
+async function resolveLayer(layer: MaterialLayer, userAgent: string): Promise<{ url: string; page: string }> {
+  const apiUrl = `${API}?id=${encodeURIComponent(layer.assetId)}&include=downloadData`;
+  const response = await fetch(apiUrl, { headers: { 'User-Agent': userAgent } });
   if (!response.ok) throw new Error(`ambientCG lookup failed: ${response.status} ${response.statusText} (${layer.layer})`);
   const body = (await response.json()) as unknown;
   const assets = isRecord(body) && Array.isArray(body.foundAssets) ? body.foundAssets : [];
@@ -131,11 +131,14 @@ async function resolveLayer(layer: MaterialLayer, userAgent: string): Promise<st
       entry.assetId.toLowerCase() === layer.assetId.toLowerCase(),
   );
   if (asset === undefined) throw new Error(`ambientCG has no asset "${layer.assetId}" for layer "${layer.layer}"`);
-  const found = resolvedUrl(asset, layer.resolution);
-  if (found === null) {
+  const url = resolvedUrl(asset, layer.resolution);
+  if (url === null) {
     throw new Error(`ambientCG asset "${layer.assetId}" has no ${layer.resolution} download for layer "${layer.layer}"`);
   }
-  return found;
+  const assetId = isRecord(asset) && typeof asset.assetId === 'string' && asset.assetId !== ''
+    ? asset.assetId
+    : layer.assetId;
+  return { url, page: `https://ambientcg.com/view?id=${assetId}` };
 }
 
 function unzip(zip: string, dest: string): void {
@@ -149,17 +152,22 @@ function unzip(zip: string, dest: string): void {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const manifest = loadManifest();
+  const manifest = loadManifest(args.resolve);
   const layers = selectedLayers(manifest, args.only);
   let dirty = false;
 
   for (const layer of layers) {
     if (args.resolve) {
-      const url = await resolveLayer(layer, manifest.userAgent);
-      if (url !== layer.url) {
-        layer.url = url;
+      const resolved = await resolveLayer(layer, manifest.userAgent);
+      if (resolved.url !== layer.url) {
+        layer.url = resolved.url;
         dirty = true;
-        console.log(`resolved ${layer.layer}: ${url}`);
+        console.log(`resolved ${layer.layer} url: ${resolved.url}`);
+      }
+      if (resolved.page !== layer.page) {
+        layer.page = resolved.page;
+        dirty = true;
+        console.log(`resolved ${layer.layer} page: ${resolved.page}`);
       }
     }
     if (!layer.url) throw new Error(`layer "${layer.layer}" has no url; use --resolve`);

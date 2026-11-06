@@ -21,13 +21,26 @@ export interface MaterialLayer {
   licence: string;
   /** Lower-case hex SHA-256 of the downloaded zip, or empty until `--write-sha`. */
   sha256: string;
-  /** Optional per-channel multiplier applied after albedo normalisation. */
+  /** Optional per-channel multiplier applied after albedo normalisation, before saturation. */
   tint?: readonly [number, number, number];
+  /** Optional saturation multiplier (0..1); 1 keeps the source colours. */
+  saturation?: number;
 }
+
+/** WebP quality settings for the two alpha-free maps. */
+export interface WebpSettings {
+  /** `_a` quality, 0..100. */
+  albedoQ: number;
+  /** `_n` quality, 0..100. */
+  normalQ: number;
+}
+
+export const DEFAULT_WEBP_SETTINGS: WebpSettings = { albedoQ: 78, normalQ: 82 };
 
 export interface MaterialsManifest {
   note?: string;
   userAgent: string;
+  webp?: WebpSettings;
   layers: MaterialLayer[];
 }
 
@@ -51,9 +64,14 @@ export interface BytesReport {
   text: string;
 }
 
-const TEXT_FIELDS = ['source', 'assetId', 'resolution', 'url', 'page'] as const;
+const TEXT_FIELDS = ['source', 'assetId', 'resolution'] as const;
 const HEX_SHA256 = /^[0-9a-f]{64}$/i;
 const HTTPS_URL = /^https:\/\/[^\s]+$/;
+
+export interface ValidateOptions {
+  /** `fetch-materials --resolve` fills url/page from the API, so they may be empty before it runs. */
+  allowEmptyUrls?: boolean;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -67,12 +85,25 @@ function nonEmptyString(value: unknown): value is string {
  * Validate a parsed `data/materials.json` against the shared layer contract.
  * Returns a list of human-readable errors; an empty list means the manifest is usable.
  */
-export function validateManifest(m: unknown, names: readonly string[]): string[] {
+export function validateManifest(m: unknown, names: readonly string[], options: ValidateOptions = {}): string[] {
   const errors: string[] = [];
   if (!isRecord(m)) {
     return ['manifest: expected a JSON object'];
   }
   if (!nonEmptyString(m.userAgent)) errors.push('manifest userAgent: missing or empty');
+  if (m.webp !== undefined) {
+    if (!isRecord(m.webp)) {
+      errors.push('manifest webp: expected an object');
+    } else {
+      for (const key of ['albedoQ', 'normalQ'] as const) {
+        const value = m.webp[key];
+        if (value === undefined) continue;
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100) {
+          errors.push(`manifest webp.${key}: must be an integer from 0 to 100`);
+        }
+      }
+    }
+  }
   if (!Array.isArray(m.layers)) {
     return [...errors, 'manifest layers: expected an array'];
   }
@@ -108,8 +139,13 @@ export function validateManifest(m: unknown, names: readonly string[]): string[]
     if (typeof entry.licence !== 'string' || !(MATERIAL_LICENCES as readonly string[]).includes(entry.licence)) {
       errors.push(`${label}: licence must be one of ${MATERIAL_LICENCES.join(', ')}`);
     }
-    if (typeof entry.url !== 'string' || !HTTPS_URL.test(entry.url)) {
+    const pendingUrl = options.allowEmptyUrls === true && (entry.url === undefined || entry.url === '');
+    if (!pendingUrl && (typeof entry.url !== 'string' || !HTTPS_URL.test(entry.url))) {
       errors.push(`${label}: url must be an https URL`);
+    }
+    const pendingPage = options.allowEmptyUrls === true && (entry.page === undefined || entry.page === '');
+    if (!pendingPage && !nonEmptyString(entry.page)) {
+      errors.push(`${label}: page missing or empty`);
     }
     if (typeof entry.sha256 !== 'string' || (entry.sha256 !== '' && !HEX_SHA256.test(entry.sha256))) {
       errors.push(`${label}: sha256 must be empty or 64 hex characters`);
@@ -121,6 +157,12 @@ export function validateManifest(m: unknown, names: readonly string[]): string[]
         tint.some((v) => typeof v !== 'number' || !Number.isFinite(v) || v <= 0)
       ) {
         errors.push(`${label}: tint must be three positive numbers`);
+      }
+    }
+    if (entry.saturation !== undefined) {
+      const saturation = entry.saturation;
+      if (typeof saturation !== 'number' || !Number.isFinite(saturation) || saturation < 0 || saturation > 1) {
+        errors.push(`${label}: saturation must be a number from 0 to 1`);
       }
     }
   }
@@ -152,6 +194,14 @@ export function normaliseFactor(mean: readonly [number, number, number], target 
   const average = (mean[0] + mean[1] + mean[2]) / 3;
   if (!Number.isFinite(average) || average <= 0) return 1;
   return target / average;
+}
+
+/** WebP qualities from the manifest, with the tested defaults when the optional block is absent. */
+export function webpSettings(manifest: MaterialsManifest): WebpSettings {
+  return {
+    albedoQ: manifest.webp?.albedoQ ?? DEFAULT_WEBP_SETTINGS.albedoQ,
+    normalQ: manifest.webp?.normalQ ?? DEFAULT_WEBP_SETTINGS.normalQ,
+  };
 }
 
 function markdownCell(value: string): string {

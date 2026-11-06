@@ -4,10 +4,12 @@ import { PBR_LAYER_NAMES } from '../src/world/pbr-layers.ts';
 import {
   bytesReport,
   creditsTable,
+  DEFAULT_WEBP_SETTINGS,
   normaliseFactor,
   pickMaps,
   replaceBetweenMarkers,
   validateManifest,
+  webpSettings,
   type MaterialsManifest,
 } from '../tools/materials/lib.ts';
 
@@ -93,6 +95,53 @@ describe('validateManifest', () => {
     const bad = validManifest();
     (bad.layers as Record<string, unknown>[])[0].tint = [1, 0, 2];
     expect(validateManifest(bad, PBR_LAYER_NAMES).join('\n')).toMatch(/layers\[0\].*tint/);
+  });
+
+  it('accepts an optional saturation from 0 to 1 and rejects values outside it', () => {
+    const good = validManifest();
+    (good.layers as Record<string, unknown>[])[0].saturation = 0;
+    (good.layers as Record<string, unknown>[])[1].saturation = 1;
+    expect(validateManifest(good, PBR_LAYER_NAMES)).toEqual([]);
+
+    const bad = validManifest();
+    (bad.layers as Record<string, unknown>[])[0].saturation = 1.1;
+    (bad.layers as Record<string, unknown>[])[1].saturation = -0.1;
+    const errors = validateManifest(bad, PBR_LAYER_NAMES).join('\n');
+    expect(errors).toMatch(/layers\[0\].*saturation must be a number from 0 to 1/);
+    expect(errors).toMatch(/layers\[1\].*saturation must be a number from 0 to 1/);
+  });
+
+  it('allows empty url/page only when --resolve will fill them', () => {
+    const m = validManifest();
+    const first = (m.layers as Record<string, unknown>[])[0];
+    first.url = '';
+    first.page = '';
+    expect(validateManifest(m, PBR_LAYER_NAMES).join('\n')).toContain('layers[0] (stucco_smooth): url must be an https URL');
+    expect(validateManifest(m, PBR_LAYER_NAMES).join('\n')).toContain('layers[0] (stucco_smooth): page missing or empty');
+    expect(validateManifest(m, PBR_LAYER_NAMES, { allowEmptyUrls: true })).toEqual([]);
+  });
+
+  it('validates the optional webp quality block', () => {
+    const good = validManifest();
+    good.webp = { albedoQ: 70, normalQ: 80 };
+    expect(validateManifest(good, PBR_LAYER_NAMES)).toEqual([]);
+
+    const bad = validManifest();
+    bad.webp = { albedoQ: 101, normalQ: 12.5 };
+    const errors = validateManifest(bad, PBR_LAYER_NAMES).join('\n');
+    expect(errors).toMatch(/manifest webp\.albedoQ: must be an integer from 0 to 100/);
+    expect(errors).toMatch(/manifest webp\.normalQ: must be an integer from 0 to 100/);
+  });
+});
+
+describe('webpSettings', () => {
+  it('uses the tested defaults when the manifest has no webp block', () => {
+    expect(webpSettings({ userAgent: 'x', layers: [] })).toEqual(DEFAULT_WEBP_SETTINGS);
+  });
+
+  it('takes the manifest qualities when present', () => {
+    expect(webpSettings({ userAgent: 'x', layers: [], webp: { albedoQ: 60, normalQ: 70 } }))
+      .toEqual({ albedoQ: 60, normalQ: 70 });
   });
 });
 
@@ -236,19 +285,22 @@ describe('committed data/materials.json', () => {
     expect(manifest.layers.map((l) => l.layer)).toEqual([...PBR_LAYER_NAMES]);
   });
 
-  it('has the provisional CC0 ambientCG entries with https urls and empty hashes', () => {
+  it('has the chosen CC0 ambientCG entries, tested webp qualities and https urls', () => {
     expect(manifest.userAgent).toBe('voxel-kherson (https://github.com/serhii-ilin/kherson)');
     expect(manifest.layers).toHaveLength(PBR_LAYER_NAMES.length);
+    expect(webpSettings(manifest)).toEqual({ albedoQ: 78, normalQ: 82 });
     for (const layer of manifest.layers) {
       expect(layer.source).toBe('ambientcg');
       expect(layer.licence).toBe('CC0-1.0');
-      expect(layer.resolution).toBe('1K-JPG');
+      expect(['1K-JPG', '2K-JPG']).toContain(layer.resolution);
       expect(layer.url.startsWith('https://ambientcg.com/get?file=')).toBe(true);
       expect(layer.page).toBe(`https://ambientcg.com/view?id=${layer.assetId}`);
-      expect(layer.sha256).toBe('');
+      expect(layer.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(layer.tint).toEqual([1, 1, 1]);
     }
     expect(manifest.layers[0].assetId).toBe('Plaster001');
-    expect(manifest.layers[19].assetId).toBe('Gravel023');
+    expect(manifest.layers[19].assetId).toBe('Gravel041');
+    expect(manifest.layers.find((l) => l.layer === 'roof_tin_seam')?.saturation).toBe(0);
+    expect(manifest.layers.find((l) => l.layer === 'roof_eternit')?.saturation).toBe(0);
   });
 });
