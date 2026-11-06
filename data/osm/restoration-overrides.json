@@ -1,6 +1,61 @@
 {
   "note": "Owner exceptions to data/osm/restoration.json. A row here replaces the generated row with the same type, id and field. skip drops a generated row. additions are extra OSM elements. Regenerate the table with npm run build-restoration; this file is left as it is.",
   "skip": [],
-  "rows": [],
+  "rows": [
+    {
+      "type": "way",
+      "id": 130741989,
+      "field": "building:architecture",
+      "value": "stalinist",
+      "source": "owner:2026-11-06",
+      "version": null,
+      "reason": "owner: Свободи площа 5 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    },
+    {
+      "type": "way",
+      "id": 130741996,
+      "field": "building:architecture",
+      "value": "stalinist",
+      "source": "owner:2026-11-06",
+      "version": null,
+      "reason": "owner: Свободи площа 3 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    },
+    {
+      "type": "way",
+      "id": 130742477,
+      "field": "building:architecture",
+      "value": "stalinist",
+      "source": "owner:2026-11-06",
+      "version": null,
+      "reason": "owner: Свободи площа 2 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    },
+    {
+      "type": "way",
+      "id": 130742479,
+      "field": "building:architecture",
+      "value": "stalinist",
+      "source": "owner:2026-11-06",
+      "version": null,
+      "reason": "owner: Свободи площа 4 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    },
+    {
+      "type": "way",
+      "id": 130742487,
+      "field": "building:architecture",
+      "value": "stalinist",
+      "source": "owner:2026-11-06",
+      "version": null,
+      "reason": "owner: Свободи площа 6 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    },
+    {
+      "type": "way",
+      "id": 130742488,
+      "field": "building:architecture",
+      "value": "stalinist",
+      "source": "owner:2026-11-06",
+      "version": null,
+      "reason": "owner: Свободи площа 8 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    }
+  ],
   "additions": []
 }
