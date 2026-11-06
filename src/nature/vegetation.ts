@@ -502,11 +502,11 @@ export class Vegetation {
     const cap = Math.max(64, Math.ceil(need * 1.5));
     const fine = gi % SLOTS === 0;
     const geometry = this.geometry(Math.floor(gi / SLOTS), gi % SLOTS);
-    // Capacity grew: replace the whitewash attribute. deleteAttribute alone keeps the old GL buffer alive;
-    // disposing the group's own geometry frees it, and the geometry re-uploads on the next draw.
+    // Capacity grew: replace the whitewash attribute. Dispose the group's own geometry first, while aWhite is still
+    // attached, so its GL buffer is freed (deleteAttribute alone only unlinks it); the rest re-uploads on the next draw.
     if (grp.white !== null) {
-      geometry.deleteAttribute('aWhite');
       geometry.dispose();
+      geometry.deleteAttribute('aWhite');
     }
     const mesh = new THREE.InstancedMesh(geometry, fine ? this.fineMaterial : this.material, cap);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
