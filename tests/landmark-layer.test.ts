@@ -170,7 +170,7 @@ describe('LandmarkLayer textured materials', () => {
   it('shares one material and one texture load for two meshes with the same photo, then disposes both', async () => {
     const texture = new THREE.Texture();
     const textureDispose = vi.spyOn(texture, 'dispose');
-    const loadTexture = vi.fn(async () => texture);
+    const loadTexture = vi.fn(async (_url: string) => texture);
     const { landmark } = stub({ meshes: [meshData('textured', 'hero'), meshData('textured', 'hero')] });
     const { layer, scene } = layerFor([landmark], { base: '/base/', loadTexture });
 
