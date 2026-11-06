@@ -29,7 +29,9 @@ import {
 type Point = [number, number];
 type Colour = readonly [number, number, number];
 
-const CLADDING = rgb(0xd9d2c0);
+const CLADDING = rgb(0xe3dccb);
+/** Dressed, rendered cladding: the shell-limestone layer reads as rubble, which the 1955 facade is not (2019 photo). */
+const CLADDING_PBR = PBR_LAYER.STUCCO_ROUGH;
 const TRIM = rgb(0xe2dccb);
 const GRANITE_COLOUR = rgb(0x8f8b82);
 const GLASS_DARK = rgb(0x1a2228);
@@ -380,7 +382,7 @@ function addFacade(
   wallWithOpenings(b, f, {
     x0, x1, y0: 0, y1: WALL_TOP,
     openings: near ? openings.map((o) => ({ x: o.x - o.w * 0.5, y: o.y, w: o.w, h: o.h, shape: 'rect' as const })) : [],
-    colour: CLADDING, pbr: PBR_LAYER.LIMESTONE_SHELL, detail: near ? 'near' : 'far',
+    colour: CLADDING, pbr: CLADDING_PBR, detail: near ? 'near' : 'far',
   });
 
   boxPrism(b, f, {
@@ -393,7 +395,7 @@ function addFacade(
       if (o.door) {
         doorway(b, f, {
           x: o.x - o.w * 0.5, y0: o.y, w: o.w, h: o.h, depth: 0.3, steps: 0,
-          colour: DOOR_BROWN, frame: TRIM, pbr: PBR_LAYER.LIMESTONE_SHELL,
+          colour: DOOR_BROWN, frame: TRIM, pbr: CLADDING_PBR,
           trimPbr: PBR_LAYER.STUCCO_SMOOTH, detail: 'near',
         });
         // A shallow central mullion reads as a pair of wooden leaves.
@@ -405,7 +407,7 @@ function addFacade(
           x: o.x - o.w * 0.5, y: o.y, w: o.w, h: o.h, shape: 'rect', depth: 0.2,
           surround: 'none', sill: true, frame: { colour: FRAME_WHITE, bars: 'cross' },
         }, {
-          reveal: CLADDING, pbr: PBR_LAYER.LIMESTONE_SHELL,
+          reveal: CLADDING, pbr: CLADDING_PBR,
           surround: TRIM, sill: TRIM, trimPbr: PBR_LAYER.STUCCO_SMOOTH,
         }, 'near');
         if (o.row === 0 && (run.kind === 'central' || run.kind === 'wing')) addGrille(b, f, o);
@@ -492,7 +494,7 @@ function addParapets(b: KitBuilder, layout: AdministrationLayout, base: number):
     boxPrism(b, f, {
       x0: -run.length * 0.5, x1: run.length * 0.5,
       y0: ROOF_DECK, y1: ROOF_DECK + PARAPET_H, z0: -0.35, z1: 0,
-      colour: CLADDING, pbr: PBR_LAYER.LIMESTONE_SHELL, bottom: false,
+      colour: CLADDING, pbr: CLADDING_PBR, bottom: false,
     });
   }
 }
@@ -539,7 +541,7 @@ function addAttic(b: KitBuilder, layout: AdministrationLayout, base: number, nea
   const x0 = -run.length * 0.5, x1 = run.length * 0.5;
   attic(b, f, {
     x0, x1, z0: -4, z1: 0, y: ROOF_DECK, h: ATTIC_H,
-    colour: CLADDING, pbr: PBR_LAYER.LIMESTONE_SHELL,
+    colour: CLADDING, pbr: CLADDING_PBR,
   });
   const cy = ROOF_DECK + ATTIC_H * 0.5;
   if (near) addShield(b, f, 0, cy, 3, 2.4);
