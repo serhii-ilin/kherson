@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SPECIES, TREE_SPECIES, BUSH_SPECIES, VARIANTS, buildModel, type VegModel } from '../src/nature/models.ts';
+import { LEAF_LAYER, speciesLayers } from '../src/nature/tree-atlas.ts';
+import { variantScale } from '../src/nature/realistic.ts';
 
 describe('buildModel', () => {
   it('builds all species', () => {
@@ -350,5 +352,172 @@ describe('finest model (lod 3, 0.2 m)', () => {
     expect(voxel.uvs).toBeUndefined();
     expect(voxel.indices.length).toBeGreaterThan(cards.indices.length);
     expect(voxel.indices.length / 3).toBeLessThanOrEqual(6000);
+  });
+});
+
+describe('realistic tree models: skeleton, clumps and texture layers', () => {
+  const ALL = [...TREE_SPECIES, ...BUSH_SPECIES];
+  const isBush = (s: number): boolean => s >= SPECIES.BUSH;
+
+  it('caps triangles per LOD for every species and variant', () => {
+    const limits: [0 | 2 | 3, number, number][] = [
+      [3, 2000, 400],
+      [0, 800, 200],
+      [2, 160, 160],
+    ];
+    for (const [lod, treeCap, bushCap] of limits) {
+      for (const s of ALL) {
+        for (let v = 0; v < VARIANTS; v++) {
+          const tris = buildModel(s, v, lod).indices.length / 3;
+          expect(tris, `species ${s} variant ${v} lod ${lod}`).toBeLessThanOrEqual(isBush(s) ? bushCap : treeCap);
+        }
+      }
+    }
+  });
+
+  it('carries a texture layer for every vertex on every LOD', () => {
+    for (const s of ALL) {
+      const layers = speciesLayers(s);
+      const flowering = s === SPECIES.BUSH_LILAC || s === SPECIES.BUSH_PINK;
+      for (let v = 0; v < VARIANTS; v++) {
+        for (const lod of [0, 1, 2, 3] as const) {
+          const m = buildModel(s, v, lod);
+          expect(m.tex, `species ${s} variant ${v} lod ${lod}`).toBeInstanceOf(Float32Array);
+          const verts = m.positions.length / 3;
+          expect(m.tex!.length).toBe(verts);
+          expect(m.leaf, `species ${s} variant ${v} lod ${lod}`).toBeInstanceOf(Float32Array);
+          for (let i = 0; i < verts; i++) {
+            const t = m.tex![i]!;
+            expect(Number.isInteger(t), `species ${s} lod ${lod} vertex ${i}`).toBe(true);
+            if (m.leaf![i]! > 0.5) {
+              const ok = t === layers.leaf || (flowering && t === LEAF_LAYER.BLOSSOM);
+              expect(ok, `species ${s} lod ${lod} vertex ${i} leaf layer ${t}`).toBe(true);
+            } else {
+              expect(t, `species ${s} lod ${lod} vertex ${i} bark layer`).toBe(layers.bark);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('scaffold limbs reach into the crown', () => {
+    for (const s of TREE_SPECIES) {
+      if (s === SPECIES.POPLAR || s === SPECIES.THUJA) continue;
+      const m = buildModel(s, 0, 3);
+      let reach = 0;
+      for (let i = 0; i < m.positions.length; i += 3) {
+        if (m.leaf![i / 3]! > 0.5) continue;
+        reach = Math.max(reach, Math.hypot(m.positions[i]!, m.positions[i + 2]!));
+      }
+      expect(reach, `species ${s}`).toBeGreaterThanOrEqual(m.radius * 0.6);
+    }
+  });
+
+  it('airy species carry less leaf area than dense species', () => {
+    const density = (s: number): number => {
+      const m = buildModel(s, 0, 3);
+      let area = 0;
+      const p = m.positions;
+      for (let i = 0; i < m.indices.length; i += 3) {
+        const a = m.indices[i]!, b = m.indices[i + 1]!, c = m.indices[i + 2]!;
+        if (m.leaf![a]! < 0.5) continue;
+        const ax = p[a * 3]!, ay = p[a * 3 + 1]!, az = p[a * 3 + 2]!;
+        const bx = p[b * 3]!, by = p[b * 3 + 1]!, bz = p[b * 3 + 2]!;
+        const cx = p[c * 3]!, cy = p[c * 3 + 1]!, cz = p[c * 3 + 2]!;
+        const ux = bx - ax, uy = by - ay, uz = bz - az;
+        const vx = cx - ax, vy = cy - ay, vz = cz - az;
+        area += 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+      }
+      return area / (Math.PI * m.radius * m.radius * m.height * 0.6);
+    };
+    const airy = (density(SPECIES.ACACIA) + density(SPECIES.GLEDITSIA) + density(SPECIES.AILANTHUS)) / 3;
+    const dense = (density(SPECIES.CHESTNUT) + density(SPECIES.LINDEN) + density(SPECIES.MAPLE)) / 3;
+    expect(airy).toBeLessThan(dense * 0.75);
+  });
+
+  it('matches the species silhouette shapes', () => {
+    const poplar = buildModel(SPECIES.POPLAR, 0, 3);
+    expect(poplar.radius / poplar.height).toBeLessThan(0.15);
+
+    const willow = buildModel(SPECIES.WILLOW, 0, 3);
+    let hanging = 0;
+    for (let i = 0; i < willow.positions.length; i += 3) {
+      if (willow.leaf![i / 3]! < 0.5) continue;
+      const y = willow.positions[i + 1]!;
+      const r = Math.hypot(willow.positions[i]!, willow.positions[i + 2]!);
+      if (y < willow.height * 0.35 && r > willow.radius * 0.6) hanging++;
+    }
+    expect(hanging).toBeGreaterThan(0);
+
+    const pine = buildModel(SPECIES.PINE, 0, 3);
+    for (let i = 0; i < pine.positions.length; i += 3) {
+      if (pine.leaf![i / 3]! < 0.5) continue;
+      expect(pine.positions[i + 1]!).toBeGreaterThanOrEqual(pine.height * 0.5);
+    }
+
+    const thuja = buildModel(SPECIES.THUJA, 0, 3);
+    let skirt = 0;
+    for (let i = 0; i < thuja.positions.length; i += 3) {
+      if (thuja.leaf![i / 3]! < 0.5) continue;
+      if (thuja.positions[i + 1]! < thuja.height * 0.15) skirt++;
+    }
+    expect(skirt).toBeGreaterThan(0);
+  });
+
+  it('bakes ambient occlusion into leaf colours', () => {
+    for (const s of TREE_SPECIES) {
+      const m = buildModel(s, 0, 3);
+      let inner = 0, innerN = 0, outer = 0, outerN = 0;
+      for (let i = 0; i < m.indices.length; i += 6) {
+        const ids = [m.indices[i]!, m.indices[i + 1]!, m.indices[i + 2]!, m.indices[i + 5]!];
+        if (m.leaf![ids[0]!]! < 0.5) continue;
+        let cx = 0, cz = 0, lum = 0;
+        for (const id of ids) {
+          cx += m.positions[id * 3]!;
+          cz += m.positions[id * 3 + 2]!;
+          lum += 0.2126 * m.colors[id * 3]! + 0.7152 * m.colors[id * 3 + 1]! + 0.0722 * m.colors[id * 3 + 2]!;
+        }
+        cx /= 4; cz /= 4; lum /= 4;
+        const r = Math.hypot(cx, cz);
+        if (r < m.radius * 0.4) {
+          inner += lum;
+          innerN++;
+        } else if (r > m.radius * 0.8) {
+          outer += lum;
+          outerN++;
+        }
+      }
+      expect(innerN, `species ${s} inner cards`).toBeGreaterThan(0);
+      expect(outerN, `species ${s} outer cards`).toBeGreaterThan(0);
+      expect(inner / innerN, `species ${s} AO`).toBeLessThan(outer / outerN);
+    }
+  });
+
+  it('keeps lod 1 and lod 2 a pure uniform scale of variant 0', () => {
+    for (const s of ALL) {
+      for (let v = 0; v < VARIANTS; v++) {
+        const ratio = variantScale(v) / variantScale(0);
+        for (const lod of [1, 2] as const) {
+          const a = buildModel(s, v, lod).positions;
+          const b = buildModel(s, 0, lod).positions;
+          expect(a.length, `species ${s} variant ${v} lod ${lod}`).toBe(b.length);
+          for (let i = 0; i < a.length; i++) {
+            expect(Math.abs(a[i]! - b[i]! * ratio), `species ${s} variant ${v} lod ${lod} index ${i}`).toBeLessThanOrEqual(1e-4);
+          }
+        }
+      }
+    }
+  });
+
+  it('is deterministic for the new species too', () => {
+    for (const s of [SPECIES.MAPLE, SPECIES.GLEDITSIA, SPECIES.THUJA, SPECIES.WALNUT, SPECIES.BUSH_PINK]) {
+      const a = buildModel(s, 2, 3);
+      const b = buildModel(s, 2, 3);
+      expect(Array.from(a.positions)).toEqual(Array.from(b.positions));
+      expect(Array.from(a.colors)).toEqual(Array.from(b.colors));
+      expect(Array.from(a.tex!)).toEqual(Array.from(b.tex!));
+      expect(Array.from(a.indices)).toEqual(Array.from(b.indices));
+    }
   });
 });
