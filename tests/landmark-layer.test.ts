@@ -97,6 +97,23 @@ describe('LandmarkLayer registration', () => {
     expect(layer.replacedKeys().size).toBe(2);
   });
 
+  it('appends landmarks fetched after construction and extends replacedKeys()', () => {
+    const first = stub({ replaces: [{ type: 'way', id: 10 }] });
+    const { layer } = layerFor([first.landmark]);
+    expect([...layer.replacedKeys()]).toEqual(['w10']);
+
+    const late = stub({ replaces: [{ type: 'way', id: 20 }, { type: 'relation', id: 30 }] });
+    late.landmark.id = 'late';
+    layer.addLandmarks([late.landmark]);
+    expect([...layer.replacedKeys()].sort()).toEqual(['r30', 'w10', 'w20']);
+    expect(layer.landmarks.map((landmark) => landmark.id)).toEqual(['stub', 'late']);
+
+    // Appending the same id twice is ignored, so a repeated startup call cannot duplicate meshes.
+    layer.addLandmarks([late.landmark]);
+    expect(layer.landmarks).toHaveLength(2);
+    expect(layer.replacedKeys().size).toBe(3);
+  });
+
   it('names each built group for its landmark', () => {
     const { landmark } = stub();
     const { layer, scene } = layerFor([landmark]);

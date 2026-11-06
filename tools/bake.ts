@@ -28,6 +28,7 @@ import { distanceTransform, DIST_UNIT } from "./bake/distance.ts";
 import { encodeVectorTile } from "../src/world/vector-format.ts";
 import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./bake/classes.ts";
 import { collectStreets } from "./bake/streets.ts";
+import { readFacadeRows, writeFacades } from "./bake/facades.ts";
 import { ensureSnapshot } from "./snapshot-fallback.ts";
 
 const INPUT = process.argv[2] ?? "data/osm/kherson.json.gz";
@@ -456,6 +457,11 @@ async function main(): Promise<void> {
   });
   stage(`vector tiles: ${vec.tiles.size}`);
 
+  // d3. Tier-K facade descriptors (data/facades/*.json): validate, match OSM ids, write facades.json.
+  const facadeResult = writeFacades(OUT_DIR, readFacadeRows("data/facades"), vec.tiles.values());
+  stage(`facades: ${facadeResult.rows.length}`);
+  console.log(`facades: ${facadeResult.rows.length} row(s), unmatched ${facadeResult.unmatched.length}`);
+
   // #6: exact-position obstacles for vegetation: vehicle carriageways (vector road width / 2 + 0.6 m) and building footprints (+ 0.5 m)
   const obstacleRoads: RoadObstacle[] = [];
   for (const l of lines) {
@@ -756,6 +762,7 @@ async function main(): Promise<void> {
     regions: manifestRegions,
     spawn,
     vectors: true,
+    facades: true,
   };
   fs.writeFileSync(path.join(OUT_DIR, "manifest.json"), JSON.stringify(manifest));
   fs.writeFileSync(path.join(OUT_DIR, "places.json"), JSON.stringify(places));

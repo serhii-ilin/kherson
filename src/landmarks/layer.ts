@@ -65,13 +65,13 @@ function defaultTextureLoader(url: string): Promise<THREE.Texture> {
 
 /** Lazily-created landmark meshes with a fixed distance-only hot path. */
 export class LandmarkLayer {
-  readonly landmarks: readonly Landmark[];
+  readonly landmarks: Landmark[];
   private readonly entries: Instance[];
   private readonly scene: THREE.Scene;
   private readonly ground: LandmarkGround;
   private readonly quality: Quality;
   private readonly textured: TexturedMaterialCache;
-  private readonly replaced: ReadonlySet<string>;
+  private readonly replaced: Set<string>;
   private night = 0;
   private lastEvalX: number | null = null;
   private lastEvalZ: number | null = null;
@@ -87,7 +87,7 @@ export class LandmarkLayer {
     opts: LandmarkLayerOptions = {},
   ) {
     this.scene = scene;
-    this.landmarks = landmarks;
+    this.landmarks = [...landmarks];
     this.ground = ground;
     this.quality = quality;
     const loadTexture: TextureLoader = opts.loadTexture ?? defaultTextureLoader;
@@ -101,14 +101,36 @@ export class LandmarkLayer {
       for (const ref of landmark.replaces ?? []) replaced.add(osmKey(ref));
     }
     this.replaced = replaced;
-    this.entries = landmarks.map((landmark) => ({
-      landmark,
-      build: null,
-      group: null,
-      surfaces: [],
-      lod: 'far',
-      handles: [],
-    }));
+    this.entries = [];
+    for (const landmark of landmarks) {
+      this.entries.push({
+        landmark,
+        build: null,
+        group: null,
+        surfaces: [],
+        lod: 'far',
+        handles: [],
+      });
+    }
+  }
+
+  /** Append landmarks whose data arrived after construction (e.g. a fetched facade file). Idempotent by id. */
+  addLandmarks(landmarks: readonly Landmark[]): void {
+    const known = new Set(this.entries.map((entry) => entry.landmark.id));
+    for (const landmark of landmarks) {
+      if (known.has(landmark.id)) continue;
+      known.add(landmark.id);
+      for (const ref of landmark.replaces ?? []) this.replaced.add(osmKey(ref));
+      this.landmarks.push(landmark);
+      this.entries.push({
+        landmark,
+        build: null,
+        group: null,
+        surfaces: [],
+        lod: 'far',
+        handles: [],
+      });
+    }
   }
 
   /** Every OSM building hidden by a registered landmark (`w<id>` / `r<id>`), computed once. */

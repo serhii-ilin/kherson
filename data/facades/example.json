@@ -1,0 +1,53 @@
+[
+  {
+    "key": "w1376950956",
+    "label": "example — replace with researched row",
+    "sources": [],
+    "storeys": 3,
+    "floorHeights": [4.0, 3.4, 3.4],
+    "plinthM": 0.6,
+    "wall": { "colour": "#d8c7a8", "pbr": "STUCCO_ROUGH" },
+    "trim": { "colour": "#efe7d8", "pbr": "STUCCO_SMOOTH" },
+    "roof": { "kind": "flat", "colour": "#8a7f6d", "pbr": "ROOF_BITUMEN" },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.7,
+      "surround": "band",
+      "frame": "#f2efe8",
+      "mixedFrames": true,
+      "ground": { "shape": "rect", "widthM": 1.2, "heightM": 2.0 }
+    },
+    "rusticated": true,
+    "stringCourses": true,
+    "pilasters": { "everyBays": 2, "capital": "plain" },
+    "cornice": { "profile": "simple", "heightM": 0.35, "projectionM": 0.25 },
+    "attic": { "kind": "parapet", "heightM": 0.7 },
+    "balconies": [{ "kind": "iron", "storeys": [1, 2], "bays": [1, 3] }],
+    "edges": [{ "edge": 0, "pattern": "wwwww", "groundPattern": "dwwsw" }]
+  },
+  {
+    "key": "w262457726",
+    "label": "example — replace with researched row",
+    "sources": [],
+    "storeys": 3,
+    "floorHeights": [4.2, 3.5, 3.5],
+    "plinthM": 0.5,
+    "wall": { "colour": "#c9b7a0", "pbr": "PLASTER_PAINTED" },
+    "trim": { "colour": "#f1e8d8", "pbr": "STUCCO_SMOOTH" },
+    "roof": { "kind": "flat", "colour": "#7d7468", "pbr": "ROOF_BITUMEN" },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.3,
+      "heightM": 1.8,
+      "surround": "band",
+      "frame": "#f5f2ea",
+      "ground": { "shape": "rect", "widthM": 1.6, "heightM": 2.3 }
+    },
+    "stringCourses": true,
+    "pilasters": { "everyBays": 3, "capital": "plain" },
+    "cornice": { "profile": "dentil", "heightM": 0.45, "projectionM": 0.35 },
+    "attic": { "kind": "parapet", "heightM": 0.8 },
+    "edges": [{ "edge": 0, "pattern": "wwwwww", "groundPattern": "sssdss" }]
+  }
+]

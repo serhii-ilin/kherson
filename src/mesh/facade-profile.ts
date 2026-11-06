@@ -41,6 +41,11 @@ export interface FacadePhoto {
 
 /** One street-facing wall: the outer-ring edge from vertex `edge` to vertex `edge + 1`. */
 export interface FacadeEdge {
+  /**
+   * Vertex index in the OSM way's node list, closing node excluded. The bake preserves that order (first node
+   * first, no reversal or rotation) and drops only the closing node and consecutive duplicate points, so edge `i`
+   * always runs from the i-th vertex to the next one as seen in the OSM way.
+   */
   edge: number;
   /** Upper-storey bays left to right as seen from the street, e.g. `"bwwwgwwwb"`. */
   pattern: string;
@@ -86,7 +91,13 @@ export interface FacadeProfile {
   cornice: { profile: CorniceProfile; heightM: number; projectionM: number };
   attic?: { kind: AtticKind; heightM: number };
   /** Balconies by storey index (0 = ground) and bay index on the edges that list them. */
-  balconies?: { kind: BalconyKind; storeys: number[]; bays: number[] }[];
+  balconies?: {
+    kind: BalconyKind;
+    storeys: number[];
+    bays: number[];
+    /** Street edge index from `edges`; default: the first edge listed in `edges`. */
+    edge?: number;
+  }[];
   /** Street-facing walls; other walls get plain windows on the same storeys. */
   edges: FacadeEdge[];
 }
