@@ -55,6 +55,24 @@
       "source": "owner:2026-11-06",
       "version": null,
       "reason": "owner: Свободи площа 8 is part of the 1950s Stalin-era ensemble around Freedom Square (no tag in OSM, so the bake guessed khrushchevka)"
+    },
+    {
+      "type": "way",
+      "id": 726381381,
+      "field": "highway",
+      "value": "pedestrian",
+      "source": "geofabrik:ukraine-220101 + owner:2026-11-06",
+      "version": null,
+      "reason": "Мирний бульвар was a pedestrian boulevard before the war (way 320659998 highway=pedestrian in the 2022-01-01 reference; owner: the alley with fountains to the Central Market); the current snapshot maps it as a residential street"
+    },
+    {
+      "type": "way",
+      "id": 1168312831,
+      "field": "highway",
+      "value": "pedestrian",
+      "source": "geofabrik:ukraine-220101 + owner:2026-11-06",
+      "version": null,
+      "reason": "Мирний бульвар was a pedestrian boulevard before the war (way 320659998 highway=pedestrian in the 2022-01-01 reference; owner: the alley with fountains to the Central Market); the current snapshot maps it as a residential street"
     }
   ],
   "additions": []
