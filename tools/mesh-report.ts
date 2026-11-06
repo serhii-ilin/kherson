@@ -6,7 +6,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { MESH_NEIGHBOURHOOD } from '../src/mesh/bounds.ts';
-import { buildingsInChunk, buildChunkMesh } from '../src/mesh/chunk.ts';
+import { buildingsInChunk, buildChunkMesh, buildChunkRoads } from '../src/mesh/chunk.ts';
 import { meshByteSize, triangleCount } from '../src/mesh/extrude.ts';
 import { CHUNK_M, distToChunk } from '../src/world/stream-math.ts';
 import { decodeVectorTile, type VectorTile } from '../src/world/vector-format.ts';
@@ -61,6 +61,13 @@ let viewTris = 0;
 let viewBytes = 0;
 let viewChunks = 0;
 let viewBuildings = 0;
+let ribbonTris = 0;
+let ribbonChunks = 0;
+let maxRibbonTris = 0;
+let maxRibbonGcx = 0;
+let maxRibbonGcz = 0;
+let viewRibbonTris = 0;
+let viewRibbonChunks = 0;
 const SPAWN_X = 10293;
 const SPAWN_Z = 8817;
 const VIEW = 640;
@@ -73,9 +80,17 @@ for (let gcz = gz0 - 8; gcz <= gz1 + 8; gcz++) {
     if (neigh.length === 0) continue;
     const mesh = buildChunkMesh(neigh, gcx, gcz, ground);
     const n = triangleCount(mesh);
+    const roads = buildChunkRoads(neigh, gcx, gcz, ground);
+    const rn = roads.indices.length / 3;
+    if (rn > maxRibbonTris) {
+      maxRibbonTris = rn;
+      maxRibbonGcx = gcx;
+      maxRibbonGcz = gcz;
+    }
     if (inBox) {
       for (const b of buildingsInChunk(neigh, gcx, gcz, ground, box)) seen.add(b.id);
       if (n > 0) { chunks++; tris += n; bytes += meshByteSize(mesh); }
+      if (rn > 0) { ribbonChunks++; ribbonTris += rn; }
       const near = buildChunkMesh(neigh, gcx, gcz, ground, box, { lod: 'near' });
       const nn = triangleCount(near);
       if (nn > 0) { nearChunks++; nearTris += nn; nearBytes += meshByteSize(near); }
@@ -85,6 +100,10 @@ for (let gcz = gz0 - 8; gcz <= gz1 + 8; gcz++) {
       viewTris += n;
       viewBytes += meshByteSize(mesh);
       viewBuildings += buildingsInChunk(neigh, gcx, gcz, ground).length;
+    }
+    if (inView && rn > 0) {
+      viewRibbonChunks++;
+      viewRibbonTris += rn;
     }
   }
 }
@@ -114,4 +133,11 @@ console.log(JSON.stringify({
   viewTriangles: viewTris,
   viewGpuBytes: viewBytes,
   viewGpuMB: Number((viewBytes / 1e6).toFixed(3)),
+  ribbonChunks,
+  ribbonTriangles: ribbonTris,
+  ribbonTrianglesPerChunk: ribbonChunks > 0 ? Number((ribbonTris / ribbonChunks).toFixed(1)) : 0,
+  maxRibbonTriangles: maxRibbonTris,
+  maxRibbonChunk: [maxRibbonGcx, maxRibbonGcz],
+  viewRibbonChunks,
+  viewRibbonTriangles: viewRibbonTris,
 }, null, 2));

@@ -13,6 +13,7 @@ import {
   emptyMesh, extrudeBuilding, mergeMeshes, type CityMesh, type ExtrudeBuilding,
 } from './extrude.ts';
 import type { NearRoad } from './near.ts';
+import { buildRoadRibbons, type RoadMesh } from './roads.ts';
 
 const REGION_M = 512;
 
@@ -166,4 +167,15 @@ export function buildChunkMesh(
   const oz = gcz * CHUNK_M;
   const roads = lod === 'near' ? roadsInTiles(tiles) : undefined;
   return mergeMeshes(list.map((b) => extrudeBuilding(b, ox, oz, { lod, roads })));
+}
+
+/**
+ * Smooth ribbon overlay for this chunk, from the same vector tiles. Independent of the building
+ * LOD; the streamer hides it inside the fine radius.
+ */
+export function buildChunkRoads(
+  tiles: readonly VectorTile[], gcx: number, gcz: number,
+  groundAt: (x: number, z: number) => number,
+): RoadMesh {
+  return buildRoadRibbons(tiles, gcx, gcz, groundAt);
 }
