@@ -44,7 +44,7 @@ Measure with the dev HUD (`renderer.info`) at the spawn point (Freedom Square), 
 | Vegetation, mid model (1 m) | 250 m or less, at most 400 triangles | 150 m or less |
 | Birds | at most about 170 | at most about 90 |
 | Concurrent audio voices | at most 24 | at most 24 |
-| Bird recordings, encoded (Opus/WebM and AAC/M4A together) | at most 1.5 MB, mono, fetched only after a user gesture | same |
+| Bird recordings, encoded (Opus/WebM and AAC/M4A together) | at most 1.6 MB, mono, fetched only after a user gesture | same |
 | Baked world (`public/world/`) | at most 30 MB | same |
 
 A **Low** quality setting must exist so any device can fall back to the 2 m tier without shadows.
@@ -125,3 +125,4 @@ These are known gaps against this constitution. Fix them before adding new featu
 2. **Code follows the rules:** code changes that depend on an amendment come after it, never before it.
 3. **2026-11-01 — recorded birds.** The owner rejected the synthetic doves and swifts: they do not resemble the real birds. Article 4 gains a 1.5 MB budget for encoded bird recordings, loaded only after a gesture. Article 8.2 allows that set under CC0 or public domain only. Wind and water stay procedural. Approved by the owner in the request for this change.
 4. **2026-11-06 — no synthetic birds.** The owner asked for the bird voices that do not sound natural to go. Article 8.2 now voices birds only with CC0 or public-domain recordings: a species without one is left out, and a failed download is silent instead of synthesised. Wind, water and the fish splash stay procedural, and the 1.5 MB budget is unchanged. Approved by the owner in the request for this change.
+5. **2026-11-06 — gulls over the Dnipro.** The owner asked to hear gulls now and then over the river, and the recording set had 26 KB left. Article 4 raises the bird-recording budget from 1.5 MB to 1.6 MB. It stays mono, CC0 or public domain, and fetched only after a gesture. Approved by the owner, who chose 1.6 MB over dropping existing clips or going to 2 MB.
