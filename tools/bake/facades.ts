@@ -70,7 +70,8 @@ export function buildFacadeRows(
     rows.push({
       profile,
       ring,
-      heightM: found.building.heightCm / 100,
+      // OSM height/levels win; when the bake only guessed them from the footprint, the researched storeys do
+      heightM: found.building.heightHeuristic ? descriptorHeightM(profile) : found.building.heightCm / 100,
       minHeightM: found.building.minHeightCm / 100,
     });
   }
@@ -116,4 +117,20 @@ export function readFacadeRows(dir = 'data/facades'): FacadeProfile[] {
   const globalErrors = validateFacadeFile(all);
   if (globalErrors.length > 0) throw new Error(`facade files: validation failed:\n${globalErrors.join('\n')}`);
   return all;
+}
+
+/**
+ * Height implied by a descriptor: its storeys (ground 4.0 m, then 3.6 m, unless `floorHeights` says otherwise), plus
+ * the attic and a roof allowance (0.55 m parapet on flat roofs, 2.5 m for pitched ones). Used only when the vector
+ * tile's height is the bake's footprint guess (`heightHeuristic`).
+ */
+export function descriptorHeightM(profile: FacadeProfile): number {
+  let h = 0;
+  for (let i = 0; i < profile.storeys; i++) {
+    const fh = profile.floorHeights;
+    h += fh !== undefined && fh.length > 0 ? fh[Math.min(i, fh.length - 1)]! : i === 0 ? 4.0 : 3.6;
+  }
+  h += profile.attic?.heightM ?? 0;
+  h += profile.roof.kind === 'flat' ? 0.55 : 2.5;
+  return Math.round(h * 100) / 100;
 }

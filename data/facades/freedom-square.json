@@ -1,0 +1,150 @@
+[
+  {
+    "key": "w130757404",
+    "label": "просп. Ушакова (Незалежності), 49 — ЦУМ (Центральний універсальний магазин), Херсон",
+    "sources": [
+      "File:Херсон, ЦУМ.jpg (2017-06-01, CC BY-SA 4.0, Artemco)"
+    ],
+    "storeys": 5,
+    "floorHeights": [
+      4.5,
+      3.8,
+      3.8,
+      3.8,
+      3.4
+    ],
+    "plinthM": 0.4,
+    "wall": {
+      "colour": "#d8d0b8",
+      "pbr": "BRICK_SILICATE"
+    },
+    "trim": {
+      "colour": "#b0b0a8",
+      "pbr": "CONCRETE"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#585858",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 2.4,
+      "heightM": 2.6,
+      "surround": "none",
+      "frame": "#e0e0d8",
+      "ground": {
+        "shape": "rect",
+        "widthM": 3,
+        "heightM": 3.2
+      }
+    },
+    "stringCourses": false,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.5,
+      "projectionM": 0.25
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 0.9
+    },
+    "edges": [
+      {
+        "edge": 1,
+        "pattern": "wwwwwwwww",
+        "groundPattern": "sssssdsss",
+        "bayM": 4.1
+      },
+      {
+        "edge": 2,
+        "pattern": "wbw",
+        "groundPattern": "sss",
+        "bayM": 4.4
+      },
+      {
+        "edge": 3,
+        "pattern": "bbwbb",
+        "groundPattern": "sssss",
+        "bayM": 3.6
+      }
+    ],
+    "confidence": "medium",
+    "notes": "Soviet-modernist 1960s-70s department store, NOT a 1950s stucco ensemble: pale silicate-brick block with full-height glazed window groups between brick piers and a flat roof with a railing and the roof sign «ЦУМ». Edge 1 (37 m, faces east) is the Ushakova Avenue face; ring is clockwise so pattern is written left (south) to right (north), i.e. reverse of edge order. Edges 2-3 (south face, 31 m) are mostly blank brick with a few small high windows, partly covered by a large advertising banner. The unmapped 1-storey shop wing (orange fascia, glazed shop front) that extends west along the south street is not in the OSM footprint; the corner ground floor carries the Сільпо shop (orange/blue sign). Storey count 5 (4 upper + glazed ground) is read from the photo; OSM has no levels. Bay count +-2. Only one dated photo, taken from the south-east corner, so the east/west and north faces are unseen."
+  },
+  {
+    "key": "w130756586",
+    "label": "Мирний бульвар, 45 — кінотеатр «Україна», Херсон",
+    "sources": [
+      "File:Херсон, 2021 год, 01.jpg (2021-09-10, CC BY-SA 4.0, Mitte27)"
+    ],
+    "storeys": 3,
+    "floorHeights": [
+      5.2,
+      4.6,
+      4
+    ],
+    "plinthM": 0.9,
+    "wall": {
+      "colour": "#e0d8c0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "trim": {
+      "colour": "#e8e0d0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#787878",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1,
+      "heightM": 1.4,
+      "surround": "band",
+      "frame": "#e8e8e8",
+      "ground": {
+        "shape": "arched",
+        "widthM": 2.8,
+        "heightM": 4.2
+      }
+    },
+    "stringCourses": false,
+    "pilasters": {
+      "everyBays": 1,
+      "capital": "corinthian"
+    },
+    "cornice": {
+      "profile": "dentil",
+      "heightM": 0.9,
+      "projectionM": 0.6
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 1
+    },
+    "edges": [
+      {
+        "edge": 17,
+        "pattern": "wxbwww",
+        "groundPattern": "ggggsd",
+        "bayM": 3.2
+      },
+      {
+        "edge": 15,
+        "pattern": "wb",
+        "groundPattern": "gg",
+        "bayM": 2.65
+      },
+      {
+        "edge": 5,
+        "pattern": "bwbwbwbwbwbw",
+        "groundPattern": "bwbwbwbwbwbw",
+        "bayM": 3.7
+      }
+    ],
+    "confidence": "low",
+    "notes": "Soviet-Empire / neoclassical cinema as it looked in Sept 2021 (cream stucco, white trim). Main front is the stepped EAST wall toward the pedestrian plaza (ring vertices 12-17 and 0-4); the stepped outline is the portico: six paired Corinthian columns carrying three tall arches, with a dentilled entablature and a square glazed lantern/tower with spire above. Pattern (CCW ring) is south to north: the portico bays (g = arched openings between columns) at the south end, then a blank pier/blind-window zone, then the glass wing. North end carries a 2-3 storey blue-green glass curtain wall (Rozetka shop on the ground floor, «Аренда кинотеатр» sign). The OSM footprint has 18 vertices and edges are only 3-5 m for the column steps, so only edge 17 (19.5 m) and edge 15 are described; edge 5 (north wall, 44 m, faces plaza) is a plain stucco wall with small square windows per the photo. Storeys 3 is a visual estimate; OSM says 4 (probably counting the tower). The tower/spire and the glass atrium cannot be expressed by the descriptor. Only one dated photo, taken obliquely from the north-east, so bay counts are +-3."
+  }
+]

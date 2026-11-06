@@ -162,6 +162,8 @@ varying vec3 vWorldNormal;`,
 export class TexturedMaterialCache {
   private readonly entries = new Map<string, Entry>();
   private readonly base: string;
+  private env: THREE.Texture | null = null;
+  private envIntensity = 0.35;
 
   constructor(private readonly options: TexturedMaterialOptions) {
     this.base = options.base.endsWith('/') ? options.base : `${options.base}/`;
@@ -193,6 +195,7 @@ export class TexturedMaterialCache {
         disposed: false,
       };
       this.entries.set(key, entry);
+      this.applyEnvironment(created.material);
     }
     entry.refs++;
     const owned = entry;
@@ -201,6 +204,23 @@ export class TexturedMaterialCache {
       requestPhoto: () => this.requestPhoto(owned),
       release: () => this.release(owned),
     };
+  }
+
+  /**
+   * Sky reflections as on the extruded buildings (`MeshStreamer.setEnvironment`): without them, walls turned away from
+   * the sun are much darker on heroes than on their generic neighbours.
+   */
+  setEnvironment(env: THREE.Texture | null, intensity = 0.35): void {
+    this.env = env;
+    this.envIntensity = intensity;
+    for (const entry of this.entries.values()) this.applyEnvironment(entry.material);
+  }
+
+  private applyEnvironment(material: THREE.MeshStandardMaterial): void {
+    if (material.envMap === this.env && material.envMapIntensity === this.envIntensity) return;
+    material.envMap = this.env;
+    material.envMapIntensity = this.envIntensity;
+    material.needsUpdate = true;
   }
 
   dispose(): void {

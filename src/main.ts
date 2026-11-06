@@ -172,6 +172,7 @@ function applyTime(hours: number): void {
   if (env) {
     skyEnvTexture = env;
     meshRef?.setEnvironment(env);
+    landmarkLayer?.setEnvironment(env);
   }
   const fog = scene.fog as THREE.Fog;
   fog.color.setRGB(d.fog[0], d.fog[1], d.fog[2], THREE.SRGBColorSpace);
@@ -277,6 +278,7 @@ async function start(): Promise<void> {
   }
   meshRef = mesh;
   mesh?.setEnvironment(skyEnvTexture);
+  landmarkLayer.setEnvironment(skyEnvTexture);
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
   const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
   const input = new Input();

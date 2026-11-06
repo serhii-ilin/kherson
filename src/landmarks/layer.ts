@@ -156,6 +156,11 @@ export class LandmarkLayer {
     return n;
   }
 
+  /** Sky reflections for textured heroes and facade buildings (see `TexturedMaterialCache.setEnvironment`). */
+  setEnvironment(env: THREE.Texture | null): void {
+    this.textured.setEnvironment(env);
+  }
+
   /** Live shared textured materials, for the dev HUD. */
   get texturedMaterials(): number {
     return this.textured.texturedMaterials;
