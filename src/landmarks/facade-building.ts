@@ -56,7 +56,7 @@ export interface FacadeBuildStats {
 }
 
 export interface FacadeBuild extends LandmarkBuild {
-  stats: FacadeBuildStats;
+  facadeStats: FacadeBuildStats;
 }
 
 interface EdgeFrame {
@@ -764,6 +764,6 @@ export function buildFacadeBuilding(row: FacadeBuildingRow, groundY: number, lod
     surfaces: [prismSurface(ring, groundY + row.minHeightM, groundY + row.heightM)],
     triangleCount: triangles,
     materialCount: meshes.length,
-    stats: { storeys: profile.storeys, edges: statsEdges },
+    facadeStats: { storeys: profile.storeys, edges: statsEdges },
   };
 }

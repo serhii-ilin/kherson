@@ -70,8 +70,8 @@ describe('buildFacadeBuilding', () => {
     const p = clone(profile());
     p.edges[0] = { edge: 0, pattern: 'wwww', groundPattern: 'ddww' };
     const build = buildFacadeBuilding(row(p), 2, 'near');
-    expect(build.stats.storeys).toBe(3);
-    const edge = build.stats.edges.find((item) => item.edge === 0)!;
+    expect(build.facadeStats.storeys).toBe(3);
+    const edge = build.facadeStats.edges.find((item) => item.edge === 0)!;
     expect(edge.patterns).toEqual(['ddww', 'wwww', 'wwww']);
     expect(edge.bays).toBe(4);
     expect(edge.openings).toBe(4 + 4 + 4);
@@ -81,10 +81,10 @@ describe('buildFacadeBuilding', () => {
     const p = clone(profile());
     p.balconies = [];
     const build = buildFacadeBuilding(row(p), 0, 'near');
-    const edge = build.stats.edges.find((item) => item.edge === 0)!;
+    const edge = build.facadeStats.edges.find((item) => item.edge === 0)!;
     const nonBlank = (pattern: string): number => [...pattern].filter((code) => code !== 'b').length;
     expect(edge.openings).toBe(3 * nonBlank(p.edges[0]!.pattern));
-    for (const other of build.stats.edges.filter((item) => item.edge !== 0)) {
+    for (const other of build.facadeStats.edges.filter((item) => item.edge !== 0)) {
       const bays = Math.floor(other.lengthM / 3.2);
       expect(other.bays).toBe(bays);
       expect(other.patterns).toEqual([ 'w'.repeat(bays), 'w'.repeat(bays), 'w'.repeat(bays) ]);
@@ -101,7 +101,7 @@ describe('buildFacadeBuilding', () => {
       p.balconies = [];
       p.edges = [{ edge: streetEdge, pattern: 'wwww' }];
       const build = buildFacadeBuilding({ ...row(p), ring }, 0, 'near');
-      const edge = build.stats.edges.find((item) => item.edge === streetEdge)!;
+      const edge = build.facadeStats.edges.find((item) => item.edge === streetEdge)!;
       const a = ring[streetEdge]!;
       const b = ring[(streetEdge + 1) % ring.length]!;
       const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -186,7 +186,7 @@ describe('buildFacadeBuilding', () => {
       expect(photo.uvs![i + 1]!).toBeGreaterThanOrEqual(0.1 - 1e-5);
       expect(photo.uvs![i + 1]!).toBeLessThanOrEqual(0.9 + 1e-5);
     }
-    const edge = build.stats.edges.find((item) => item.edge === 0)!;
+    const edge = build.facadeStats.edges.find((item) => item.edge === 0)!;
     expect(edge.photo).toBe(true);
     expect(edge.openings).toBe(0);
   });
