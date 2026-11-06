@@ -1,4 +1,5 @@
 /** Messages between the mesh streamer and `mesh.worker.ts`. Tile bytes are copied, not transferred. */
+import type { RoadMesh } from './roads.ts';
 
 export interface MeshTileRef {
   key: number;
@@ -38,5 +39,7 @@ export interface CityMeshResponse {
   style?: Float32Array;
   pbr?: Float32Array;
   indices?: Uint32Array;
+  /** Smooth road ribbons for this chunk (same in both LODs), or undefined when it has no roads. */
+  roads?: RoadMesh;
   error?: string;
 }

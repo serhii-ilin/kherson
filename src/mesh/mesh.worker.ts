@@ -1,5 +1,5 @@
 import { decodeVectorTile, type VectorTile } from '../world/vector-format.ts';
-import { buildChunkMesh, groundAtFromGrid } from './chunk.ts';
+import { buildChunkMesh, buildChunkRoads, groundAtFromGrid } from './chunk.ts';
 import type { CityMeshRequest, CityMeshResponse, MeshTileRef, MeshWorkerMessage } from './protocol.ts';
 
 interface WorkerScope {
@@ -36,12 +36,20 @@ scope.onmessage = (e) => {
       scope.postMessage({ id, missing } satisfies CityMeshResponse);
       return;
     }
-    const mesh = buildChunkMesh(decoded, gcx, gcz, groundAtFromGrid(gcx, gcz, ground), undefined, { lod, hidden });
+    const groundAt = groundAtFromGrid(gcx, gcz, ground);
+    const mesh = buildChunkMesh(decoded, gcx, gcz, groundAt, undefined, { lod, hidden });
+    const roads = buildChunkRoads(decoded, gcx, gcz, groundAt);
     const transfer: Transferable[] = [];
     if (mesh.indices.length > 0) {
       transfer.push(
         mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.colors.buffer,
         mesh.facade.buffer, mesh.style.buffer, mesh.pbr.buffer, mesh.indices.buffer,
+      );
+    }
+    if (roads.indices.length > 0) {
+      transfer.push(
+        roads.positions.buffer, roads.normals.buffer, roads.colors.buffer, roads.walls.buffer,
+        roads.indices.buffer,
       );
     }
     scope.postMessage({
@@ -54,6 +62,7 @@ scope.onmessage = (e) => {
       style: mesh.style,
       pbr: mesh.pbr,
       indices: mesh.indices,
+      ...(roads.indices.length > 0 ? { roads } : {}),
     } satisfies CityMeshResponse, transfer);
   } catch (err) {
     scope.postMessage({ id, error: String(err) } satisfies CityMeshResponse);
