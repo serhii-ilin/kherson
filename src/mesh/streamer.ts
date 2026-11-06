@@ -18,6 +18,7 @@ import type { WorldStreamer } from '../world/streamer.ts';
 import { versioned } from '../version.ts';
 import { MESH_KEEP, chunkLod, type MeshLod } from './bounds.ts';
 import { createFacadeMaterial } from './facade.ts';
+import type { PbrUniforms } from '../world/pbr-library.ts';
 import type { CityMeshHidden, CityMeshRequest, CityMeshResponse, MeshTileRef } from './protocol.ts';
 
 const MAX_TILES = 48;
@@ -78,6 +79,8 @@ export interface MeshStreamerOptions {
   castShadow: boolean;
   /** Metres. Near LOD with real openings; 0 disables it (default). */
   nearRadius?: number;
+  /** Shared CC0 material library for the facade shader (src/world/pbr-library.ts); absent = procedural only. */
+  pbr?: PbrUniforms;
   workers?: number;
   /** Test hook: replaces `new Worker(...)` (the worker still receives the same messages). */
   workerFactory?: () => Worker;
@@ -129,7 +132,7 @@ export class MeshStreamer {
     this.manifest = manifest;
     this.radius = opts.radius;
     this.nearRadius = opts.nearRadius ?? 0;
-    this.material = createFacadeMaterial();
+    this.material = createFacadeMaterial(opts.pbr);
     // A 640 m view is on the order of 150k vertices (about 40 triangles and ~6 KB per building).
     // ChunkBatch grows if a dense view exceeds this. Staying near 200k vertices keeps the
     // reservation under the ADR's 20 MB laptop budget.

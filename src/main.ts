@@ -30,7 +30,8 @@ import { createLandmarks } from './landmarks/index.ts';
 import { LandmarkLayer } from './landmarks/layer.ts';
 import { LandmarkPhysics } from './landmarks/physics.ts';
 import { getVegetationExclusions } from './landmarks/exclusions.ts';
-import { meshViewRadius } from './mesh/bounds.ts';
+import { meshNearRadius, meshViewRadius } from './mesh/bounds.ts';
+import { SkyEnvironment } from './world/environment.ts';
 import { MeshStreamer } from './mesh/streamer.ts';
 
 const SKY = 0x9cc8ef;
@@ -149,6 +150,8 @@ let dayFactor = 1;
 let landmarkLayer: LandmarkLayer | null = null;
 let vegetationRef: Vegetation | null = null;
 let birdSystem: BirdSystem | null = null;
+/** Sky reflections for glass and metal (PMREM of the sky dome); off on Low. */
+const skyEnvironment = quality === 'high' ? new SkyEnvironment(renderer, sky) : null;
 let fishSystem: FishSystem | null = null;
 function applyTime(hours: number): void {
   const d = daylightAt(hours);
@@ -161,6 +164,8 @@ function applyTime(hours: number): void {
   hemi.intensity = d.hemiIntensity;
   renderer.toneMappingExposure = d.exposure;
   sky.setDaylight(d);
+  const env = skyEnvironment?.update(hours * 60);
+  if (env) scene.environment = env;
   const fog = scene.fog as THREE.Fog;
   fog.color.setRGB(d.fog[0], d.fog[1], d.fog[2], THREE.SRGBColorSpace);
   (scene.background as THREE.Color).copy(fog.color);
@@ -238,6 +243,8 @@ async function start(): Promise<void> {
   const mesh = meshOn
     ? new MeshStreamer(scene, streamer, manifest, {
       radius: meshViewRadius(quality, isMobile),
+      nearRadius: meshNearRadius(quality, isMobile),
+      pbr: pbrLibrary?.uniforms,
       castShadow: shadowsOn,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
     })
@@ -247,6 +254,8 @@ async function start(): Promise<void> {
     pbr: pbrLibrary?.uniforms, base,
   });
   landmarkLayer.setNight(dayFactor);
+  // buildings replaced by hero landmarks are never extruded
+  mesh?.setHiddenBuildings(landmarkLayer.replacedKeys());
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
   const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
   const input = new Input();
