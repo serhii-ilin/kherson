@@ -146,6 +146,7 @@ const waterMaterial = createWaterMaterial({
 /** 1 by day .. 0 at night, read by the birds and the ambience. */
 let dayFactor = 1;
 let landmarkLayer: LandmarkLayer | null = null;
+let vegetationRef: Vegetation | null = null;
 let birdSystem: BirdSystem | null = null;
 let fishSystem: FishSystem | null = null;
 function applyTime(hours: number): void {
@@ -169,6 +170,7 @@ function applyTime(hours: number): void {
   (wu.uSky!.value as THREE.Color).setRGB(d.reflect[0], d.reflect[1], d.reflect[2], THREE.SRGBColorSpace);
   NIGHT_UNIFORM.value = d.lights;
   landmarkLayer?.setNight(d.lights);
+  vegetationRef?.setLight(SUN_DIR, sun.color);
   // low sun: a larger normal offset keeps grazing-angle shadows free of acne
   sun.shadow.normalBias = 0.15 + 0.25 * (1 - Math.min(1, Math.max(0, (d.lightDir[1] - 0.17) / 0.4)));
   // re-aim the light (also when the shadow pass is off high up, or in Low) and redraw the map once
@@ -210,6 +212,8 @@ async function start(): Promise<void> {
     exclusions: getVegetationExclusions(manifest.bbox),
     voxel: voxelRenderer,
   });
+  vegetationRef = vegetation;
+  vegetationRef.setLight(SUN_DIR, sun.color);
   streamer.onRegionData = (rx, rz, data) => vegetation.setRegion(rx, rz, data ? data.features : null, data?.cells);
   // Fine tier (0.2 m ground near the camera): High quality + baked vector tiles; ?fine=0|1 overrides.
   const fineParam = q.get('fine');
