@@ -107,11 +107,23 @@ describe('createFacadeMaterial without the PBR library', () => {
 
   it('keeps today’s procedural material and leaves the layer off', () => {
     expect(shader.fragmentShader).not.toContain('pbrSample(');
+    expect(shader.fragmentShader).not.toContain('pbrWallBasis(');
+    expect(shader.fragmentShader).not.toContain('pbrGroundBasis(');
+    expect(shader.fragmentShader).not.toContain('pbrPerturb(');
+    expect(shader.fragmentShader).not.toContain('uPbrA');
+    expect(shader.fragmentShader).not.toContain('uPbrN');
     expect(shader.fragmentShader).not.toContain('uniform sampler2DArray uPbrA;');
     expect(shader.uniforms.uPbrOn!.value).toBe(0);
     expect(shader.uniforms.uPbrA).toBeUndefined();
     expect(shader.uniforms.uPbrN).toBeUndefined();
     expect(shader.uniforms.uPbrTile).toBeUndefined();
+  });
+
+  it('does not declare the PBR world-space varyings without the library', () => {
+    expect(shader.vertexShader).not.toContain('vPbrWorld');
+    expect(shader.vertexShader).not.toContain('vPbrNormal');
+    expect(shader.fragmentShader).not.toContain('vPbrWorld');
+    expect(shader.fragmentShader).not.toContain('vPbrNormal');
   });
 
   it('still declares the varying and attribute contract for geometry that provides them', () => {

@@ -20,6 +20,10 @@ varying vec2 vUvM;
 varying vec4 vFacade;
 varying float vStyle;
 flat varying float vPbr;
+`;
+
+/** World-space varyings exist only when the PBR library is present. */
+const VERT_PBR = /* glsl */`
 varying vec3 vPbrWorld;
 varying vec3 vPbrNormal;
 `;
@@ -29,6 +33,9 @@ vUvM = aUvM;
 vFacade = aFacade;
 vStyle = aStyle;
 vPbr = aPbr;
+`;
+
+const VERT_BODY_PBR = /* glsl */`
 vPbrWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vPbrNormal = normalize(mat3(modelMatrix) * objectNormal);
 #ifdef USE_BATCHING
@@ -42,8 +49,6 @@ varying vec2 vUvM;
 varying vec4 vFacade;
 varying float vStyle;
 flat varying float vPbr;
-varying vec3 vPbrWorld;
-varying vec3 vPbrNormal;
 uniform float uPbrOn;
 uniform float uNight;
 vec3 gGlow = vec3(0.0);
@@ -60,6 +65,12 @@ float aaLine(float v, float period, float lw, float w) {
   float d = min(f, period - f);
   return 1.0 - clamp((d - lw * 0.5) / max(w, 1e-4) + 0.5, 0.0, 1.0);
 }
+`;
+
+/** World-space varyings exist only when the PBR library is present. */
+const FRAG_PBR_VARYINGS = /* glsl */`
+varying vec3 vPbrWorld;
+varying vec3 vPbrNormal;
 `;
 
 /**
@@ -294,17 +305,24 @@ export function createFacadeMaterial(pbr?: PbrUniforms): THREE.MeshStandardMater
       shader.uniforms.uPbrTile = pbr.uPbrTile;
     }
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${VERT}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`);
-    const head = pbr === undefined ? FRAG_HEAD : `${FRAG_HEAD}\n${PBR_PARS}`;
+      .replace('#include <common>', `#include <common>\n${pbr === undefined ? VERT : `${VERT}\n${VERT_PBR}`}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${pbr === undefined ? VERT_BODY : `${VERT_BODY}\n${VERT_BODY_PBR}`}`);
+    const head = pbr === undefined ? FRAG_HEAD : `${FRAG_HEAD}\n${FRAG_PBR_VARYINGS}\n${PBR_PARS}`;
     const sample = pbr === undefined ? FRAG_PBR_STATE : FRAG_PBR_SAMPLE;
-    shader.fragmentShader = shader.fragmentShader
+    let fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${head}\n${PBR_CARRY_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>\n${sample}\n${FRAG_COLOR}`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${FRAG_ROUGH}`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n${FRAG_METAL}`)
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${FRAG_NORMAL}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FRAG_GLOW}`);
+    // The normal hook uses pbrWallBasis / pbrGroundBasis / pbrPerturb, which exist only in PBR_PARS.
+    if (pbr !== undefined) {
+      fragmentShader = fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>\n${FRAG_NORMAL}`,
+      );
+    }
+    shader.fragmentShader = fragmentShader;
   };
   return material;
 }
