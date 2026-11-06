@@ -78,9 +78,9 @@ Roads get real surfaces, worn detail and smooth mid-distance ribbons.
 - `data/materials.json` lists each layer: ambientCG / Poly Haven asset id, URL, licence CC0, sha256, and per-map tweaks (tint, scale in metres).
 - `fetch-materials.ts` downloads into git-ignored `data/material-sources/` and checks the sha256.
 - `pack-materials.ts` shells out to `magick` and `cwebp`:
-  - packs albedo+roughness and normal+AO into RGBA WebP at 512 and 256;
+  - packs albedo×AO (`_a`) and normal xy + roughness (`_n`) into WebP without alpha at 512 and 256;
   - checks that each layer tiles seamlessly (edge-difference metric);
-  - writes `public/assets/materials/{hi,lo}/<layer>_{ar,na}.webp` and a size report.
+  - writes `public/assets/materials/{hi,lo}/<layer>_{a,n}.webp` and a size report.
 - Opus runs the fetch, checks the licences and commits the outputs. CI only serves them. Gate: the materials total ≤ 5 MB.
 
 **B. Runtime PBR library** (new `src/world/pbr-library.ts`, `src/world/pbr-glsl.ts`)
@@ -88,7 +88,7 @@ Roads get real surfaces, worn detail and smooth mid-distance ribbons.
 - Until it loads, or if it fails, it uses flat 4×4 placeholder layers, so the current look stays as the fallback.
 - A GLSL chunk `pbrSample(layer, uvM, scale)` with:
   - anti-tiling (hash-rotated stochastic tiling, two taps, to hide repetition);
-  - normal from the `na` map, roughness from `ar.a`, AO multiplier;
+  - normal xy from `_n.rg` (z rebuilt), roughness from `_n.b`, AO baked into `_a`;
   - a distance fade to the flat colour beyond 400 m.
 - Tests: the layer table matches `pbr-layers.ts`; placeholder fallback; the shader chunk compiles in the existing smoke harness.
 

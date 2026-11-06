@@ -1,7 +1,7 @@
 /**
  * Layers of the shared PBR material library (docs/adr/0002-realistic-buildings.md). Each layer is one slice of
- * two `sampler2DArray`s: albedo + roughness (`_ar`) and normal + AO (`_na`), from CC0 sources listed in
- * data/materials.json. Pure constants, shared by the bake, the workers and the shaders.
+ * two `sampler2DArray`s: albedo with baked AO (`_a`) and normal xy + roughness (`_n`), from CC0 sources
+ * listed in data/materials.json. Pure constants, shared by the bake, the workers and the shaders.
  *
  * Append only: a layer's index never changes, so asset files, vertex attributes and shaders stay in step.
  */
@@ -41,7 +41,7 @@ export const PBR_LAYER = {
 
 export const PBR_LAYER_COUNT = 20;
 
-/** Asset file stem of each layer, in index order: `public/assets/materials/{hi,lo}/<stem>_{ar,na}.webp`. */
+/** Asset file stem of each layer, in index order: `public/assets/materials/{hi,lo}/<stem>_{a,n}.webp`. */
 export const PBR_LAYER_NAMES: readonly string[] = (() => {
   const names: string[] = [];
   for (const [k, v] of Object.entries(PBR_LAYER)) names[v] = k.toLowerCase();
