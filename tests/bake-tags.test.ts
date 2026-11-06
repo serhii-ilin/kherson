@@ -180,6 +180,7 @@ describe('parseStartYear', () => {
     expect(parseStartYear('19th century')).toBe(1850);
     expect(parseStartYear('C20')).toBe(1950);
     expect(parseStartYear('20th century')).toBe(1950);
+    expect(parseStartYear('built C19')).toBe(1850);
   });
 
   it('returns 0 for missing or out-of-range values', () => {

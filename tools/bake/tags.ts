@@ -170,8 +170,8 @@ export function parseRoofMaterial(t: Tags): number {
 export function parseStartYear(v?: string): number {
   const s = firstValue(v);
   if (!s) return 0;
-  if (s === "c19" || s === "19th century") return 1850;
-  if (s === "c20" || s === "20th century") return 1950;
+  if (/\bc19\b/.test(s) || /\b19th\s+century\b/.test(s)) return 1850;
+  if (/\bc20\b/.test(s) || /\b20th\s+century\b/.test(s)) return 1950;
   for (const m of s.matchAll(/\d{4}/g)) {
     const year = parseInt(m[0], 10);
     if (year >= 1700 && year <= 2030) return year;
