@@ -443,9 +443,9 @@ vec4 fStyle( float m ) {
     }
     if ( gPbr ) {
       if ( groundPbrColorLayer( gLayer ) ) {
-        // sett, pavers, gravel and granite: the texture is the colour, modulated by the palette luminance
+        // sett, pavers, gravel and granite: the texture is the colour, at the palette colour's brightness (detail has mean 1)
         float baseLum = gLuma( diffuseColor.rgb );
-        vec3 tex = clamp( gs.detail * baseLum * 1.6, 0.0, 1.2 );
+        vec3 tex = clamp( gs.detail * baseLum, 0.0, 1.0 );
         diffuseColor.rgb = mix( diffuseColor.rgb, tex, gPbrKeep );
       } else {
         diffuseColor.rgb *= gs.detail;

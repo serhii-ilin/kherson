@@ -18,6 +18,7 @@ import type { WorldStreamer } from '../world/streamer.ts';
 import { versioned } from '../version.ts';
 import { MESH_KEEP, chunkLod, type MeshLod } from './bounds.ts';
 import { createFacadeMaterial } from './facade.ts';
+import type { PbrUniforms } from '../world/pbr-library.ts';
 import type { CityMeshHidden, CityMeshRequest, CityMeshResponse, MeshTileRef } from './protocol.ts';
 
 const MAX_TILES = 48;
@@ -86,6 +87,8 @@ export interface MeshStreamerOptions {
   fineRadius?: number;
   /** Coarse-ground material for the ribbons (the facade/Lambert material patched by facadeShader). */
   roadMaterial?: THREE.Material;
+  /** Shared CC0 material library for the facade shader (src/world/pbr-library.ts); absent = procedural only. */
+  pbr?: PbrUniforms;
   workers?: number;
   /** Test hook: replaces `new Worker(...)` (the worker still receives the same messages). */
   workerFactory?: () => Worker;
@@ -144,7 +147,7 @@ export class MeshStreamer {
     this.radius = opts.radius;
     this.nearRadius = opts.nearRadius ?? 0;
     this.fineRadius = opts.fineRadius ?? 0;
-    this.material = createFacadeMaterial();
+    this.material = createFacadeMaterial(opts.pbr);
     // A 640 m view is on the order of 150k vertices (about 40 triangles and ~6 KB per building).
     // ChunkBatch grows if a dense view exceeds this. Staying near 200k vertices keeps the
     // reservation under the ADR's 20 MB laptop budget.
@@ -229,6 +232,16 @@ export class MeshStreamer {
    * the installed chunks. Rare call; the old slots stay visible until each new result arrives.
    * A job already in flight is rebuilt afterwards if it was computed with the older set.
    */
+  /**
+   * Sky reflections for the facade material only (glass and metal). Setting it as `scene.environment` would add the
+   * sky's light to every standard material on top of the hemisphere light and wash the scene out.
+   */
+  setEnvironment(env: THREE.Texture | null, intensity = 0.35): void {
+    this.material.envMap = env;
+    this.material.envMapIntensity = intensity;
+    this.material.needsUpdate = true;
+  }
+
   setHiddenBuildings(keys: ReadonlySet<string>): void {
     const list = [...keys];
     this.hiddenVersion++;

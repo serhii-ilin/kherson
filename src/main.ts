@@ -17,10 +17,12 @@ import { readPose, writePose } from './player/pose-memory.ts';
 import { Input } from './player/input.ts';
 import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, createShareButton, createTimeButton, t } from './i18n.ts';
 import { daylightAt, formatTime, readStoredTime, resolveTime, writeStoredTime } from './world/daylight.ts';
-import { NIGHT_UNIFORM } from './world/facade-shader.ts';
+import { NIGHT_UNIFORM, setGroundPbr } from './world/facade-shader.ts';
+import { createPbrLibrary } from './world/pbr-library.ts';
 import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
+import { createCredits } from './ui/credits.ts';
 import { PlacesMenu, type Place } from './ui/places.ts';
 import { PALETTE } from './world/materials.ts';
 import { REGION, VOXEL } from './world/constants.ts';
@@ -29,7 +31,8 @@ import { createLandmarks } from './landmarks/index.ts';
 import { LandmarkLayer } from './landmarks/layer.ts';
 import { LandmarkPhysics } from './landmarks/physics.ts';
 import { getVegetationExclusions } from './landmarks/exclusions.ts';
-import { meshViewRadius } from './mesh/bounds.ts';
+import { meshNearRadius, meshViewRadius } from './mesh/bounds.ts';
+import { SkyEnvironment } from './world/environment.ts';
 import { MeshStreamer } from './mesh/streamer.ts';
 
 const SKY = 0x9cc8ef;
@@ -148,6 +151,10 @@ let dayFactor = 1;
 let landmarkLayer: LandmarkLayer | null = null;
 let vegetationRef: Vegetation | null = null;
 let birdSystem: BirdSystem | null = null;
+/** Sky reflections for glass and metal (PMREM of the sky dome); off on Low. */
+const skyEnvironment = quality === 'high' ? new SkyEnvironment(renderer, sky) : null;
+let skyEnvTexture: THREE.Texture | null = null;
+let meshRef: MeshStreamer | null = null;
 let fishSystem: FishSystem | null = null;
 function applyTime(hours: number): void {
   const d = daylightAt(hours);
@@ -160,6 +167,11 @@ function applyTime(hours: number): void {
   hemi.intensity = d.hemiIntensity;
   renderer.toneMappingExposure = d.exposure;
   sky.setDaylight(d);
+  const env = skyEnvironment?.update(hours * 60);
+  if (env) {
+    skyEnvTexture = env;
+    meshRef?.setEnvironment(env);
+  }
   const fog = scene.fog as THREE.Fog;
   fog.color.setRGB(d.fog[0], d.fog[1], d.fog[2], THREE.SRGBColorSpace);
   (scene.background as THREE.Color).copy(fog.color);
@@ -194,9 +206,12 @@ createTimeButton(document.body, timeHours, (h) => {
   writeStoredTime(h);
   applyTime(h);
 });
-createAttribution(document.body);
+createAttribution(document.body, createCredits(document.body));
 watchForUpdates(document.body, () => t('updateAvailable'));
 const base = import.meta.env.BASE_URL;
+/** CC0 material textures (docs/adr/0002-realistic-buildings.md); `?pbr=0` compares against the procedural look. */
+const pbrLibrary = new URLSearchParams(location.search).get('pbr') === '0' ? null : createPbrLibrary(quality, base);
+if (pbrLibrary !== null) setGroundPbr(pbrLibrary.uniforms);
 
 async function start(): Promise<void> {
   const manifest = (await (await fetch(versioned(`${base}world/manifest.json`))).json()) as Manifest;
@@ -234,13 +249,21 @@ async function start(): Promise<void> {
   const mesh = meshOn
     ? new MeshStreamer(scene, streamer, manifest, {
       radius: meshViewRadius(quality, isMobile),
+      nearRadius: meshNearRadius(quality, isMobile),
+      pbr: pbrLibrary?.uniforms,
       castShadow: shadowsOn,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
     })
     : null;
   const basePhysics = fine !== null ? fine.world : streamer;
-  landmarkLayer = new LandmarkLayer(scene, createLandmarks(manifest.bbox), basePhysics, quality);
+  landmarkLayer = new LandmarkLayer(scene, createLandmarks(manifest.bbox), basePhysics, quality, {
+    pbr: pbrLibrary?.uniforms, base,
+  });
   landmarkLayer.setNight(dayFactor);
+  // buildings replaced by hero landmarks are never extruded
+  mesh?.setHiddenBuildings(landmarkLayer.replacedKeys());
+  meshRef = mesh;
+  mesh?.setEnvironment(skyEnvTexture);
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
   const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
   const input = new Input();

@@ -493,12 +493,19 @@
 }
 
 @media (pointer: coarse) {
-  .vk-attribution-credits {
-    display: flex;
-    align-items: center;
+  /* One wrapping row so the box stays a single line under the fly button (Constitution 3.4). */
+  .vk-attribution {
+    flex-direction: row;
+    flex-wrap: wrap;
     justify-content: center;
-    width: 100%;
-    min-height: 44px;
+    column-gap: 8px;
+    max-width: calc(100vw - 24px);
+  }
+  .vk-attribution-credits {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 2px;
   }
   .vk-credits-panel {
     max-height: 85vh;
