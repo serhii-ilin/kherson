@@ -1,12 +1,13 @@
 // CC0 / public-domain bird recordings that replace the matching synthetic voices.
 // Provenance, authors and licences: docs/AUDIO_CREDITS.md.
-// A species with no clip here stays on the procedural voice in audio.ts.
+// A species with no clip here is not part of the soundscape: there is no synthetic bird voice.
 
 export type RecordedSpecies =
-  | 'swift' | 'rockPigeon' | 'collaredDove' | 'houseSparrow'
-  | 'greatTit' | 'blackbird' | 'starling';
+  | 'swift' | 'rockPigeon' | 'collaredDove' | 'houseSparrow' | 'treeSparrow'
+  | 'greatTit' | 'blackbird' | 'starling' | 'hoodedCrow' | 'whiteWagtail'
+  | 'woodpecker' | 'cuckoo';
 
-export type ClipKind = 'scream' | 'coo' | 'wing' | 'song' | 'call';
+export type ClipKind = 'scream' | 'coo' | 'wing' | 'song' | 'call' | 'drum';
 
 export interface BirdClip {
   id: string;
@@ -45,9 +46,13 @@ export const BIRD_CLIPS: readonly BirdClip[] = [
   { id: 'dove-wing-1', species: 'collaredDove', kind: 'wing', source: 'XC1181443' },
   { id: 'sparrow-1', species: 'houseSparrow', kind: 'call', source: 'File:House Sparrow.ogg' },
   { id: 'sparrow-2', species: 'houseSparrow', kind: 'call', source: 'File:House Sparrow.ogg' },
-  { id: 'sparrow-3', species: 'houseSparrow', kind: 'call', source: 'File:Joseph Sardin - Passer domesticus tschilp call.oga' },
+  { id: 'sparrow-3', species: 'houseSparrow', kind: 'call', source: 'XC816843' },
   { id: 'sparrow-4', species: 'houseSparrow', kind: 'call', source: 'XC1152146' },
   { id: 'sparrow-5', species: 'houseSparrow', kind: 'call', source: 'XC819683' },
+  { id: 'sparrow-6', species: 'houseSparrow', kind: 'call', source: 'XC816843' },
+  { id: 'sparrow-7', species: 'houseSparrow', kind: 'call', source: 'XC1152174' },
+  { id: 'tree-sparrow-1', species: 'treeSparrow', kind: 'call', source: 'XC1143699' },
+  { id: 'tree-sparrow-2', species: 'treeSparrow', kind: 'call', source: 'XC1143702' },
   { id: 'tit-1', species: 'greatTit', kind: 'song', source: 'XC707385' },
   { id: 'tit-2', species: 'greatTit', kind: 'song', source: 'XC707385' },
   { id: 'tit-3', species: 'greatTit', kind: 'song', source: 'XC707385' },
@@ -58,6 +63,15 @@ export const BIRD_CLIPS: readonly BirdClip[] = [
   { id: 'starling-1', species: 'starling', kind: 'call', source: 'XC934628' },
   { id: 'starling-2', species: 'starling', kind: 'call', source: 'XC934628' },
   { id: 'starling-3', species: 'starling', kind: 'call', source: 'XC934628' },
+  { id: 'crow-1', species: 'hoodedCrow', kind: 'call', source: 'XC707409' },
+  { id: 'crow-2', species: 'hoodedCrow', kind: 'call', source: 'XC776850' },
+  { id: 'wagtail-1', species: 'whiteWagtail', kind: 'call', source: 'XC1100607' },
+  { id: 'wagtail-2', species: 'whiteWagtail', kind: 'call', source: 'XC707274' },
+  { id: 'woodpecker-drum-1', species: 'woodpecker', kind: 'drum', source: 'XC730508' },
+  { id: 'woodpecker-drum-2', species: 'woodpecker', kind: 'drum', source: 'XC1133218' },
+  { id: 'woodpecker-call-1', species: 'woodpecker', kind: 'call', source: 'XC707123' },
+  { id: 'cuckoo-1', species: 'cuckoo', kind: 'song', source: 'XC1095924' },
+  { id: 'cuckoo-2', species: 'cuckoo', kind: 'song', source: 'XC987707' },
 ];
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);

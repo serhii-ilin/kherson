@@ -6,7 +6,7 @@ Plan details are in [REALISM_PLAN.md](REALISM_PLAN.md); rules and budgets in [CO
 
 Status: ✅ done · 🟡 in progress · ⬜ not started · ⛔ blocked (waiting on the owner)
 
-_Last updated: 2026-11-01_
+_Last updated: 2026-11-06_
 
 ## Phases
 
@@ -28,6 +28,7 @@ _Last updated: 2026-11-01_
 | Whole-city mid meshes, on by default; props and signs stay | ✅ | `3f6017f` |
 | Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | ✅ | `8fb1ee8` |
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
+| Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo added; looped sparrow take replaced | 🟡 | `audio/recorded-birds-only` |
 
 ## Near crowns
 
@@ -180,13 +181,15 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 - ⛔ **Phone default**: phones start in LQ, so they don't see the 0.2 m ground and 1 m blocks unless switched to HQ. The owner's phone runs HQ at 60–90 fps; switch the phone default to HQ?
 - ⛔ **Karantynnyi island entry** was removed by the city cut. Bring it back?
 - ✅ **Antonivskyi road bridge** (owner, 2026-11-01): include the pre-war span. The city polygon stays relation 2175078. A 30 m corridor covers the carriageways (ways 4424601 and 118181459, outline 188496941, Wikidata Q4067525) and 450 m of trunk approach. The railway bridge (Q4067523) is not included. World bbox east is 32.73 so the span fits; west and north are unchanged. The new cells contain 3 buildings.
+- ✅ **Unnatural bird calls** (owner, 2026-11-06): every synthetic bird voice is gone. The ambient slots also used to synthesise pigeons, doves and swifts, because they asked only for `song`/`call` takes; they now play the recorded coos and screams. Added CC0 house sparrow (a chattering group and single chirps), tree sparrow, crow (carrion-crow takes for the hooded crow), white wagtail, great spotted woodpecker (drumming and calls) and cuckoo. Crows come every 2–5 min, woodpeckers about every 2 min in parks, cuckoos every 3–6 min in parks and by the river. `sparrow-3` sounded like a loop and was replaced. Rook, magpie, chaffinch, oriole, nightingale, swallow and gulls have no clip and are silent. 47 clips, 1,473,902 bytes. Constitution amendment 4.
 - ✅ **Ambient sound** (owner, 2026-11-01): the synthetic doves and swifts were replaced. Common swift, feral pigeon, collared dove, house sparrow, great tit, blackbird and starling play CC0 / public-domain recordings (34 clips, Opus and AAC, about 1.00 MB, loaded after a gesture). Tree sparrow, crows, rook, magpie, chaffinch, swallow, oriole, nightingale, wagtail and gulls stay synthesised, as do wind and water. See [BIRDS.md](BIRDS.md) and [AUDIO_CREDITS.md](AUDIO_CREDITS.md).
 
 ## Done (recent fixes)
 
 | Fix | Commit |
 |---|---|
-| Bird recordings: CC0 / public-domain swifts (daytime screams and an evening party, Doppler on fly-bys), feral-pigeon coo and wing clap, collared-dove song and landing, plus house sparrow, great tit, blackbird and starling. 34 mono clips, Opus/WebM and AAC/M4A, 1,000,694 bytes, fetched after a gesture; other species and the wind/water beds stay synthesised, with a synthetic fallback if a file fails. Provenance in [AUDIO_CREDITS.md](AUDIO_CREDITS.md). Constitution Article 4 budget and Article 8.2 exception | (this commit) |
+| Birds only from recordings: synthetic calls removed (including the synthetic pigeons, doves and swifts the ambient slots played), CC0 tree sparrow, crow, white wagtail, woodpecker and cuckoo added, a looped-sounding sparrow take replaced; crows, woodpeckers and cuckoos kept occasional. 47 clips, 1,473,902 bytes. Constitution amendment 4 | `078cd08`, (this commit) |
+| Bird recordings: CC0 / public-domain swifts (daytime screams and an evening party, Doppler on fly-bys), feral-pigeon coo and wing clap, collared-dove song and landing, plus house sparrow, great tit, blackbird and starling. 34 mono clips, Opus/WebM and AAC/M4A, 1,000,694 bytes, fetched after a gesture; other species and the wind/water beds stay synthesised, with a synthetic fallback if a file fails. Provenance in [AUDIO_CREDITS.md](AUDIO_CREDITS.md). Constitution Article 4 budget and Article 8.2 exception | `b6994d8` |
 | Pre-war restoration on the current OSM snapshot, not a rollback to the January 2022 extract (that extract dropped buildings and tree rows that were mapped later). `data/osm/restoration.json` reverts ruin/lifecycle tags, restores the Antonivskyi carriageways, puts street names back to the 2022-01-01 reference (current name kept in `old_name`), re-adds 1,016 deleted buildings that were not redrawn, and drops 13 war additions. `building=ruins/destroyed/damaged` 156 → 5. Baked buildings 10,118 → 10,956; tree rows stay 798. Corridor mask unchanged | `e446c4e` |
 | #39 No more 1 m staircases on skewed apartment blocks: flat-roofed khrushchevka/panel/Stalin/brick/apartment blocks whose walls are > 4° off the grid are drawn true-angle in the block tier (`src/fine/smooth.ts`): walls along the real polygon edges, flat roof with a low parapet, windows painted along each wall by the facade shader, entrances with canopies and stair windows on the long wall facing the service drive, balcony stacks on long walls; physics keeps the 1 m column raster; the chunk holding the ring's first vertex emits the mesh. Fine worker +12 kB | (next commit) |
 | Khrushchevka facade matched to the owner's photos of Filatova 28: warm grey pebble-dash (1.5 cm stones, 5 cm clusters, faint 3.2 × 3 m joints), 1.5 m windows with 2 m piers (2-wide openings in 4 m bays, kept off corners), an entrance every 4 bays with a light portal and a concrete canopy, some painted wooden frames (blue, brown) among white ones; 5-storey slabs are no longer picked as Stalin-era at random (Filatova 28 had tall Stalin windows; Stalin styles 63) | (next commit) |

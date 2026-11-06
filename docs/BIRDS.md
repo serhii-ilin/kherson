@@ -4,12 +4,12 @@ This is a short pre-24-Feb-2022-informed reference for the procedural mix. The s
 
 | Українська | English | Latin | Habitat | Relative weight | Time |
 |---|---|---|---|---:|---|
-| горобець хатній | house sparrow | *Passer domesticus* | built-up | 22 | day, dawn/evening |
+| горобець хатній | house sparrow | *Passer domesticus* | built-up | 24 | day, dawn/evening |
 | горобець польовий | Eurasian tree sparrow | *Passer montanus* | built-up, edges | 9 | day |
 | шпак звичайний | common starling | *Sturnus vulgaris* | built-up, park-trees | 10 | day |
 | голуб сизий | rock (feral) pigeon | *Columba livia* | built-up, river | 15 | day |
 | горлиця садова | Eurasian collared dove | *Streptopelia decaocto* | built-up, park-trees | 10 | day, dawn/evening |
-| ворона сіра | hooded crow | *Corvus cornix* | built-up, river edge | 4 | day |
+| ворона сіра | hooded crow | *Corvus cornix* | built-up, river edge | 1.2 | day |
 | грак | rook | *Corvus frugilegus* | built-up, open ground | 3 | day |
 | сорока звичайна | Eurasian magpie | *Pica pica* | park-trees, built-up | 5 | day |
 | синиця велика | great tit | *Parus major* | park-trees | 9 | dawn/day |
@@ -18,13 +18,17 @@ This is a short pre-24-Feb-2022-informed reference for the procedural mix. The s
 | вивільга | golden oriole | *Oriolus oriolus* | mature park-trees | 3 | dawn/evening |
 | соловейко східний | common nightingale | *Luscinia megarhynchos* | dense park-trees | 3 | dawn/evening |
 | ластівка сільська | barn swallow | *Hirundo rustica* | river/open air | 4 | day, evening |
-| плиска біла | white wagtail | *Motacilla alba* | riverbank | 2 | day |
+| плиска біла | white wagtail | *Motacilla alba* | riverbank, roofs and car parks | 3 | day |
+| дятел сирійський / звичайний | Syrian / great spotted woodpecker | *Dendrocopos syriacus* / *D. major* | park-trees | 0.7 | day |
+| зозуля звичайна | common cuckoo | *Cuculus canorus* | park-trees, riverside willows | 0.35 | dawn/day |
 | мартин чорноголовий / жовтоногий / каспійський | black-headed / yellow-legged / Caspian gull | *Chroicocephalus ridibundus* / *Larus michahellis* / *Larus cachinnans* | Dnipro | 2 | day |
 | серпокрилець чорний | common swift | *Apus apus* | built-up sky, river corridor | 3 | day, loudest evening |
 
-The baseline weights deliberately make sparrows and pigeons dominant in streets, shift to tits/blackbirds/chaffinches/oriole/nightingale in trees, and turn gulls/swallow/wagtail on within about 150 m of water. Crows, rooks and gulls are rendered quieter and less frequent.
+The baseline weights deliberately make sparrows and pigeons dominant in streets, shift to tits and blackbirds in trees, and bring wagtails up within about 150 m of water.
 
-Common swift, feral pigeon, collared dove, house sparrow, great tit, blackbird and starling play CC0 or public-domain recordings when those files have loaded. The other species in this table stay synthesised, and a recorded species falls back to its synthetic voice if the files fail. Wind and water are still synthesised. Recording sources are in [AUDIO_CREDITS.md](AUDIO_CREDITS.md).
+Crows, woodpeckers and cuckoos were not numerous in the city, so they are occasional. The ambience plays about half a phrase a second across its slots. At that rate a crow comes every 2–5 minutes, a woodpecker about every 2 minutes in a park and almost never on a bare street, and a cuckoo every 3–6 minutes in parks and by the river. `tests/audio.test.ts` holds those shares down.
+
+Only recorded species are heard. The ones in the table with a recording are house and tree sparrow, starling, feral pigeon, collared dove, hooded crow (voiced by carrion-crow takes), great tit, blackbird, white wagtail, woodpecker, cuckoo and swift. Rook, magpie, chaffinch, golden oriole, nightingale, barn swallow and gulls have no clip and are silent. The table keeps them as habitat reference. There is no synthetic fallback: if the files fail to load, the birds are quiet. Wind and water are still synthesised. Recording sources are in [AUDIO_CREDITS.md](AUDIO_CREDITS.md).
 
 ## Sources
 

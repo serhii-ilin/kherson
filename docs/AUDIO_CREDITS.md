@@ -2,9 +2,11 @@
 
 Provenance for the recordings in `public/audio/birds/`. Every file below is **CC0 1.0** or **public domain**. None is CC-BY, NC, ND, SA, or a ripped stream. Attribution is not required by these licences; this list is so the sources can be checked.
 
-The encoded set is mono. Each clip is an Opus/WebM file and an AAC/M4A fallback. Together they must stay under the 1.5 MB budget in `CONSTITUTION.md`. They are fetched only after the first click, tap or key press. Wind, water, and any species not listed here stay synthesised. If a download or decode fails, that species falls back to its synthetic voice.
+The encoded set is mono. Each clip is an Opus/WebM file and an AAC/M4A fallback. Together they must stay under the 1.5 MB budget in `CONSTITUTION.md`. They are fetched only after the first click, tap or key press. There are no synthetic bird voices: a species not listed here is not in the soundscape, and if a download or decode fails that species stays silent. Wind, water and the fish splash are still synthesised.
 
 Processing for every clip: trim, high-pass (and a low-pass above the species’ band), light FFT denoise where the take had rumble, peak-normalise to about −2 dBFS, short fades, then Opus at 28 kbps and AAC at 40 kbps. Freesound originals sit behind an account, so those four takes were edited from the site’s HQ preview of the same CC0 upload.
+
+Xeno-canto’s search pages sit behind a bot check and its API needs a personal key, so the 2026-11-06 additions were found through the xeno-canto dataset mirrored on [GBIF](https://www.gbif.org/dataset/b1047888-ae52-4179-9dd5-5448ea342a24), keeping only recordings whose sound file carries the CC0 dedication there, and were then downloaded from xeno-canto itself. GBIF gives the dataset as a whole a non-commercial licence; the licence that counts is the one on each sound file.
 
 Checked and not used: xeno-canto recordings under any licence other than the public-domain dedication (most pages for these species use a non-commercial licence); the USFWS digital library and the NPS sound gallery, which did not offer a downloadable public-domain file of these European urban species on 2026-11-01.
 
@@ -50,9 +52,19 @@ Played when an existing dove group is flying. A collared dove that has no wing t
 | Clip | Source | Recordist | Licence | Notes |
 |---|---|---|---|---|
 | `sparrow-1`, `sparrow-2` | [File:House Sparrow.ogg](https://commons.wikimedia.org/wiki/File:House_Sparrow.ogg) | Gypsypkd | Public domain | Wikimedia Commons. |
-| `sparrow-3` | [File:Joseph Sardin - Passer domesticus tschilp call.oga](https://commons.wikimedia.org/wiki/File:Joseph_Sardin_-_Passer_domesticus_tschilp_call.oga) | Joseph Sardin | CC0 1.0 | Isolated chirps. |
+| `sparrow-3`, `sparrow-6` | [XC816843](https://xeno-canto.org/816843) | Sonothèque ADVL | CC0 1.0 | France, 2023-05-26. A group chattering in a bush (“cri de querelle”). |
 | `sparrow-4` | [XC1152146](https://xeno-canto.org/1152146) | Philippe Grange | CC0 1.0 | France, 08:00. Chirps while feeding, quality A. |
 | `sparrow-5` | [XC819683](https://xeno-canto.org/819683) | Sonothèque ADVL | CC0 1.0 | Carolles, France, 07:31. Colony calls, quality A. |
+| `sparrow-7` | [XC1152174](https://xeno-canto.org/1152174) | Philippe Grange | CC0 1.0 | France, 2026-07-02. Single chirps from one bird. |
+
+Until 2026-11-06 `sparrow-3` was an edit of Joseph Sardin’s CC0 “tschilp” call from Wikimedia Commons. It was replaced because the edit repeated one chirp five times at an even 0.66 s with gated silence between, which sounded like a loop.
+
+## Eurasian tree sparrow (*Passer montanus*)
+
+| Clip | Source | Recordist | Licence | Notes |
+|---|---|---|---|---|
+| `tree-sparrow-1` | [XC1143699](https://xeno-canto.org/1143699) | Philippe Grange | CC0 1.0 | France, 2026-06-11. Song and calls. |
+| `tree-sparrow-2` | [XC1143702](https://xeno-canto.org/1143702) | Philippe Grange | CC0 1.0 | France, 2026-06-11. Song and calls. |
 
 ## Great tit (*Parus major*)
 
@@ -73,12 +85,47 @@ Played when an existing dove group is flying. A collared dove that has no wing t
 |---|---|---|---|---|
 | `starling-1`, `starling-2`, `starling-3` | [XC934628](https://xeno-canto.org/934628) | Sonothèque ADVL | CC0 1.0 | Carolles, France, 15:20. Call, quality A. |
 
-## Still synthesised
+## Crow — the voice of the hooded crow (*Corvus cornix*)
 
-These voices have no clip in this set. That is not a claim that no CC0 recording exists; they were outside the species the owner asked to replace first, or the CC0 takes found were the wrong behaviour (night-migration calls, nestling begging, alarm-only):
+No hooded-crow recording on xeno-canto carried CC0 on 2026-11-06. These are carrion crows (*Corvus corone*), the hooded crow’s closest relative. The two were long treated as one species, and their “kraa” calls are not told apart by ear.
 
-- Eurasian tree sparrow, hooded crow, rook, magpie
-- common chaffinch, barn swallow, golden oriole, common nightingale, white wagtail
+| Clip | Source | Recordist | Licence | Notes |
+|---|---|---|---|---|
+| `crow-1` | [XC707409](https://xeno-canto.org/707409) | Sonothèque ADVL | CC0 1.0 | France, 2021-02-15. Four caws. |
+| `crow-2` | [XC776850](https://xeno-canto.org/776850) | Sonothèque ADVL | CC0 1.0 | France, 2022-09-19. Three caws. |
+
+## White wagtail (*Motacilla alba*)
+
+| Clip | Source | Recordist | Licence | Notes |
+|---|---|---|---|---|
+| `wagtail-1` | [XC1100607](https://xeno-canto.org/1100607) | Sonothèque ADVL | CC0 1.0 | France, 2026-03-20. Song and calls. |
+| `wagtail-2` | [XC707274](https://xeno-canto.org/707274) | Sonothèque ADVL | CC0 1.0 | France, 2021-10-04. Flight calls. |
+
+## Woodpecker — great spotted woodpecker (*Dendrocopos major*)
+
+Kherson’s town woodpecker is often the Syrian woodpecker (*Dendrocopos syriacus*), which had no CC0 recording on xeno-canto. The great spotted woodpecker also lives in the city’s parks. The two drum alike, and the Syrian’s call is a softer version of this “kik”.
+
+| Clip | Source | Recordist | Licence | Notes |
+|---|---|---|---|---|
+| `woodpecker-drum-1` | [XC730508](https://xeno-canto.org/730508) | Sonothèque ADVL | CC0 1.0 | France, 2022-04-13. Drumming. |
+| `woodpecker-drum-2` | [XC1133218](https://xeno-canto.org/1133218) | Lionel Triboulin | CC0 1.0 | France, 2026-03-09. Drumming. |
+| `woodpecker-call-1` | [XC707123](https://xeno-canto.org/707123) | Sonothèque ADVL | CC0 1.0 | France, 2021-04-15. “Kik” calls. |
+
+## Common cuckoo (*Cuculus canorus*)
+
+Low-passed at 2 kHz so only the “ku-ku” is left of the surrounding chorus.
+
+| Clip | Source | Recordist | Licence | Notes |
+|---|---|---|---|---|
+| `cuckoo-1` | [XC1095924](https://xeno-canto.org/1095924) | Philippe Grange | CC0 1.0 | France, 2026-04-06. Song. |
+| `cuckoo-2` | [XC987707](https://xeno-canto.org/987707) | wilmet sebastien | CC0 1.0 | France, 2025-04-12. Song. |
+
+## Not in the soundscape
+
+There are no synthetic bird voices any more (Constitution, amendment 4). These species from [BIRDS.md](BIRDS.md) have no clip, so they are silent. CC0 takes do exist for some of them, for example rook and magpie; they were left out to stay inside the 1.5 MB budget:
+
+- rook, Eurasian magpie
+- common chaffinch, barn swallow, golden oriole, common nightingale
 - gulls
 
 Wind, water and the fish splash are synthesised as before.

@@ -82,7 +82,9 @@ describe('bird recordings', () => {
     expect(readyClips('rockPigeon', ['wing'], loaded)).toHaveLength(0);
     expect(readyClips('gull', ['call'], loaded)).toHaveLength(0);
     expect(speciesHasClips('greatTit', ['song'])).toBe(true);
-    expect(speciesHasClips('hoodedCrow', ['call'])).toBe(false);
+    expect(speciesHasClips('hoodedCrow', ['call'])).toBe(true);
+    expect(speciesHasClips('woodpecker', ['drum'])).toBe(true);
+    expect(speciesHasClips('cuckoo', ['call'])).toBe(false);
     expect(pickClip([], () => 0)).toBeNull();
     const only = readyClips('rockPigeon', ['coo'], loaded);
     expect(pickClip(only, () => 0.9)?.id).toBe('pigeon-coo-1');

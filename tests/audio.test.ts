@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BIRD_STYLES, SPECIES, birdActivity, dopplerFactor, forwardFromYaw, generatePhrase,
-  generateSpeciesPhrase, nextInterval, pickSpecies, radialVelocity, songbirdGain,
-  speciesWeights, swiftInterval, waterGain, windGain,
+  SPECIES, birdActivity, dopplerFactor, forwardFromYaw, nextInterval, pickSpecies,
+  radialVelocity, songbirdGain, speciesWeights, swiftInterval, waterGain, windGain,
 } from '../src/nature/audio.ts';
+import { BIRD_CLIPS } from '../src/nature/bird-samples.ts';
 
 function prng(seed: number): () => number {
   let s = seed >>> 0;
@@ -73,34 +73,6 @@ describe('audio helpers', () => {
     expect(nextInterval(prng(3), 2, 9)).toBe(a);
   });
 
-  it('phrases are varied and within musical bounds', () => {
-    const rng = prng(42);
-    for (const style of BIRD_STYLES) {
-      const sigs = new Set<string>();
-      for (let i = 0; i < 20; i++) {
-        const notes = generatePhrase(style, rng, 0.9 + rng() * 0.2, 0.8 + rng() * 0.45);
-        expect(notes.length).toBeGreaterThanOrEqual(3);
-        expect(notes.length).toBeLessThanOrEqual(12);
-        let last = -1;
-        for (const n of notes) {
-          expect(n.t).toBeGreaterThanOrEqual(last);
-          last = n.t;
-          expect(n.dur).toBeGreaterThanOrEqual(0.03);
-          expect(n.dur).toBeLessThanOrEqual(0.22);
-          expect(n.freqs.length).toBeGreaterThanOrEqual(2);
-          for (const f of n.freqs) {
-            expect(f).toBeGreaterThanOrEqual(700);
-            expect(f).toBeLessThanOrEqual(8000);
-          }
-          expect(n.peak).toBeGreaterThan(0);
-          expect(n.peak).toBeLessThanOrEqual(1);
-        }
-        sigs.add(notes.map((n) => Math.round(n.freqs[0])).join(','));
-      }
-      expect(sigs.size).toBeGreaterThan(10);
-    }
-  });
-
   it('normalises habitat weights and changes the dominant chorus', () => {
     const contexts = [
       { treeDensity: 0, builtUp: 1, waterDistance: Infinity, daylight: 1 },
@@ -117,11 +89,11 @@ describe('audio helpers', () => {
     const built = speciesWeights(contexts[0]!);
     expect(built.houseSparrow).toBeGreaterThan(built.greatTit);
     expect(built.houseSparrow).toBeGreaterThan(built.rockPigeon);
-    expect(built.rockPigeon).toBeGreaterThan(built.chaffinch);
+    expect(built.rockPigeon).toBeGreaterThan(built.blackbird);
     const park = speciesWeights(contexts[1]!);
-    expect(park.greatTit + park.blackbird + park.chaffinch).toBeGreaterThan(park.houseSparrow + park.rockPigeon);
-    expect(speciesWeights(contexts[2]!).gull).toBeGreaterThan(0);
-    expect(speciesWeights(contexts[3]!).gull).toBeCloseTo(0);
+    expect(park.greatTit + park.blackbird).toBeGreaterThan(park.houseSparrow + park.rockPigeon);
+    expect(park.woodpecker).toBeGreaterThan(built.woodpecker);
+    expect(speciesWeights(contexts[2]!).whiteWagtail).toBeGreaterThan(speciesWeights(contexts[3]!).whiteWagtail * 3);
     expect(birdActivity({ ...contexts[0]!, daylight: 0 })).toBe(0);
   });
 
@@ -141,25 +113,28 @@ describe('audio helpers', () => {
     }
   });
 
-  it('every species has finite, positive procedural notes in its call range', () => {
-    const rng = prng(99);
+  it('every species in the mix has a recording, so no voice is synthesised', () => {
     for (const species of SPECIES) {
-      const notes = generateSpeciesPhrase(species, rng);
-      expect(notes.length).toBeGreaterThan(0);
-      for (const n of notes) {
-        expect(Number.isFinite(n.t)).toBe(true);
-        expect(Number.isFinite(n.dur)).toBe(true);
-        expect(n.dur).toBeGreaterThan(0);
-        expect(n.freqs.length).toBeGreaterThanOrEqual(2);
-        for (const f of n.freqs) {
-          expect(Number.isFinite(f)).toBe(true);
-          expect(f).toBeGreaterThan(0);
-          if (species === 'hoodedCrow' || species === 'rook') expect(f).toBeLessThan(3000);
-          if (species === 'houseSparrow' || species === 'treeSparrow') expect(f).toBeGreaterThanOrEqual(2000);
-          if (species === 'houseSparrow' || species === 'treeSparrow') expect(f).toBeLessThanOrEqual(6000);
-          if (species === 'gull') expect(f).toBeLessThanOrEqual(3000);
-        }
-      }
+      expect(BIRD_CLIPS.some((c) => c.species === species && c.kind !== 'wing')).toBe(true);
     }
+  });
+
+  it('keeps crows, woodpeckers and cuckoos occasional in every habitat', () => {
+    const contexts = [
+      { treeDensity: 0, builtUp: 1, waterDistance: Infinity },
+      { treeDensity: 1, builtUp: 0, waterDistance: Infinity },
+      { treeDensity: 1, builtUp: 0, waterDistance: 0 },
+      { treeDensity: 0.35, builtUp: 0.6, waterDistance: 40 },
+    ];
+    for (const context of contexts) {
+      const w = speciesWeights(context);
+      expect(w.hoodedCrow).toBeLessThan(0.02);
+      expect(w.woodpecker).toBeLessThan(0.025);
+      expect(w.cuckoo).toBeLessThan(0.01);
+      expect(w.hoodedCrow + w.woodpecker + w.cuckoo).toBeLessThan(0.04);
+    }
+    const park = speciesWeights(contexts[1]!);
+    expect(park.cuckoo).toBeGreaterThan(0);
+    expect(park.woodpecker).toBeGreaterThan(0);
   });
 });
