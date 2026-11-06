@@ -19,4 +19,6 @@ export interface Manifest {
   spawn: [number, number];
   /** True when the bake wrote `v_<rx>_<rz>.bin` vector tiles; a region without items has no file (404 = empty). */
   vectors?: boolean;
+  /** True when the bake also wrote `facades.json` (Tier-K researched facades). */
+  facades?: boolean;
 }
