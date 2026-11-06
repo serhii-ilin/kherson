@@ -22,6 +22,7 @@ import { createPbrLibrary } from './world/pbr-library.ts';
 import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
+import { createCredits } from './ui/credits.ts';
 import { PlacesMenu, type Place } from './ui/places.ts';
 import { PALETTE } from './world/materials.ts';
 import { REGION, VOXEL } from './world/constants.ts';
@@ -205,7 +206,7 @@ createTimeButton(document.body, timeHours, (h) => {
   writeStoredTime(h);
   applyTime(h);
 });
-createAttribution(document.body);
+createAttribution(document.body, createCredits(document.body));
 watchForUpdates(document.body, () => t('updateAvailable'));
 const base = import.meta.env.BASE_URL;
 /** CC0 material textures (docs/adr/0002-realistic-buildings.md); `?pbr=0` compares against the procedural look. */
