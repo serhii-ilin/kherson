@@ -29,6 +29,7 @@ import { REGION, VOXEL } from './world/constants.ts';
 import { versioned, watchForUpdates } from './version.ts';
 import { createLandmarks } from './landmarks/index.ts';
 import { LandmarkLayer } from './landmarks/layer.ts';
+import { FacadeLandmarks } from './landmarks/facades.ts';
 import { LandmarkPhysics } from './landmarks/physics.ts';
 import { getVegetationExclusions } from './landmarks/exclusions.ts';
 import { meshNearRadius, meshViewRadius } from './mesh/bounds.ts';
@@ -250,6 +251,9 @@ async function start(): Promise<void> {
     ? new MeshStreamer(scene, streamer, manifest, {
       radius: meshViewRadius(quality, isMobile),
       nearRadius: meshNearRadius(quality, isMobile),
+      // road ribbons take over from the 0.2 m ground beyond its radius
+      fineRadius: fine !== null ? (isMobile ? 70 : 150) : 0,
+      roadMaterial: streamer.material,
       pbr: pbrLibrary?.uniforms,
       castShadow: shadowsOn,
       workers: (navigator.hardwareConcurrency || 2) >= 8 ? 2 : 1,
@@ -262,6 +266,15 @@ async function start(): Promise<void> {
   landmarkLayer.setNight(dayFactor);
   // buildings replaced by hero landmarks are never extruded
   mesh?.setHiddenBuildings(landmarkLayer.replacedKeys());
+  // Researched facade descriptors (Ushakova, Suvorova): extra landmarks once facades.json arrives
+  if (manifest.facades === true) {
+    const facades = new FacadeLandmarks(base);
+    const layer = landmarkLayer;
+    void facades.ready.then(() => {
+      layer.addLandmarks(facades.landmarks());
+      mesh?.setHiddenBuildings(layer.replacedKeys());
+    });
+  }
   meshRef = mesh;
   mesh?.setEnvironment(skyEnvTexture);
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */

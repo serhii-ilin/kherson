@@ -126,11 +126,18 @@ describe('facade bake', () => {
     expect(warn.mock.calls.some((call) => String(call[0]).includes('parapet attic is ignored'))).toBe(true);
   });
 
-  it('matches both hand-written example rows against the real snapshot keys', () => {
+  it('matches every committed row when its building is present', () => {
     const rows = readFacadeRows('data/facades');
-    expect(rows.map((row) => row.key)).toEqual(['w1376950956', 'w262457726']);
-    const result = buildFacadeRows(rows, [tile(0, 0, [building(1376950956), building(262457726)])]);
+    expect(rows.length).toBeGreaterThan(0);
+    const ids = rows.map((row) => Number(row.key.slice(1)));
+    expect(rows.every((row) => row.key.startsWith('w'))).toBe(true);
+    // a 12-sided ring, so every committed edge index (≤ 11) exists; the real bake checks the true rings
+    const ring = Int32Array.from(Array.from({ length: 12 }, (_, i) => {
+      const a = (i / 12) * Math.PI * 2;
+      return [Math.round(300 + 200 * Math.cos(a)), Math.round(400 + 200 * Math.sin(a))];
+    }).flat());
+    const result = buildFacadeRows(rows, [tile(0, 0, ids.map((id) => ({ ...building(id), rings: [ring] })))]);
     expect(result.unmatched).toEqual([]);
-    expect(result.rows).toHaveLength(2);
+    expect(result.rows).toHaveLength(rows.length);
   });
 });

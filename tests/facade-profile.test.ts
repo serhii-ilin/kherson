@@ -41,13 +41,20 @@ describe('validateFacadeProfile', () => {
     expect(validateFacadeProfile(base())).toEqual([]);
   });
 
-  it('accepts the hand-written example file', () => {
-    const rows = JSON.parse(
-      fs.readFileSync(new URL('../data/facades/example.json', import.meta.url), 'utf8'),
-    ) as FacadeProfile[];
-    expect(rows.map((row) => row.key)).toEqual(['w1376950956', 'w262457726']);
-    for (const row of rows) expect(validateFacadeProfile(row), row.key).toEqual([]);
-    expect(validateFacadeFile(rows)).toEqual([]);
+  it('accepts every committed descriptor file', () => {
+    const dir = new URL('../data/facades/', import.meta.url);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const rows = JSON.parse(fs.readFileSync(new URL(file, dir), 'utf8')) as FacadeProfile[];
+      expect(rows.length, file).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(validateFacadeProfile(row), row.key).toEqual([]);
+        // committed rows must cite dated photos (docs/landmarks/ushakova.md)
+        expect(row.sources.length, row.key).toBeGreaterThan(0);
+      }
+      expect(validateFacadeFile(rows), file).toEqual([]);
+    }
   });
 
   it('rejects malformed keys and duplicate keys', () => {

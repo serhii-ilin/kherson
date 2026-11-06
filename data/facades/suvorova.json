@@ -1,0 +1,869 @@
+[
+  {
+    "key": "w931407579",
+    "label": "вул. Суворова, 1-А (Будинок Суворова)",
+    "sources": [
+      "File:Kherson Suvorova Str. 1a House where lived and worked O.Suvorov 01 (YDS 3636).jpg (2016-07-16, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Kherson-2017 Suvorova Str. 1a House where lived and worked O.Suvorov (YDS 3634).jpg (2016-07-16, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (351) вул. Суворова, 1а.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Штаб-квартира Суворова Херсон.jpg (2016-08-27, CC BY-SA 4.0, Dniprovych)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      3.8,
+      3.6
+    ],
+    "plinthM": 0.9,
+    "wall": {
+      "colour": "#90d0b8",
+      "pbr": "PLASTER_PAINTED"
+    },
+    "trim": {
+      "colour": "#e8e8e0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "hip",
+      "colour": "#a08078",
+      "pbr": "ROOF_TIN_SEAM"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.0,
+      "heightM": 1.7,
+      "surround": "band",
+      "frame": "#e8e8e0",
+      "mixedFrames": true,
+      "ground": {
+        "shape": "rect",
+        "widthM": 1.0,
+        "heightM": 1.5
+      }
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.5,
+      "projectionM": 0.35
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          0,
+          1
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 2,
+        "pattern": "wwwwww",
+        "groundPattern": "wwwwwx"
+      },
+      {
+        "edge": 1,
+        "pattern": "wwbwww",
+        "groundPattern": "sxwwww"
+      }
+    ],
+    "confidence": "high",
+    "notes": "2-storey 18th-c. house, two edges (edge 2 is left/east, edge 1 right/west as seen from the street). Raised granite-clad plinth, white window surrounds, mint-green wall, projecting 3-bay central pavilion with an iron balcony and a pediment-like parapet straddling the edge 2/edge 1 vertex (balcony bays listed as indexes 0-1 of edge 1). Ground floor: roller-shutter opening and two blind arched niches in the pavilion. Bay counts +-1."
+  },
+  {
+    "key": "w1381617060",
+    "label": "вул. Суворова, 3 (клуб «Трудові резерви»)",
+    "sources": [
+      "File:2017 Херсон (360) вул. Суворова, 3.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Суворова 3 Херсон.jpg (2017-05-01, CC BY-SA 4.0, Крістіна Федорович)",
+      "File:Вул. Суворова, 3.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)",
+      "File:Херсон, вул. Суворова, 3.jpg (2020-08-12, CC BY-SA 4.0, Константинъ)"
+    ],
+    "storeys": 1,
+    "floorHeights": [
+      4.4
+    ],
+    "plinthM": 0.7,
+    "wall": {
+      "colour": "#787880",
+      "pbr": "PEBBLEDASH"
+    },
+    "trim": {
+      "colour": "#d8d8d8",
+      "pbr": "CONCRETE"
+    },
+    "roof": {
+      "kind": "gable",
+      "colour": "#909088",
+      "pbr": "ROOF_ETERNIT"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.3,
+      "heightM": 1.8,
+      "surround": "band",
+      "frame": "#f0f0f0"
+    },
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.4,
+      "projectionM": 0.3
+    },
+    "attic": {
+      "kind": "pediment",
+      "heightM": 1.8
+    },
+    "edges": [
+      {
+        "edge": 0,
+        "pattern": "wwbddbww",
+        "groundPattern": "wwbddbww",
+        "bayM": 3.6
+      }
+    ],
+    "confidence": "medium",
+    "notes": "1-storey club in grey painted pebble-dash with a dark-grey porch: gable-fronted canopy (steel frame, teal polycarbonate roof) over two double brown wooden doors with fanlights, 4-step grey stair, large coat-of-arms mosaic in the gable. Flanking wings have 1-2 white-framed windows each side. The porch is shallower than the 28.8 m edge so the pattern is symmetric by estimation."
+  },
+  {
+    "key": "w1376950954",
+    "label": "вул. Суворова, 5 (ТЦ «Суворова 5»)",
+    "sources": [
+      "File:Kherson-2017 Suvorova Str. 5 Dwelling House (YDS 3656).jpg (2016-07-16, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (369) вул. Суворова, 5.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Суворова 5 Херсон.jpg (2016-08-27, CC BY-SA 4.0, Dniprovych)",
+      "File:Суворова, 5.jpg (2016-06-18, CC BY-SA 4.0, E vasiukov)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      4.2,
+      3.8
+    ],
+    "plinthM": 1.2,
+    "wall": {
+      "colour": "#e8d8a8",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "trim": {
+      "colour": "#f0e8d0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#707068",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "segmental",
+      "widthM": 1.1,
+      "heightM": 1.9,
+      "surround": "band",
+      "frame": "#6a4a30",
+      "ground": {
+        "shape": "segmental",
+        "widthM": 1.2,
+        "heightM": 2.1
+      }
+    },
+    "rusticated": true,
+    "stringCourses": true,
+    "cornice": {
+      "profile": "dentil",
+      "heightM": 0.7,
+      "projectionM": 0.5
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 0.5
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          4
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 5,
+        "pattern": "wwwwwwwww",
+        "groundPattern": "dwwwwwwdw"
+      }
+    ],
+    "confidence": "medium",
+    "notes": "2-storey 19th-c. house, cream/yellow stucco, white-cream trim, dark red granite plinth (1.0-1.3 m), banded rustication on ground floor, arched door in a big arch moulding at the east (left) end plus a second arched door at the right end, string course, dentil cornice. Brown wooden windows (segmental heads). One iron balcony on the upper floor slightly right of centre. A tree hides one ground bay. Pattern bay count +-1."
+  },
+  {
+    "key": "w798818694",
+    "label": "вул. Суворова, 6 (будинок Марченка)",
+    "sources": [
+      "File:Kherson Suvorova Str. 6 Dwelling House of Marchenko 01 (YDS 4287).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Kherson-2017 Suvorova Str. 6 Dwelling House of Marchenko 01 (YDS 4290).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (362) вул. Суворова, 6.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Вул. Суворова, 6.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)"
+    ],
+    "storeys": 1,
+    "floorHeights": [
+      4.2
+    ],
+    "plinthM": 1.6,
+    "wall": {
+      "colour": "#a8b0b8",
+      "pbr": "PLASTER_PAINTED"
+    },
+    "trim": {
+      "colour": "#d89078",
+      "pbr": "PLASTER_PAINTED"
+    },
+    "roof": {
+      "kind": "hip",
+      "colour": "#686868",
+      "pbr": "ROOF_ETERNIT"
+    },
+    "windows": {
+      "shape": "arched",
+      "widthM": 0.9,
+      "heightM": 1.9,
+      "surround": "arch_moulding",
+      "frame": "#f0f0f0"
+    },
+    "pilasters": {
+      "everyBays": 2,
+      "capital": "plain"
+    },
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.7,
+      "projectionM": 0.45
+    },
+    "edges": [
+      {
+        "edge": 9,
+        "pattern": "wwdwww",
+        "groundPattern": "wwdwww"
+      }
+    ],
+    "confidence": "medium",
+    "notes": "Single-storey (with very tall 1.6 m basement/plinth in dark pebble-and-shell conglomerate) neo-Gothic/Moorish house: grey-blue render with salmon-pink pointed-arch window surrounds, pilaster strips and heavy salmon frieze; small corner lantern/cupola; hip roof of dark corrugated sheet. Front door with iron canopy and pointed pediment. Which of edges 9/10 is the fully street-facing wall could not be resolved (edge 9 is closest); bay count +-1."
+  },
+  {
+    "key": "w798818693",
+    "label": "вул. Суворова, 8 (будинок Куликовського)",
+    "sources": [
+      "File:Kherson Suvorova Str. 8 Dwelling House of Kulikovskiy 01 (YDS 4292).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (373) вул. Суворова, 8.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Вул. Суворова, 8.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)",
+      "File:Kherson-2017 Suvorova Str. 8 Dwelling House of Kulikovskiy 01 Details (YDS 4295).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      3.9,
+      3.6
+    ],
+    "plinthM": 0.7,
+    "wall": {
+      "colour": "#c89078",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "trim": {
+      "colour": "#e8e0d8",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#686868",
+      "pbr": "ROOF_TIN_SEAM"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.0,
+      "heightM": 1.8,
+      "surround": "pediment",
+      "frame": "#f0f0f0",
+      "ground": {
+        "shape": "rect",
+        "widthM": 1.0,
+        "heightM": 2.0
+      }
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.5,
+      "projectionM": 0.35
+    },
+    "attic": {
+      "kind": "pediment",
+      "heightM": 2.4
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          2
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 1,
+        "pattern": "wwwwwwwwww",
+        "groundPattern": "wwgwwwwdww"
+      }
+    ],
+    "confidence": "medium",
+    "notes": "2-storey late-19th-c. house in salmon-pink rough plaster with white window surrounds (ground floor with pediment hoods, aediculae), two caryatids (atlantes) flanking a carriage passage at the left, wrought-iron balcony above the passage, rusticated base band, attic block with round window above the passage; yellow ramps and a canopied door at the right end. The leftmost bays are cut off by scaffolding in the photos so left bays are assumed. Bay count +-1."
+  },
+  {
+    "key": "w1376950956",
+    "label": "вул. Суворова, 9 (кутовий будинок з еркером)",
+    "sources": [
+      "File:Kherson Suvorova Str. 9 Dwelling House 01 (YDS 4178).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Kherson-2017 Suvorova Str. 9 Dwelling House 01 (YDS 3662).jpg (2016-07-16, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Kherson Suvorova Str. 9 Dwelling House 02 (YDS 3659).jpg (2016-07-16, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Житловий будинок Суворова 9.jpg (2016-08-27, CC BY-SA 4.0, Dniprovych)"
+    ],
+    "storeys": 3,
+    "floorHeights": [
+      4.2,
+      3.6,
+      3.6
+    ],
+    "plinthM": 0.6,
+    "wall": {
+      "colour": "#d09878",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "trim": {
+      "colour": "#c8b8a0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#707070",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.8,
+      "surround": "band",
+      "frame": "#f0f0f0",
+      "mixedFrames": true,
+      "ground": {
+        "shape": "rect",
+        "widthM": 1.2,
+        "heightM": 2.2
+      }
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.6,
+      "projectionM": 0.4
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 0.9
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          2
+        ]
+      },
+      {
+        "kind": "glazed",
+        "storeys": [
+          1,
+          2
+        ],
+        "bays": [
+          10
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 0,
+        "pattern": "wwwwbwwwwbwww",
+        "groundPattern": "sssssdsssbsss"
+      }
+    ],
+    "confidence": "low",
+    "notes": "3-storey Art Nouveau/Neoclassical corner house (cafe Mirasol at ground). Salmon/terracotta render, beige-grey stone-like corner tower with a glazed 2-storey bay window (erker), round decorative medallion on the upper left, iron balconies, later glazed loggias at the left. Ground floor is a modern cafe/shop front with a terrace. Pattern covers only the part visible in the photos; 41.3 m edge approximated with 13 bays."
+  },
+  {
+    "key": "w1377238432",
+    "label": "вул. Суворова, 17 (з брамою 17–19)",
+    "sources": [
+      "File:Kherson Suvorova Str. 17-19 Gates (YDS 4225).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (384) вул. Суворова, 17019, брама з двору.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Брама , вул. Суворова, 17–19.jpg (2020-09-27, CC BY-SA 4.0, Dasha 5556)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      4.0,
+      3.6
+    ],
+    "plinthM": 0.7,
+    "wall": {
+      "colour": "#d8a088",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "trim": {
+      "colour": "#e8d8c0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "gable",
+      "colour": "#706860",
+      "pbr": "ROOF_TIN_SEAM"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.8,
+      "surround": "band",
+      "frame": "#f0f0f0",
+      "mixedFrames": true
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.5,
+      "projectionM": 0.3
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          5,
+          6
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 6,
+        "pattern": "wwwbwwwb",
+        "groundPattern": "sdsbgbsd"
+      }
+    ],
+    "confidence": "low",
+    "notes": "Two adjacent 2-storey houses at the 17/19 gate share a brick-lined arched carriage passage. In the photo the right house has a yellow/pink upper floor with a balcony over the arch (sign «Суворова, 17»), the left one a turquoise shop front and three white-framed upper windows. Assignment of left/right to OSM 17/19 is uncertain; the gate is placed in this row. Dates 2016-2020."
+  },
+  {
+    "key": "w1377238429",
+    "label": "вул. Суворова, 19 (Будинок Беновича)",
+    "sources": [
+      "File:Вул. Суворова, 19.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)",
+      "File:Kherson Suvorova Str. 17-19 Gates (YDS 4225).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      4.0,
+      3.6
+    ],
+    "plinthM": 0.6,
+    "wall": {
+      "colour": "#d0b8a0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "trim": {
+      "colour": "#e8e0d0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "hip",
+      "colour": "#706860",
+      "pbr": "ROOF_TIN_SEAM"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.8,
+      "surround": "band",
+      "frame": "#f0f0f0",
+      "mixedFrames": true
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.5,
+      "projectionM": 0.3
+    },
+    "edges": [
+      {
+        "edge": 2,
+        "pattern": "wwwwww",
+        "groundPattern": "ssdsss"
+      }
+    ],
+    "confidence": "low",
+    "notes": "Photos only show a cream-rendered ground floor with a large shop window and the plaque «Дом Беновича», and a turquoise shop front with three upper windows (probably this house, left of the gate). Rest assumed. Upper wall guessed from the pink/orange upper floor in the 17-19 photo."
+  },
+  {
+    "key": "w615926603",
+    "label": "вул. Суворова, 22 (будинок купця)",
+    "sources": [
+      "File:Kherson Suvorova Str. 22 House of Merchant 01 (YDS 4297).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (387) вул. Суворова, 22.jpg (2017-05-01, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Kherson Suvorova Str. 22 House of Merchant 02 (YDS 4298).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Вул. Суворова, 22.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      4.4,
+      3.8
+    ],
+    "plinthM": 0.8,
+    "wall": {
+      "colour": "#c89078",
+      "pbr": "BRICK_RED"
+    },
+    "trim": {
+      "colour": "#d8d0b8",
+      "pbr": "LIMESTONE_SHELL"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#707070",
+      "pbr": "ROOF_TIN_SEAM"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.8,
+      "surround": "pediment",
+      "frame": "#7a5030",
+      "mixedFrames": true,
+      "ground": {
+        "shape": "rect",
+        "widthM": 2.2,
+        "heightM": 2.6
+      }
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "bracketed",
+      "heightM": 0.7,
+      "projectionM": 0.5
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 0.8
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          0
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 4,
+        "pattern": "wwwww",
+        "groundPattern": "dsssb"
+      }
+    ],
+    "confidence": "medium",
+    "notes": "2-storey merchant house: salmon plaster over brick, stone-coloured window surrounds with small hoods, decorative frieze/cornice with relief rosettes, small iron balcony at the left end, brown wooden-frame windows. Ground floor was gutted into a bank (Таскомбанк) with a wide grey/white shop front and a surviving tall wooden door at the left (plaque «22»). The photos show about 6 upper bays over about 18 m but the OSM edge near the street is only 13 m, so OSM 20/22 may be split differently; pattern has 5 bays for 13 m."
+  },
+  {
+    "key": "w615640304",
+    "label": "вул. Суворова, 23 (за фото Commons «21»: кутовий будинок з магазином «Тавр'я»)",
+    "sources": [
+      "File:Kherson-2017 Suvorova Str. 21 Dwelling House (YDS 4218).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (98) вул. Суворова, 21.jpg (2017-04-28, CC BY-SA 4.0, ЯдвигаВереск)",
+      "File:Kherson Suvorova Str. 21 Dwelling House 02 (YDS 4216).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Суворова, 21.jpg (2016-06-18, CC BY-SA 4.0, E vasiukov)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      4.4,
+      4.0
+    ],
+    "plinthM": 0.8,
+    "wall": {
+      "colour": "#a8a090",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "trim": {
+      "colour": "#b8b0a0",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#707068",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 2.2,
+      "surround": "band",
+      "frame": "#e0e0d8",
+      "mixedFrames": true,
+      "ground": {
+        "shape": "rect",
+        "widthM": 1.6,
+        "heightM": 3.0
+      }
+    },
+    "stringCourses": true,
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.7,
+      "projectionM": 0.4
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 2.0
+    },
+    "edges": [
+      {
+        "edge": 0,
+        "pattern": "wwwwxwwxwwwwxww",
+        "groundPattern": "sssdsssbssdsssx",
+        "bayM": 2.1
+      }
+    ],
+    "confidence": "low",
+    "notes": "No OSM building has housenumber 21 on Suvorova; Commons «21 Yevropeiska Street» photos show a 2-storey grey late-Art-Nouveau house on the corner of a cross street (ground floor ochre-yellow shops, upper floors grey cement render with vertical pilaster strips, meander frieze, stepped parapet and a central tower-like gable at the roof). I attached them to OSM 23 whose 31.5 m edge sits closest to the street axis at a corner. Pattern is a rough guess of the window rhythm."
+  },
+  {
+    "key": "w615800160",
+    "label": "вул. Суворова, 24 (триповерховий будинок з балюстрадами)",
+    "sources": [
+      "File:Kherson Suvorova Str. 24 Dwelling House 01 (YDS 4332).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Kherson-2017 Suvorova Str. 24 Dwelling House 01 (YDS 4334).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:65-101-0167 Херсон.jpg (2017-04-28, CC BY-SA 4.0, Крістіна Федорович)",
+      "File:2017 Херсон (88) вул. Суворова, 24.jpg (2017-04-28, CC BY-SA 4.0, ЯдвигаВереск)"
+    ],
+    "storeys": 3,
+    "floorHeights": [
+      4.4,
+      3.8,
+      3.6
+    ],
+    "plinthM": 0.5,
+    "wall": {
+      "colour": "#d0b8a0",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "trim": {
+      "colour": "#c8b8a0",
+      "pbr": "STUCCO_ROUGH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#707068",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.9,
+      "surround": "band",
+      "frame": "#6a4a30",
+      "ground": {
+        "shape": "rect",
+        "widthM": 1.6,
+        "heightM": 2.4
+      }
+    },
+    "rusticated": true,
+    "stringCourses": true,
+    "cornice": {
+      "profile": "dentil",
+      "heightM": 0.6,
+      "projectionM": 0.45
+    },
+    "attic": {
+      "kind": "pediment",
+      "heightM": 1.6
+    },
+    "balconies": [
+      {
+        "kind": "stone",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
+      },
+      {
+        "kind": "iron",
+        "storeys": [
+          1,
+          2
+        ],
+        "bays": [
+          1
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 4,
+        "pattern": "wbwwwbwwx",
+        "groundPattern": "sssbssssb",
+        "bayM": 3.4
+      }
+    ],
+    "confidence": "medium",
+    "notes": "3 storeys (OSM says 2): shops at ground, stone balustrade running along the first-floor level, iron balconies, upper walls beige with quoins around windows and wreaths/medallions in relief, small cornice, an arched-lunette pediment on the roof of the left part. Ground floor pink-peach render with banded rustication (modern shop signs «Робін-Бобін»). 30.9 m edge assumed to be the long street side; bay counts approximate."
+  },
+  {
+    "key": "w615640302",
+    "label": "вул. Суворова, 25 (магазин «Дніпро Стиль»)",
+    "sources": [
+      "File:Вул. Суворова, 25.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)",
+      "File:Kherson Suvorova Str. 25 Dwelling House (YDS 4215).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (91) вул. Суворова, 25.jpg (2017-04-28, CC BY-SA 4.0, ЯдвигаВереск)"
+    ],
+    "storeys": 1,
+    "floorHeights": [
+      4.2
+    ],
+    "plinthM": 0.5,
+    "wall": {
+      "colour": "#88d8b0",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "trim": {
+      "colour": "#2848a0",
+      "pbr": "PLASTER_PAINTED"
+    },
+    "roof": {
+      "kind": "gable",
+      "colour": "#704840",
+      "pbr": "ROOF_CLAY_TILE"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 2.6,
+      "heightM": 2.4,
+      "surround": "none",
+      "frame": "#e0e0e0"
+    },
+    "cornice": {
+      "profile": "none",
+      "heightM": 0.2,
+      "projectionM": 0.2
+    },
+    "edges": [
+      {
+        "edge": 7,
+        "pattern": "sds",
+        "groundPattern": "sds",
+        "bayM": 4.5
+      }
+    ],
+    "confidence": "high",
+    "notes": "Single-storey 1990s-2000s shop: mint-green render with a navy plinth band, two large shop windows and a glazed double door in the middle. Roof: green-blue corrugated sheet in 2016-17 photos but brown metal-tile gable by 2019 (later wins). The 32.9 m edge also includes a side wall and rear."
+  },
+  {
+    "key": "w1481681713",
+    "label": "вул. Суворова, 28 (кутовий будинок)",
+    "sources": [
+      "File:Вул. Суворова, 28.jpg (2019-09-14, CC BY-SA 4.0, Helen Owl)",
+      "File:Kherson-2017 Suvorova Str. 28 Dwelling House 01 (YDS 4209).jpg (2016-07-17, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:Kherson Suvorova Str. 28 Dwelling House 01 (YDS 4339).jpg (2016-07-18, CC BY-SA 4.0, Nataliya Shestakova)",
+      "File:2017 Херсон (57) вул. Суворова, 28.jpg (2017-04-28, CC BY-SA 4.0, ЯдвигаВереск)"
+    ],
+    "storeys": 2,
+    "floorHeights": [
+      4.2,
+      3.8
+    ],
+    "plinthM": 0.7,
+    "wall": {
+      "colour": "#e0d8c8",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "trim": {
+      "colour": "#f0e8d8",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "hip",
+      "colour": "#808078",
+      "pbr": "ROOF_TIN_SEAM"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.1,
+      "heightM": 1.9,
+      "surround": "pediment",
+      "frame": "#7a5030",
+      "ground": {
+        "shape": "rect",
+        "widthM": 1.3,
+        "heightM": 1.7
+      }
+    },
+    "rusticated": true,
+    "stringCourses": true,
+    "pilasters": {
+      "everyBays": 2,
+      "capital": "plain"
+    },
+    "cornice": {
+      "profile": "bracketed",
+      "heightM": 0.8,
+      "projectionM": 0.6
+    },
+    "balconies": [
+      {
+        "kind": "iron",
+        "storeys": [
+          1
+        ],
+        "bays": [
+          3
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "edge": 1,
+        "pattern": "wwwbwwwwwb",
+        "groundPattern": "sdsbsdswsb",
+        "bayM": 3.4
+      }
+    ],
+    "confidence": "low",
+    "notes": "2-storey eclectic corner house with rusticated corner pilasters, bracketed cornice with big brackets, pediment-hooded windows (stucco in poor repair), ground floor yellow (corner) / cream with shop fronts (Лото-маркет, Доярушка) and one iron balcony in the middle. The 34.7 m edge exceeds the part photographed; pattern largely extrapolated."
+  }
+]
