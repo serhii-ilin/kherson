@@ -34,3 +34,6 @@ jobs:
       name: github-pages
     steps:
       - uses: actions/deploy-pages@v4
+        with:
+          # Pages sometimes queues and syncs for ~10 min (2026-11-06); the default 10 min limit aborted a deploy.
+          timeout: 1800000
