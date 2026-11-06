@@ -3,6 +3,9 @@ import { F_GROUND_H, F_STRUCT_H, REGION, VOXEL } from '../world/constants.ts';
 import { FEATURE_BUSH, FEATURE_TREE, type Feature } from '../world/format.ts';
 import { jitterX, jitterZ } from './placement.ts';
 import { BUSH_SPECIES, SPECIES, TREE_SPECIES, VARIANTS, buildModel, type VegModel } from './models.ts';
+import { variantScale } from './realistic.ts';
+import { BARK_LAYERS, LEAF_LAYERS } from './tree-atlas.ts';
+import { makeBarkLayers, makeLeafLayers } from './tree-textures.ts';
 import { VegModelQueue } from './veg-queue.ts';
 import type { VegResponse } from './veg.worker.ts';
 import type { ExclusionPolygon } from '../landmarks/exclusions.ts';
@@ -55,6 +58,8 @@ interface RegionVeg {
   rot: Uint8Array;
   tint: Float32Array;
   model: Uint8Array;
+  /** 1 = whitewashed street / tree-row trunk. */
+  white: Uint8Array;
   /** Current group slot per instance (-1 = hidden). */
   slot: Int8Array;
   trees: number;
@@ -66,9 +71,41 @@ interface Group {
   tris: number;
 }
 
-function modelOf(f: Feature): number {
+/** Model index of the variant-0 model that the mid and far slots share. */
+function baseModel(model: number): number {
+  return model - (model % VARIANTS);
+}
+
+/** Group index of an instance: slots 2 (mid) and 3 (far) share their species' variant-0 model. */
+export function groupOf(model: number, slot: number): number {
+  return (slot >= 2 ? baseModel(model) : model) * SLOTS + slot;
+}
+
+/** Uniform scale of a variant relative to variant 0; the shared mid/far models are scaled back by this. */
+const VARIANT_SCALE = new Float32Array(VARIANTS);
+for (let v = 0; v < VARIANTS; v++) VARIANT_SCALE[v] = variantScale(v) / variantScale(0);
+
+/** Instance scale multiplier of a group; slots 0 and 1 use the model at its own size. */
+export function slotScale(model: number, slot: number): number {
+  return slot >= 2 ? VARIANT_SCALE[model % VARIANTS]! : 1;
+}
+
+/** 1 for street and tree-row trees (spring whitewash), 0 for everything else. */
+export function whiteOf(f: Feature): 0 | 1 {
+  return f.type === FEATURE_TREE && f.param === 6 ? 1 : 0;
+}
+
+export function modelOf(f: Feature): number {
   let sp = f.species;
-  if (sp === SPECIES.GENERIC) sp = f.seed & 8 ? SPECIES.LINDEN : SPECIES.CHESTNUT;
+  if (sp === SPECIES.GENERIC) {
+    // Old baked data has no species; pick one of the common Kherson trees from the seed.
+    switch ((f.seed >> 3) & 3) {
+      case 0: sp = SPECIES.MAPLE; break;
+      case 1: sp = SPECIES.ELM; break;
+      case 2: sp = SPECIES.LINDEN; break;
+      default: sp = SPECIES.CHESTNUT; break;
+    }
+  }
   let si = SPECIES_INDEX.get(sp);
   if (si === undefined) si = f.type === FEATURE_BUSH ? TREE_SPECIES.length : 0;
   return si * VARIANTS + (((f.seed >> 6) & 3) % VARIANTS);
@@ -82,8 +119,86 @@ function toGeometry(m: VegModel): THREE.BufferGeometry {
   g.setAttribute('sway', new THREE.BufferAttribute(m.sway, 1));
   if (m.leaf) g.setAttribute('leaf', new THREE.BufferAttribute(m.leaf, 1));
   if (m.uvs) g.setAttribute('aLeafUv', new THREE.BufferAttribute(m.uvs, 2));
+  if (m.tex) g.setAttribute('aTex', new THREE.BufferAttribute(m.tex, 1));
   g.setIndex(new THREE.BufferAttribute(m.indices, 1));
   return g;
+}
+
+// GLSL injected into the realistic (leaf-card) materials. Exported so tests can check the patch
+// without constructing a Vegetation (which needs a Worker).
+const CARD_VERTEX_COMMON = `#include <common>
+attribute float sway;
+attribute float leaf;
+attribute vec2 aLeafUv;
+attribute float aTex;
+attribute float aWhite;
+uniform float uTime;
+varying float vLeaf;
+varying vec2 vLeafUv;
+varying float vTex;
+varying float vWhite;
+varying float vLocalY;
+varying vec3 vWorldPos;`;
+
+const CARD_PROJECT = `vLeaf = leaf;
+  vLeafUv = aLeafUv;
+  vTex = aTex;
+  vWhite = aWhite;
+  vLocalY = position.y;
+  `;
+
+const CARD_FRAGMENT_COMMON = `#include <common>
+precision highp sampler2DArray;
+varying float vLeaf;
+varying vec2 vLeafUv;
+varying float vTex;
+varying float vWhite;
+varying float vLocalY;
+varying vec3 vWorldPos;
+uniform sampler2DArray uBarkArr;
+uniform sampler2DArray uLeafArr;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;`;
+
+const CARD_COLOR_FRAGMENT = `#include <color_fragment>
+  if ( vLeaf > 0.5 ) {
+    vec4 tex = texture( uLeafArr, vec3( vLeafUv, vTex ) );
+    if ( tex.a < 0.4 ) discard;
+    diffuseColor.rgb *= tex.rgb;
+  } else {
+    diffuseColor.rgb *= texture( uBarkArr, vec3( vLeafUv, vTex ) ).rgb;
+    if ( vWhite > 0.5 ) {
+      // Spring whitewash with a soft, slightly ragged edge at about 1.2 m.
+      float edge = 1.2 + 0.06 * sin( vLeafUv.x * 25.0 );
+      if ( vLocalY < edge ) {
+        float grain = fract( sin( dot( vLeafUv, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
+        diffuseColor.rgb = vec3( 0.91, 0.90, 0.87 ) * ( 0.92 + 0.08 * grain );
+      }
+    }
+  }`;
+
+const CARD_DEPTH_FRAGMENT = `#include <clipping_planes_fragment>
+  if ( vLeaf > 0.5 && texture( uLeafArr, vec3( vLeafUv, vTex ) ).a < 0.4 ) discard;`;
+
+const CARD_NORMAL_FRAGMENT = `#include <normal_fragment_begin>
+  // Cards are DoubleSide; restore the authored outward normal on the back faces too.
+  if ( vLeaf > 0.5 ) normal *= faceDirection;`;
+
+const CARD_EMISSIVE_FRAGMENT = `#include <emissivemap_fragment>
+  if ( vLeaf > 0.5 ) {
+    // Light through the leaves: a yellow-green glow when looking towards the sun, plus a soft terminator.
+    vec3 viewDir = normalize( vWorldPos - cameraPosition );
+    float back = pow( max( dot( viewDir, uSunDir ), 0.0 ), 4.0 );
+    totalEmissiveRadiance += diffuseColor.rgb * uSunColor * back * 0.35;
+    totalEmissiveRadiance += 0.12 * uSunColor * diffuseColor.rgb;
+  }`;
+
+/** The GLSL injected into the realistic card materials, for tests. */
+export function cardShaderChunks(): readonly string[] {
+  return [
+    CARD_VERTEX_COMMON, CARD_PROJECT, CARD_FRAGMENT_COMMON,
+    CARD_COLOR_FRAGMENT, CARD_DEPTH_FRAGMENT, CARD_NORMAL_FRAGMENT, CARD_EMISSIVE_FRAGMENT,
+  ];
 }
 
 /** Instanced, wind-swayed trees and bushes streamed with the world regions. */
@@ -108,6 +223,9 @@ export class Vegetation {
   private readonly counts = new Int32Array(N_MODELS * SLOTS);
   private readonly cursor = new Int32Array(N_MODELS * SLOTS);
   private readonly uTime = { value: 0 };
+  /** Sun direction and colour for the leaf back-light, written by setLight(). */
+  private readonly uSunDir = { value: new THREE.Vector3(0, 1, 0) };
+  private readonly uSunColor = { value: new THREE.Color(1, 1, 1) };
   /** Every model LOD except the far boxes is built in a Web Worker (key = model * SLOTS + slot); far boxes are built synchronously. */
   private readonly queue: VegModelQueue;
   private readonly exclusions: readonly ExclusionPolygon[];
@@ -174,47 +292,38 @@ export class Vegetation {
     this.fineMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.fineDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
     if (!this.voxel) {
-      // Summer leaf cards: procedural bark and an alpha-tested leaf cluster. No KTX2 file —
-      // a Basis transcoder would be another runtime binary (CONSTITUTION Art. 1 and Art. 8).
-      const bark = makeBarkTexture();
-      const leaf = makeLeafTexture();
+      // Summer leaf cards: procedural texture arrays for bark and an alpha-tested leaf cluster.
+      // No KTX2 file — a Basis transcoder would be another runtime binary (CONSTITUTION Art. 1 and Art. 8).
+      const bark = makeBarkArrayTexture();
+      const leaf = makeLeafArrayTexture();
       this.textures.push(bark, leaf);
-      const uBark = { value: bark };
-      const uLeaf = { value: leaf };
+      const uBarkArr = { value: bark };
+      const uLeafArr = { value: leaf };
+      const uSunDir = this.uSunDir;
+      const uSunColor = this.uSunColor;
       for (const mat of [this.material, this.depthMaterial, this.fineMaterial, this.fineDepthMaterial]) mat.side = THREE.DoubleSide;
+      // World position after the sway, so the back-light matches the card actually drawn.
+      const cardProject = swayProject.replace(
+        'mvPosition = viewMatrix * mvPosition;',
+        'vWorldPos = mvPosition.xyz;\n  mvPosition = viewMatrix * mvPosition;',
+      );
       const patchCards = (colorPass: boolean) => (shader: THREE.WebGLProgramParametersWithUniforms): void => {
         shader.uniforms.uTime = uTime;
-        shader.uniforms.uBark = uBark;
-        shader.uniforms.uLeaf = uLeaf;
+        shader.uniforms.uBarkArr = uBarkArr;
+        shader.uniforms.uLeafArr = uLeafArr;
+        shader.uniforms.uSunDir = uSunDir;
+        shader.uniforms.uSunColor = uSunColor;
         shader.vertexShader = shader.vertexShader
-          .replace(
-            '#include <common>',
-            '#include <common>\nattribute float sway;\nattribute float leaf;\nattribute vec2 aLeafUv;\nuniform float uTime;\nvarying float vLeaf;\nvarying vec2 vLeafUv;',
-          )
-          .replace('#include <project_vertex>', `vLeaf = leaf;\n  vLeafUv = aLeafUv;\n  ${swayProject}`);
-        shader.fragmentShader = shader.fragmentShader
-          .replace(
-            '#include <common>',
-            '#include <common>\nvarying float vLeaf;\nvarying vec2 vLeafUv;\nuniform sampler2D uBark;\nuniform sampler2D uLeaf;',
-          );
+          .replace('#include <common>', CARD_VERTEX_COMMON)
+          .replace('#include <project_vertex>', `${CARD_PROJECT}${cardProject}`);
+        shader.fragmentShader = shader.fragmentShader.replace('#include <common>', CARD_FRAGMENT_COMMON);
         if (colorPass) {
-          shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <color_fragment>',
-            `#include <color_fragment>
-  if ( vLeaf > 0.5 ) {
-    vec4 tex = texture2D( uLeaf, vLeafUv );
-    if ( tex.a < 0.4 ) discard;
-    diffuseColor.rgb *= tex.rgb;
-  } else {
-    diffuseColor.rgb *= texture2D( uBark, vLeafUv ).rgb;
-  }`,
-          );
+          shader.fragmentShader = shader.fragmentShader
+            .replace('#include <color_fragment>', CARD_COLOR_FRAGMENT)
+            .replace('#include <normal_fragment_begin>', CARD_NORMAL_FRAGMENT)
+            .replace('#include <emissivemap_fragment>', CARD_EMISSIVE_FRAGMENT);
         } else {
-          shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <clipping_planes_fragment>',
-            `#include <clipping_planes_fragment>
-  if ( vLeaf > 0.5 && texture2D( uLeaf, vLeafUv ).a < 0.4 ) discard;`,
-          );
+          shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', CARD_DEPTH_FRAGMENT);
         }
       };
       this.material.onBeforeCompile = patchCards(true);
@@ -265,7 +374,7 @@ export class Vegetation {
       rx, rz, count: n,
       x: new Float32Array(n), y: new Float32Array(n), z: new Float32Array(n),
       scale: new Float32Array(n), rot: new Uint8Array(n), tint: new Float32Array(n * 3),
-      model: new Uint8Array(n), slot: new Int8Array(n).fill(-1), trees: 0,
+      model: new Uint8Array(n), white: new Uint8Array(n), slot: new Int8Array(n).fill(-1), trees: 0,
     };
     const plane = REGION * REGION;
     const col = new THREE.Color();
@@ -290,6 +399,7 @@ export class Vegetation {
       r.tint[i * 3] = col.r; r.tint[i * 3 + 1] = col.g; r.tint[i * 3 + 2] = col.b;
       const m = modelOf(f);
       r.model[i] = m;
+      r.white[i] = whiteOf(f);
       if (m < FIRST_BUSH_MODEL) r.trees++;
       i++;
     }
@@ -339,6 +449,12 @@ export class Vegetation {
     return Math.min(1, n / 40);
   }
 
+  /** Sun direction (world space, towards the light) and linear colour for the leaf translucency. */
+  setLight(dir: THREE.Vector3, color: THREE.Color): void {
+    this.uSunDir.value.copy(dir);
+    this.uSunColor.value.copy(color);
+  }
+
   dispose(): void {
     for (const g of this.groups) {
       if (g.mesh !== null) {
@@ -380,8 +496,11 @@ export class Vegetation {
     const fine = gi % SLOTS === 0;
     const mesh = new THREE.InstancedMesh(this.geometry(Math.floor(gi / SLOTS), gi % SLOTS), fine ? this.fineMaterial : this.material, cap);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+    const white = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
+    mesh.geometry.setAttribute('aWhite', white);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    white.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false; // one mesh spans every loaded region
     mesh.matrixAutoUpdate = false;
     // fine, 0.5 m and mid cast and receive; far boxes only receive
@@ -414,13 +533,14 @@ export class Vegetation {
         let s = d2 < fineSq ? 0 : d2 < lod0Sq ? 1 : d2 < nearSq ? 2 : d2 < farSq ? 3 : -1;
         // models are built in a worker, nearest first; until the wanted LOD arrives the next coarser one that
         // exists stands in (finally the far box, built on demand), so nothing pops out of existence
-        if (s >= 0 && s < 3 && this.geoms[r.model[i]! * SLOTS + s] === null) {
-          const m = r.model[i]!;
-          this.queue.request(m * SLOTS + s, SPECIES_LIST[Math.floor(m / VARIANTS)]!, m % VARIANTS, LOD_OF_SLOT[s]!, d2);
-          do s++; while (s < 3 && this.geoms[m * SLOTS + s] === null);
+        const m = r.model[i]!;
+        if (s >= 0 && s < 3 && this.geoms[groupOf(m, s)] === null) {
+          const gm = s >= 2 ? baseModel(m) : m;
+          this.queue.request(groupOf(m, s), SPECIES_LIST[Math.floor(gm / VARIANTS)]!, gm % VARIANTS, LOD_OF_SLOT[s]!, d2);
+          do s++; while (s < 3 && this.geoms[groupOf(m, s)] === null);
         }
         r.slot[i] = s;
-        if (s >= 0) counts[r.model[i]! * SLOTS + s]!++;
+        if (s >= 0) counts[groupOf(m, s)]!++;
       }
     }
     // pass 2: fill
@@ -433,21 +553,24 @@ export class Vegetation {
       for (let i = 0; i < r.count; i++) {
         const s = r.slot[i]!;
         if (s < 0) continue;
-        const gi = r.model[i]! * SLOTS + s;
+        const m = r.model[i]!;
+        const gi = groupOf(m, s);
         const mesh = this.groups[gi]!.mesh!;
         const k = cursor[gi]!++;
-        const m = mesh.instanceMatrix.array as Float32Array;
-        const sc = r.scale[i]!;
+        const mtx = mesh.instanceMatrix.array as Float32Array;
+        const sc = r.scale[i]! * slotScale(m, s);
         const rot = r.rot[i]!;
         const c = rot === 0 ? 1 : rot === 2 ? -1 : 0;
         const sn = rot === 1 ? 1 : rot === 3 ? -1 : 0;
         const o = k * 16;
-        m[o] = c * sc; m[o + 1] = 0; m[o + 2] = -sn * sc; m[o + 3] = 0;
-        m[o + 4] = 0; m[o + 5] = sc; m[o + 6] = 0; m[o + 7] = 0;
-        m[o + 8] = sn * sc; m[o + 9] = 0; m[o + 10] = c * sc; m[o + 11] = 0;
-        m[o + 12] = r.x[i]!; m[o + 13] = r.y[i]!; m[o + 14] = r.z[i]!; m[o + 15] = 1;
+        mtx[o] = c * sc; mtx[o + 1] = 0; mtx[o + 2] = -sn * sc; mtx[o + 3] = 0;
+        mtx[o + 4] = 0; mtx[o + 5] = sc; mtx[o + 6] = 0; mtx[o + 7] = 0;
+        mtx[o + 8] = sn * sc; mtx[o + 9] = 0; mtx[o + 10] = c * sc; mtx[o + 11] = 0;
+        mtx[o + 12] = r.x[i]!; mtx[o + 13] = r.y[i]!; mtx[o + 14] = r.z[i]!; mtx[o + 15] = 1;
         const ca = mesh.instanceColor!.array as Float32Array;
         ca[k * 3] = r.tint[i * 3]!; ca[k * 3 + 1] = r.tint[i * 3 + 1]!; ca[k * 3 + 2] = r.tint[i * 3 + 2]!;
+        const wa = mesh.geometry.getAttribute('aWhite') as THREE.InstancedBufferAttribute;
+        (wa.array as Float32Array)[k] = r.white[i]!;
         total++;
         if (s <= 1) near++;
         if (s === 0) fine++;
@@ -462,6 +585,7 @@ export class Vegetation {
       g.mesh.visible = n > 0;
       g.mesh.instanceMatrix.needsUpdate = true;
       g.mesh.instanceColor!.needsUpdate = true;
+      (g.mesh.geometry.getAttribute('aWhite') as THREE.InstancedBufferAttribute).needsUpdate = true;
       tris += n * g.tris;
     }
     this.stats.instances = total;
@@ -471,41 +595,17 @@ export class Vegetation {
   }
 }
 
-/** Summer leaf cluster, authored here (public domain). RGB is a multiplier on the vertex colour; alpha is the cut-out. */
-function makeLeafTexture(): THREE.DataTexture {
-  const N = 64;
-  const data = new Uint8Array(N * N * 4);
-  // A filled leaf cluster: opaque enough that a crown stays solid past 40 m, with holes and a ragged edge up close.
-  const holes: readonly (readonly [number, number, number])[] = [
-    [0.32, 0.4, 0.055], [0.62, 0.55, 0.06], [0.48, 0.72, 0.045], [0.7, 0.32, 0.04], [0.4, 0.22, 0.035],
-  ];
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const u = (x + 0.5) / N;
-      const v = (y + 0.5) / N;
-      const du = (u - 0.5) / 0.46;
-      const dv = (v - 0.5) / 0.48;
-      const d = du * du + dv * dv;
-      let alpha = d < 1 ? 1 : 0;
-      const edge = Math.sqrt(Math.max(d, 0));
-      if (edge > 0.82 && Math.sin(u * 48 + v * 17) * Math.sin(v * 41) > 0.15) alpha = 0;
-      for (const [hx, hy, hr] of holes) {
-        if ((u - hx) * (u - hx) + (v - hy) * (v - hy) < hr * hr) alpha = 0;
-      }
-      const vein = Math.abs(du) < 0.08 ? 0.72 : 1;
-      const fleck = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(u * 30) * Math.cos(v * 26));
-      const shade = vein * fleck * (edge < 1 ? 0.9 + 0.1 * (1 - edge) : 1);
-      const i = (y * N + x) * 4;
-      data[i] = Math.round(228 * shade);
-      data[i + 1] = Math.round(246 * shade);
-      data[i + 2] = Math.round(206 * shade);
-      data[i + 3] = alpha > 0.5 ? 255 : 0;
-    }
-  }
-  const tex = new THREE.DataTexture(data, N, N);
+/**
+ * Leaf-cluster texture array (one layer per species look). RGB is a multiplier on the vertex colour;
+ * alpha is the 0.4 cut-out. Layers have a transparent border, so RepeatWrapping is safe where mid-LOD
+ * cards tile the 0..2 UV range.
+ */
+function makeLeafArrayTexture(): THREE.DataArrayTexture {
+  const size = 128;
+  const tex = new THREE.DataArrayTexture(makeLeafLayers(size), size, size, LEAF_LAYERS);
   tex.colorSpace = THREE.LinearSRGBColorSpace;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
@@ -513,27 +613,10 @@ function makeLeafTexture(): THREE.DataTexture {
   return tex;
 }
 
-/** Vertical bark grain. RGB multiplies the trunk vertex colour. */
-function makeBarkTexture(): THREE.DataTexture {
-  const N = 64;
-  const data = new Uint8Array(N * N * 4);
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const u = x / N;
-      const v = y / N;
-      const wave = Math.sin(u * Math.PI * 16 + Math.sin(v * 28) * 0.35);
-      const ridge = 0.88 + 0.18 * Math.abs(wave);
-      const crack = Math.abs(wave) < 0.12 ? 0.78 : 1;
-      const fleck = Math.sin(u * 40 + v * 17) > 0.92 ? 0.86 : 1;
-      const shade = ridge * crack * fleck;
-      const i = (y * N + x) * 4;
-      data[i] = Math.round(188 * shade);
-      data[i + 1] = Math.round(164 * shade);
-      data[i + 2] = Math.round(132 * shade);
-      data[i + 3] = 255;
-    }
-  }
-  const tex = new THREE.DataTexture(data, N, N);
+/** Bark texture array, tileable in u and v. RGB multiplies the trunk vertex colour. */
+function makeBarkArrayTexture(): THREE.DataArrayTexture {
+  const size = 64;
+  const tex = new THREE.DataArrayTexture(makeBarkLayers(size), size, size, BARK_LAYERS);
   tex.colorSpace = THREE.LinearSRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
