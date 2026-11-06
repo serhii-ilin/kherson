@@ -1,7 +1,7 @@
 /**
  * Runtime PBR material library (docs/adr/0002-realistic-buildings.md). Loads the CC0 WebP textures of every
- * layer into two `DataArrayTexture`s shared by the building, roof and ground shaders: albedo + roughness
- * (`_ar`) and normal + ambient occlusion (`_na`). Nothing here runs per frame; shaders inject `PBR_PARS`.
+ * layer into two `DataArrayTexture`s shared by the building, roof and ground shaders: albedo with ambient
+ * occlusion baked in (`_a`) and normal + roughness (`_n`). Nothing here runs per frame; shaders inject `PBR_PARS`.
  *
  * The library starts with tiny neutral arrays so a material can be created before the download finishes,
  * then swaps in the full arrays once, keeping the same uniform and texture objects.
@@ -19,8 +19,8 @@ export const PBR_SIZE: Record<Quality, number> = { high: 512, low: 256 };
 const PLACEHOLDER_SIZE = 4;
 
 export interface PbrUniforms {
-  uPbrAR: { value: THREE.DataArrayTexture };
-  uPbrNA: { value: THREE.DataArrayTexture };
+  uPbrA: { value: THREE.DataArrayTexture };
+  uPbrN: { value: THREE.DataArrayTexture };
   uPbrTile: { value: Float32Array };
 }
 
@@ -39,8 +39,8 @@ export interface PbrLoaderDeps {
 }
 
 interface LayerBytes {
-  ar: Uint8Array;
-  na: Uint8Array;
+  a: Uint8Array;
+  n: Uint8Array;
 }
 
 function assetDir(quality: Quality): 'hi' | 'lo' {
@@ -48,60 +48,63 @@ function assetDir(quality: Quality): 'hi' | 'lo' {
 }
 
 /** Asset URLs per layer in index order. Pure: no fetch, no globals besides the deploy id in `versioned`. */
-export function pbrAssetUrls(quality: Quality, base: string): { layer: number; ar: string; na: string }[] {
+export function pbrAssetUrls(quality: Quality, base: string): { layer: number; a: string; n: string }[] {
   const root = base.endsWith('/') ? base : `${base}/`;
   const dir = assetDir(quality);
-  const urls: { layer: number; ar: string; na: string }[] = [];
+  const urls: { layer: number; a: string; n: string }[] = [];
   for (let layer = 0; layer < PBR_LAYER_COUNT; layer++) {
     const stem = PBR_LAYER_NAMES[layer]!;
     const folder = `${root}assets/materials/${dir}/${stem}`;
-    urls.push({ layer, ar: versioned(`${folder}_ar.webp`), na: versioned(`${folder}_na.webp`) });
+    urls.push({ layer, a: versioned(`${folder}_a.webp`), n: versioned(`${folder}_n.webp`) });
   }
   return urls;
 }
 
-/** One RGBA texel per pixel of a neutral layer: detail 128 (×2 = 1), rough 230, flat normal, AO 255. */
-export function neutralLayer(size: number): { ar: Uint8Array; na: Uint8Array } {
+/**
+ * One RGBA texel per pixel of a neutral layer: albedo 128 (×2 = 1), roughness 230, flat normal xy 128.
+ * The asset files have no alpha, but the texture arrays stay RGBA8, so alpha is 255.
+ */
+export function neutralLayer(size: number): { a: Uint8Array; n: Uint8Array } {
   const pixels = size * size;
-  const ar = new Uint8Array(pixels * 4);
-  const na = new Uint8Array(pixels * 4);
+  const a = new Uint8Array(pixels * 4);
+  const n = new Uint8Array(pixels * 4);
   for (let i = 0; i < pixels; i++) {
     const o = i * 4;
-    ar[o] = 128;
-    ar[o + 1] = 128;
-    ar[o + 2] = 128;
-    ar[o + 3] = 230;
-    na[o] = 128;
-    na[o + 1] = 128;
-    na[o + 2] = 255;
-    na[o + 3] = 255;
+    a[o] = 128;
+    a[o + 1] = 128;
+    a[o + 2] = 128;
+    a[o + 3] = 255;
+    n[o] = 128;
+    n[o + 1] = 128;
+    n[o + 2] = 230;
+    n[o + 3] = 255;
   }
-  return { ar, na };
+  return { a, n };
 }
 
 /** Concatenate one RGBA slice per layer in index order; a null or missing layer becomes neutral. */
 export function assembleLayers(
   size: number,
   layers: readonly (LayerBytes | null)[],
-): { ar: Uint8Array; na: Uint8Array } {
+): { a: Uint8Array; n: Uint8Array } {
   const slice = size * size * 4;
-  const ar = new Uint8Array(PBR_LAYER_COUNT * slice);
-  const na = new Uint8Array(PBR_LAYER_COUNT * slice);
+  const a = new Uint8Array(PBR_LAYER_COUNT * slice);
+  const n = new Uint8Array(PBR_LAYER_COUNT * slice);
   const neutral = neutralLayer(size);
   for (let layer = 0; layer < PBR_LAYER_COUNT; layer++) {
     const bytes = layers[layer] ?? null;
     if (bytes === null) {
-      ar.set(neutral.ar, layer * slice);
-      na.set(neutral.na, layer * slice);
+      a.set(neutral.a, layer * slice);
+      n.set(neutral.n, layer * slice);
       continue;
     }
-    if (bytes.ar.length !== slice || bytes.na.length !== slice) {
-      throw new Error(`PBR layer ${layer} has ${bytes.ar.length}/${bytes.na.length} bytes, expected ${slice}`);
+    if (bytes.a.length !== slice || bytes.n.length !== slice) {
+      throw new Error(`PBR layer ${layer} has ${bytes.a.length}/${bytes.n.length} bytes, expected ${slice}`);
     }
-    ar.set(bytes.ar, layer * slice);
-    na.set(bytes.na, layer * slice);
+    a.set(bytes.a, layer * slice);
+    n.set(bytes.n, layer * slice);
   }
-  return { ar, na };
+  return { a, n };
 }
 
 async function fetchPbrBytes(url: string): Promise<ArrayBuffer> {
@@ -141,6 +144,11 @@ function createDecodeWorker(): DecodeWorker {
     created.onerror = (event: ErrorEvent) => {
       failAll(new Error(event.message || 'PBR decode worker failed'));
     };
+    created.onmessageerror = () => {
+      failAll(new Error('PBR decode worker message could not be decoded'));
+      created.terminate();
+      if (worker === created) worker = null;
+    };
     worker = created;
     return created;
   };
@@ -178,6 +186,10 @@ function makeArrayTexture(data: Uint8Array, size: number): THREE.DataArrayTextur
 
 /** Replace the whole array image without replacing the texture or uniform objects. */
 function swapArrayImage(texture: THREE.DataArrayTexture, data: Uint8Array, size: number): void {
+  // A WebGL2 texture allocates immutable storage on its first upload, so a 4×4 placeholder cannot grow
+  // via texSubImage3D. Disposing makes the renderer drop that storage; the next use reallocates it at the
+  // full size because the image below has changed. The THREE.Texture and uniform objects stay the same.
+  texture.dispose();
   texture.image = { data, width: size, height: size, depth: PBR_LAYER_COUNT };
   texture.needsUpdate = true;
 }
@@ -189,13 +201,13 @@ function swapArrayImage(texture: THREE.DataArrayTexture, data: Uint8Array, size:
 export function createPbrLibrary(quality: Quality, base: string, deps?: PbrLoaderDeps): PbrLibrary {
   const size = PBR_SIZE[quality];
   const placeholder = assembleLayers(PLACEHOLDER_SIZE, []);
-  const arTexture = makeArrayTexture(placeholder.ar, PLACEHOLDER_SIZE);
-  const naTexture = makeArrayTexture(placeholder.na, PLACEHOLDER_SIZE);
-  arTexture.anisotropy = 4;
+  const aTexture = makeArrayTexture(placeholder.a, PLACEHOLDER_SIZE);
+  const nTexture = makeArrayTexture(placeholder.n, PLACEHOLDER_SIZE);
+  aTexture.anisotropy = 4;
 
   const uniforms: PbrUniforms = {
-    uPbrAR: { value: arTexture },
-    uPbrNA: { value: naTexture },
+    uPbrA: { value: aTexture },
+    uPbrN: { value: nTexture },
     uPbrTile: { value: new Float32Array(PBR_TILE_M) },
   };
 
@@ -210,13 +222,13 @@ export function createPbrLibrary(quality: Quality, base: string, deps?: PbrLoade
 
   const load = async (): Promise<boolean> => {
     const urls = pbrAssetUrls(quality, base);
-    const ar: (Uint8Array | null)[] = new Array(PBR_LAYER_COUNT).fill(null);
-    const na: (Uint8Array | null)[] = new Array(PBR_LAYER_COUNT).fill(null);
+    const a: (Uint8Array | null)[] = new Array(PBR_LAYER_COUNT).fill(null);
+    const n: (Uint8Array | null)[] = new Array(PBR_LAYER_COUNT).fill(null);
     const failed: string[] = [];
     const expected = size * size * 4;
 
     const tasks: (() => Promise<void>)[] = [];
-    const add = (layer: number, kind: 'ar' | 'na', url: string): void => {
+    const add = (layer: number, kind: 'a' | 'n', url: string): void => {
       tasks.push(async () => {
         try {
           const encoded = await io.fetchBytes(url);
@@ -224,16 +236,16 @@ export function createPbrLibrary(quality: Quality, base: string, deps?: PbrLoade
           if (decoded.length !== expected) {
             throw new Error(`decoded ${decoded.length} bytes, expected ${expected}`);
           }
-          if (kind === 'ar') ar[layer] = decoded;
-          else na[layer] = decoded;
+          if (kind === 'a') a[layer] = decoded;
+          else n[layer] = decoded;
         } catch {
           failed.push(url);
         }
       });
     };
     for (const entry of urls) {
-      add(entry.layer, 'ar', entry.ar);
-      add(entry.layer, 'na', entry.na);
+      add(entry.layer, 'a', entry.a);
+      add(entry.layer, 'n', entry.n);
     }
 
     let next = 0;
@@ -253,7 +265,7 @@ export function createPbrLibrary(quality: Quality, base: string, deps?: PbrLoade
       const layers = [...new Set(failed.map((url) => {
         const name = url.slice(url.lastIndexOf('/') + 1);
         return PBR_LAYER_NAMES.findIndex((stem) =>
-          name.startsWith(`${stem}_ar.webp`) || name.startsWith(`${stem}_na.webp`));
+          name.startsWith(`${stem}_a.webp`) || name.startsWith(`${stem}_n.webp`));
       }))].filter((layer) => layer >= 0);
       console.warn(
         `PBR material library: ${failed.length} of ${tasks.length} files failed; ` +
@@ -262,13 +274,13 @@ export function createPbrLibrary(quality: Quality, base: string, deps?: PbrLoade
     }
 
     const layers = Array.from({ length: PBR_LAYER_COUNT }, (_, layer): LayerBytes | null => {
-      const albedo = ar[layer] ?? null;
-      const normal = na[layer] ?? null;
-      return albedo !== null && normal !== null ? { ar: albedo, na: normal } : null;
+      const albedo = a[layer] ?? null;
+      const normal = n[layer] ?? null;
+      return albedo !== null && normal !== null ? { a: albedo, n: normal } : null;
     });
     const assembled = assembleLayers(size, layers);
-    swapArrayImage(arTexture, assembled.ar, size);
-    swapArrayImage(naTexture, assembled.na, size);
+    swapArrayImage(aTexture, assembled.a, size);
+    swapArrayImage(nTexture, assembled.n, size);
 
     allLoaded = failed.length === 0;
     return allLoaded;
@@ -283,8 +295,8 @@ export function createPbrLibrary(quality: Quality, base: string, deps?: PbrLoade
     dispose: () => {
       disposed = true;
       decoder?.dispose();
-      arTexture.dispose();
-      naTexture.dispose();
+      aTexture.dispose();
+      nTexture.dispose();
     },
   };
 }
