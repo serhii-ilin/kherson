@@ -21,14 +21,14 @@ This is a short pre-24-Feb-2022-informed reference for the procedural mix. The s
 | плиска біла | white wagtail | *Motacilla alba* | riverbank, roofs and car parks | 3 | day |
 | дятел сирійський / звичайний | Syrian / great spotted woodpecker | *Dendrocopos syriacus* / *D. major* | park-trees | 0.7 | day |
 | зозуля звичайна | common cuckoo | *Cuculus canorus* | park-trees, riverside willows | 0.35 | dawn/day |
-| мартин чорноголовий / жовтоногий / каспійський | black-headed / yellow-legged / Caspian gull | *Chroicocephalus ridibundus* / *Larus michahellis* / *Larus cachinnans* | Dnipro | 2 | day |
+| мартин чорноголовий / жовтоногий / каспійський | black-headed / yellow-legged / Caspian gull | *Chroicocephalus ridibundus* / *Larus michahellis* / *Larus cachinnans* | Dnipro | 2.5 | day |
 | серпокрилець чорний | common swift | *Apus apus* | built-up sky, river corridor | 3 | day, loudest evening |
 
 The baseline weights deliberately make sparrows and pigeons dominant in streets, shift to tits and blackbirds in trees, and bring wagtails up within about 150 m of water.
 
-Crows, woodpeckers and cuckoos were not numerous in the city, so they are occasional. The ambience plays about half a phrase a second across its slots. At that rate a crow comes every 2–5 minutes, a woodpecker about every 2 minutes in a park and almost never on a bare street, and a cuckoo every 3–6 minutes in parks and by the river. `tests/audio.test.ts` holds those shares down.
+Crows, woodpeckers and cuckoos were not numerous in the city, so they are occasional. The ambience plays about half a phrase a second across its slots. At that rate a crow comes every 2–5 minutes, a woodpecker about every 2 minutes in a park and almost never on a bare street, and a cuckoo every 3–6 minutes in parks and by the river. Gulls call about once a minute at the water's edge, every couple of minutes 50 m inland, and never in the town away from the river. `tests/audio.test.ts` holds those shares down.
 
-Only recorded species are heard. The ones in the table with a recording are house and tree sparrow, starling, feral pigeon, collared dove, hooded crow (voiced by carrion-crow takes), great tit, blackbird, white wagtail, woodpecker, cuckoo and swift. Rook, magpie, chaffinch, golden oriole, nightingale, barn swallow and gulls have no clip and are silent. The table keeps them as habitat reference. There is no synthetic fallback: if the files fail to load, the birds are quiet. Wind and water are still synthesised. Recording sources are in [AUDIO_CREDITS.md](AUDIO_CREDITS.md).
+Only recorded species are heard. The ones in the table with a recording are house and tree sparrow, starling, feral pigeon, collared dove, hooded crow (voiced by carrion-crow takes), great tit, blackbird, white wagtail, woodpecker, cuckoo, gulls (black-headed, plus herring gull standing in for the yellow-legged and Caspian) and swift. Rook, magpie, chaffinch, golden oriole, nightingale and barn swallow have no clip and are silent. The table keeps them as habitat reference. There is no synthetic fallback: if the files fail to load, the birds are quiet. Wind and water are still synthesised. Recording sources are in [AUDIO_CREDITS.md](AUDIO_CREDITS.md).
 
 ## Sources
 

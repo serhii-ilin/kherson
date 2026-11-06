@@ -94,7 +94,7 @@ export type Species = RecordedSpecies;
 
 export const SPECIES: readonly Species[] = [
   'houseSparrow', 'treeSparrow', 'starling', 'hoodedCrow', 'greatTit', 'blackbird',
-  'whiteWagtail', 'woodpecker', 'cuckoo', 'rockPigeon', 'collaredDove', 'swift',
+  'whiteWagtail', 'woodpecker', 'cuckoo', 'gull', 'rockPigeon', 'collaredDove', 'swift',
 ];
 
 export interface BirdContext {
@@ -109,11 +109,12 @@ export interface BirdContext {
  * Raw relative weights: habitat multipliers are applied by speciesWeights().
  * Crows, woodpeckers and cuckoos were few in the city, so they are heard only now and
  * then: with about half a phrase a second across the slots, a crow comes every couple
- * of minutes and a cuckoo every several, from the parks and the riverside.
+ * of minutes and a cuckoo every several, from the parks and the riverside. Gulls are
+ * heard only near the Dnipro, about once a minute at the water's edge.
  */
 const BASE_SPECIES_WEIGHT: Record<Species, number> = {
   houseSparrow: 24, treeSparrow: 9, starling: 10, hoodedCrow: 1.2, greatTit: 9, blackbird: 9,
-  whiteWagtail: 3, woodpecker: 0.7, cuckoo: 0.35, rockPigeon: 15, collaredDove: 10, swift: 3,
+  whiteWagtail: 3, woodpecker: 0.7, cuckoo: 0.35, gull: 2.5, rockPigeon: 15, collaredDove: 10, swift: 3,
 };
 
 const clampWeight = (v: number): number => Math.max(0, v);
@@ -148,6 +149,7 @@ export function speciesWeights(context: BirdContext): Record<Species, number> {
   w.woodpecker = clampWeight(w.woodpecker * (0.2 + 1.8 * trees));
   w.cuckoo = clampWeight(w.cuckoo * (0.1 + 1.5 * trees + 0.6 * water));
   w.whiteWagtail = clampWeight(w.whiteWagtail * (0.4 + 0.3 * built + 1.6 * water));
+  w.gull = clampWeight(w.gull * water);
   w.swift = clampWeight(w.swift * (0.35 + 0.65 * water + 0.2 * built));
 
   let total = 0;

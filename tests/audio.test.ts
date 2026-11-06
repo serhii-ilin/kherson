@@ -94,6 +94,11 @@ describe('audio helpers', () => {
     expect(park.greatTit + park.blackbird).toBeGreaterThan(park.houseSparrow + park.rockPigeon);
     expect(park.woodpecker).toBeGreaterThan(built.woodpecker);
     expect(speciesWeights(contexts[2]!).whiteWagtail).toBeGreaterThan(speciesWeights(contexts[3]!).whiteWagtail * 3);
+    // Gulls: now and then at the river, never in the town away from the water.
+    expect(speciesWeights(contexts[2]!).gull).toBeGreaterThan(0.02);
+    expect(speciesWeights(contexts[2]!).gull).toBeLessThan(0.06);
+    expect(speciesWeights(contexts[3]!).gull).toBe(0);
+    expect(speciesWeights(contexts[0]!).gull).toBe(0);
     expect(birdActivity({ ...contexts[0]!, daylight: 0 })).toBe(0);
   });
 

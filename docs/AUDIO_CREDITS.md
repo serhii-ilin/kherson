@@ -2,7 +2,7 @@
 
 Provenance for the recordings in `public/audio/birds/`. Every file below is **CC0 1.0** or **public domain**. None is CC-BY, NC, ND, SA, or a ripped stream. Attribution is not required by these licences; this list is so the sources can be checked.
 
-The encoded set is mono. Each clip is an Opus/WebM file and an AAC/M4A fallback. Together they must stay under the 1.5 MB budget in `CONSTITUTION.md`. They are fetched only after the first click, tap or key press. There are no synthetic bird voices: a species not listed here is not in the soundscape, and if a download or decode fails that species stays silent. Wind, water and the fish splash are still synthesised.
+The encoded set is mono. Each clip is an Opus/WebM file and an AAC/M4A fallback. Together they must stay under the 1.6 MB budget in `CONSTITUTION.md`. They are fetched only after the first click, tap or key press. There are no synthetic bird voices: a species not listed here is not in the soundscape, and if a download or decode fails that species stays silent. Wind, water and the fish splash are still synthesised.
 
 Processing for every clip: trim, high-pass (and a low-pass above the species’ band), light FFT denoise where the take had rumble, peak-normalise to about −2 dBFS, short fades, then Opus at 28 kbps and AAC at 40 kbps. Freesound originals sit behind an account, so those four takes were edited from the site’s HQ preview of the same CC0 upload.
 
@@ -120,12 +120,21 @@ Low-passed at 2 kHz so only the “ku-ku” is left of the surrounding chorus.
 | `cuckoo-1` | [XC1095924](https://xeno-canto.org/1095924) | Philippe Grange | CC0 1.0 | France, 2026-04-06. Song. |
 | `cuckoo-2` | [XC987707](https://xeno-canto.org/987707) | wilmet sebastien | CC0 1.0 | France, 2025-04-12. Song. |
 
+## Gulls over the Dnipro
+
+The black-headed gull is the commonest gull on the river at Kherson. The big gulls there are yellow-legged and Caspian; neither had a usable CC0 take (one Caspian recording, of an immature bird). Their laughing long call is very close to the herring gull’s, which stands in for them. These play only near the water.
+
+| Clip | Source | Recordist | Licence | Notes |
+|---|---|---|---|---|
+| `gull-1` | [XC1182964](https://xeno-canto.org/1182964) | Philippe Grange | CC0 1.0 | Black-headed gull (*Chroicocephalus ridibundus*), France, 2026-10-03. Three flight calls. A quiet take: high-passed at 1 kHz to drop water noise, then denoised. |
+| `gull-2` | [XC1043722](https://xeno-canto.org/1043722) | Sonothèque ADVL | CC0 1.0 | Black-headed gull, France, 2025-09-08. Call series. |
+| `gull-3` | [XC1178162](https://xeno-canto.org/1178162) | Philippe Grange | CC0 1.0 | Herring gull (*Larus argentatus*), France, 2026-09-11. Laughing long call. |
+
 ## Not in the soundscape
 
-There are no synthetic bird voices any more (Constitution, amendment 4). These species from [BIRDS.md](BIRDS.md) have no clip, so they are silent. CC0 takes do exist for some of them, for example rook and magpie; they were left out to stay inside the 1.5 MB budget:
+There are no synthetic bird voices any more (Constitution, amendment 4). These species from [BIRDS.md](BIRDS.md) have no clip, so they are silent. CC0 takes do exist for some of them, for example rook and magpie; they were left out to stay inside the budget:
 
 - rook, Eurasian magpie
 - common chaffinch, barn swallow, golden oriole, common nightingale
-- gulls
 
 Wind, water and the fish splash are synthesised as before.

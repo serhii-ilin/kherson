@@ -5,7 +5,7 @@
 export type RecordedSpecies =
   | 'swift' | 'rockPigeon' | 'collaredDove' | 'houseSparrow' | 'treeSparrow'
   | 'greatTit' | 'blackbird' | 'starling' | 'hoodedCrow' | 'whiteWagtail'
-  | 'woodpecker' | 'cuckoo';
+  | 'woodpecker' | 'cuckoo' | 'gull';
 
 export type ClipKind = 'scream' | 'coo' | 'wing' | 'song' | 'call' | 'drum';
 
@@ -20,7 +20,7 @@ export interface BirdClip {
 }
 
 /** Encoded Opus/WebM plus AAC/M4A together. Article 4 of the constitution. */
-export const BIRD_AUDIO_BUDGET_BYTES = 1_500_000;
+export const BIRD_AUDIO_BUDGET_BYTES = 1_600_000;
 
 export const BIRD_AUDIO_DIR = 'audio/birds/';
 
@@ -72,6 +72,9 @@ export const BIRD_CLIPS: readonly BirdClip[] = [
   { id: 'woodpecker-call-1', species: 'woodpecker', kind: 'call', source: 'XC707123' },
   { id: 'cuckoo-1', species: 'cuckoo', kind: 'song', source: 'XC1095924' },
   { id: 'cuckoo-2', species: 'cuckoo', kind: 'song', source: 'XC987707' },
+  { id: 'gull-1', species: 'gull', kind: 'call', source: 'XC1182964' },
+  { id: 'gull-2', species: 'gull', kind: 'call', source: 'XC1043722' },
+  { id: 'gull-3', species: 'gull', kind: 'call', source: 'XC1178162' },
 ];
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
