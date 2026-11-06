@@ -30,7 +30,7 @@ _Last updated: 2026-11-06_
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
 | Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | ✅ | `078cd08`…`2648062` |
 | Kherson trees: 15 species with a surveyed mix, branch skeletons, leaf clumps, per-species leaf and bark textures, translucency, whitewashed street trunks ([TREES.md](TREES.md)) | ✅ | `c0fbeda`, `daf4584`, `a3763a1`, `1c2ab10`, (this commit) |
-| Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md), [ADR 0002](adr/0002-realistic-buildings.md)): CC0 PBR materials, near-LOD facades, road surfaces and detail, mid-distance road ribbons, facade descriptors for Ushakova and Suvorova, hero models for the four well-known areas | 🟡 wave 1 | `c47b75c`, `afb8158` |
+| Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md), [ADR 0002](adr/0002-realistic-buildings.md)): CC0 PBR materials, near-LOD facades, road surfaces and detail, mid-distance road ribbons, facade descriptors for Ushakova and Suvorova, hero models for the four well-known areas | 🟡 waves 1–3 done, heroes 2 of ~16 | `c47b75c` … `9f93dbd` |
 
 ## Kherson trees
 
@@ -180,12 +180,21 @@ Both poses stay inside the constitution caps (about 2.5M triangles and 400 draws
 - 🟡 Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md)). Heroes are parametric models with photo textures, not glTF ([ADR 0002](adr/0002-realistic-buildings.md)).
   - ✅ Constitution amendment 7: ≤ 15 MB asset budget, CC-BY-SA facade photos (`c47b75c`)
   - ✅ Step 0: ADR 0002, the plan (`afb8158`), shared contracts (this commit): vector tile v3 (building OSM type, colour, roof colour, material, roof material, start year; road surface, tram-in-road and cycle flags; v2 still decodes), fine ground ids 64–72, `src/world/pbr-layers.ts`, `src/world/osm-ref.ts`, landmark `replaces` / `textured` meshes, `src/mesh/facade-profile.ts`. Vector tiles 2.13 → 2.21 MB, baked world 27.0 MB
-  - ✅ Wave 1: ✅ A material tools and CC0 assets (20 ambientCG layers, 512/256 WebP, 1,819,829 bytes of the 15 MB asset budget) · ✅ B runtime PBR library (`src/world/pbr-library.ts`, `pbr-glsl.ts`; alpha-free `_a`/`_n` texture arrays, one upload after a 4×4 placeholder, IQ anti-tiling) · ✅ C bake v3 fields (`feat/bake-v3`) · D hero research briefs (Opus)
-    - C measured: of 10,956 buildings, only 3 carry `building:colour`, 2 `roof:colour`, 14 `building:material`, 0 `roof:material`, 7 `start_date`, so facade colour must come from the descriptors and style palette, not OSM. Roads: 4,134 asphalt, 22 paving stones, 17 sett, 1,415 dirt, 19,098 untagged. The bake is byte-identical on a rerun.
-    - The snapshot (and the 2022-01-01 reference) has no `railway=tram` ways: Kherson ran trolleybuses, not trams, before the war. The tram-in-road flag is unit-tested only and stays 0; trolleybus overhead wires on the main avenues are a possible later detail.
-  - 🟡 Wave 2: ✅ F1 road surfaces and detail (OSM surface, central behaton sidewalks, granite kerbs on major roads, patches, manholes, drains, stop lines; fixture triangles +7.6%) · 🟡 E1 near-LOD geometry, E2 building shading, H1 architectural kit, H2 hero plumbing (implementer branches running, not reviewed) · ⬜ F2 road shading (after F1; spec to write)
-  - ⬜ Wave 3: G mid-distance road ribbons · K facade-descriptor builder · P photo facade pipeline and credits panel
-  - ⬜ Heroes: embankment (Фрегат #32, Річморвокзал, Зелений театр) → Freedom Square (administration, court, «Україна») → Fortress (Catherine's Cathedral, Ochakiv Gate, Art Museum, Greek-Sofia, Assumption, museum, drama theatre) → Ushakova and Suvorova descriptors
+  - ✅ Wave 1: A CC0 material set (20 ambientCG layers, 1,819,829 bytes of the 15 MB asset budget) · B runtime texture library · C bake v3 fields · D research briefs
+  - ✅ Wave 2: E1 near-LOD geometry (window reveals, sills, frames, entrances with canopies, balconies with the ad-hoc glazing mix, cornices, blank khrushchevka end walls) · E2 PBR building shading and sky reflections on glass · F1 road surfaces from OSM, behaton sidewalks in the centre, granite kerbs, patches, manholes, drains, stop lines · F2 PBR road shading · H1 architectural kit · H2 textured heroes, facade photos, LOD swaps, replaced buildings
+  - ✅ Wave 3: G smooth road ribbons with markings beyond the 0.2 m radius · K facade-descriptor buildings (validator, bake step `public/world/facades.json`, kit builder) · P Commons facade-photo tools with licence/date checks and the «Фото: автори» credits panel (uk/en, touch layout checked)
+  - 🟡 Heroes: ✅ Hotel «Фрегат» (first pass, see #43) · ✅ regional administration (10 giant pilasters, attic cartouche, flag, three doors) · ⬜ Річморвокзал, Зелений театр · ⬜ court, «Україна» · ⬜ Fortress (Catherine's Cathedral, Ochakiv Gate, Art Museum, Greek-Sofia, Assumption, museum, drama theatre)
+  - 🟡 Descriptors: ✅ Suvorova Street, 13 of 31 buildings (the ones with dated Commons photos, 2016–2021; researched by a Sonnet agent, spot-checked) · ⬜ Ushakova Avenue (~45 buildings)
+  - **Measured** (headless Chrome, SwiftShader, `quality=high&time=13`; not a laptop frame time):
+
+    | Pose | Before (`b782a6a`) | After (`9f93dbd`) |
+    |---|---|---|
+    | Street `x=10270&z=8850&yaw=-75&pitch=4` | 1,022,503 tris · 195 draws · buildings 18.7k tris / 2.76 MB | 1,068,190 · 188 · buildings 48.8k / 7.37 MB |
+    | Park `x=10656&z=9349&yaw=0&pitch=2` | 2,030,047 · 303 | 2,086,107 · 308 |
+    | Aerial `mode=fly&x=10340&z=9000&y=90&yaw=-15&pitch=-32` | 1,189,811 · 203 | 1,312,326 · 217 |
+    | Phone street, High / Low | 276,131 · 95 (High) | 466,254 · 136 / 278,923 · 83 |
+
+    All inside Article 4 (desktop ≤ 2.5M / 400, phone ≤ 0.9M / 200) and ADR 0002's building layer (≤ 250k tris / 20 MB desktop, ≤ 80k phone). Near-LOD buildings average ≈ 2,000 triangles each (the ADR guessed 120), but only chunks within 100 m (50 m phone) go near. `public/assets/` 1.8 MB; `?pbr=0` compares with the procedural look.
 - ⬜ The far skyline, collision and the overview off voxel columns, then delete the voxel renderer (ADR 0001 phases 3–5).
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
@@ -218,6 +227,11 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 40 | P3 | The densest park pose is 2.03M triangles on desktop High (81% of the 2.5M budget); 0.83M of it is vegetation | if a denser spot crosses the budget: drop the near radius to 35 m or trim lod 0 cards in parks |
 | 41 | P3 | Mid-distance trees (70–250 m) are see-through up close: their cards tile the leaf cluster 2×2 and show the transparent gaps | denser mid cards, or a crown-filling cluster layer for mid LOD only |
 | 42 | P3 | Frame rate of the new trees is not yet measured on a real laptop or phone (headless SwiftShader only) | owner to check the park and Hydropark poses on the MacBook Air and phone |
+| 43 | P3 | Hotel «Фрегат» first pass vs owner photo 06: the finned stair tower must be much larger and rise well above the slab; balconies should read as pale cream bands with deep shadow (dark glass dominates now); the stepped right wing with its own balconies is missing | hero fix round on `src/landmarks/heroes/frehat.ts` |
+| 44 | P3 | Corrugated roof layers (`ROOF_TIN_SEAM`, `ROOF_ETERNIT`) shimmer as black-and-white noise at grazing angles in SwiftShader | lower their normal strength with distance, or a larger tile size |
+| 45 | P3 | Administration pilasters read weakly at street distance; more relief contrast (deeper pilasters, shadowed recess) | hero tweak |
+| 46 | P3 | 18 Suvorova buildings have no dated photo on Commons, so they keep the generic near-LOD look | find other licence-clean sources or leave generic |
+| 47 | P3 | Real-device fps with the new buildings and textures not yet measured | owner: check the street and park poses on the MacBook Air and phone |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
 ## Waiting on the owner
