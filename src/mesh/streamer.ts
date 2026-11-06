@@ -13,7 +13,7 @@ import { buildBlockInput, G_GH, GPLANE } from '../fine/block-input.ts';
 import type { Manifest } from '../world/manifest.ts';
 import { ChunkBatch, type BatchSlot } from '../world/chunk-batch.ts';
 import { CHUNK, REGION_CHUNKS } from '../world/constants.ts';
-import { CHUNK_M, chunkKey, neededChunks, regionKey, type ChunkRef } from '../world/stream-math.ts';
+import { CHUNK_M, chunkKey, distToChunk, neededChunks, regionKey, type ChunkRef } from '../world/stream-math.ts';
 import type { WorldStreamer } from '../world/streamer.ts';
 import { versioned } from '../version.ts';
 import { MESH_KEEP, chunkLod, type MeshLod } from './bounds.ts';
@@ -47,6 +47,10 @@ interface MChunk {
   slot: BatchSlot | null;
   tris: number;
   bytes: number;
+  /** Smooth road ribbons for this chunk, hidden inside the fine radius. */
+  roadSlot: BatchSlot | null;
+  roadTris: number;
+  roadBytes: number;
   hidden: boolean;
   /** The worker has returned and voxel buildings for this chunk may be hidden. */
   ready: boolean;
@@ -78,6 +82,10 @@ export interface MeshStreamerOptions {
   castShadow: boolean;
   /** Metres. Near LOD with real openings; 0 disables it (default). */
   nearRadius?: number;
+  /** Metres. Road ribbons are hidden where the chunk's closest point is within this fine radius; 0 shows them everywhere. */
+  fineRadius?: number;
+  /** Coarse-ground material for the ribbons (the facade/Lambert material patched by facadeShader). */
+  roadMaterial?: THREE.Material;
   workers?: number;
   /** Test hook: replaces `new Worker(...)` (the worker still receives the same messages). */
   workerFactory?: () => Worker;
@@ -93,6 +101,9 @@ export class MeshStreamer {
   private readonly baseUrl: string;
   private readonly material: THREE.MeshStandardMaterial;
   private readonly batch: ChunkBatch;
+  private readonly roadMaterial: THREE.Material;
+  private readonly ownsRoadMaterial: boolean;
+  private readonly roadBatch: ChunkBatch;
   private readonly workers: Worker[] = [];
   private readonly workerLoad: number[] = [];
   private readonly tiles = new Map<number, Tile>();
@@ -114,9 +125,13 @@ export class MeshStreamer {
   private lastTry = 0;
   private readonly radius: number;
   private readonly nearRadius: number;
+  private readonly fineRadius: number;
   private meshCount = 0;
   private triCount = 0;
   private byteCount = 0;
+  private roadChunkCount = 0;
+  private roadVisibleCount = 0;
+  private roadByteCount = 0;
   private nearCount = 0;
   private nearTriCount = 0;
   private downloadBytes = 0;
@@ -129,12 +144,34 @@ export class MeshStreamer {
     this.manifest = manifest;
     this.radius = opts.radius;
     this.nearRadius = opts.nearRadius ?? 0;
+    this.fineRadius = opts.fineRadius ?? 0;
     this.material = createFacadeMaterial();
     // A 640 m view is on the order of 150k vertices (about 40 triangles and ~6 KB per building).
     // ChunkBatch grows if a dense view exceeds this. Staying near 200k vertices keeps the
     // reservation under the ADR's 20 MB laptop budget.
     this.batch = new ChunkBatch(this.material, { instances: 800, vertices: 200_000, castShadow: opts.castShadow });
     scene.add(this.batch.mesh);
+
+    const base = opts.roadMaterial ?? coarse.material;
+    if (opts.roadMaterial !== undefined) {
+      this.roadMaterial = opts.roadMaterial;
+      this.ownsRoadMaterial = false;
+    } else if (base !== undefined) {
+      const clone = base.clone() as THREE.Material;
+      clone.onBeforeCompile = base.onBeforeCompile;
+      clone.customProgramCacheKey = base.customProgramCacheKey;
+      this.roadMaterial = clone;
+      this.ownsRoadMaterial = true;
+    } else {
+      this.roadMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+      this.ownsRoadMaterial = true;
+    }
+    this.roadMaterial.polygonOffset = true;
+    this.roadMaterial.polygonOffsetFactor = -1;
+    this.roadMaterial.polygonOffsetUnits = -4;
+    // Ribbons never cast shadows (the fine tier is off there anyway and they are millimetres thick).
+    this.roadBatch = new ChunkBatch(this.roadMaterial, { instances: 800, vertices: 120_000, castShadow: false });
+    scene.add(this.roadBatch.mesh);
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     const n = Math.max(1, Math.min(2, opts.workers ?? 1));
     for (let i = 0; i < n; i++) {
@@ -150,6 +187,14 @@ export class MeshStreamer {
   get chunkCount(): number { return this.meshCount; }
   get inflightJobs(): number { return this.inflight; }
   get triangles(): number { return this.triCount; }
+  /** Installed chunks with road ribbons. */
+  get ribbonChunks(): number { return this.roadChunkCount; }
+  /** Visible ribbon triangles (hidden inside the fine radius). */
+  get ribbonTriangles(): number { return this.roadBatch.triangles; }
+  /** Visible ribbon instances: one batched draw each without WEBGL_multi_draw. */
+  get ribbonDraws(): number { return this.roadVisibleCount; }
+  /** Vertex and index buffers of the installed ribbons. */
+  get ribbonGpuBytes(): number { return this.roadByteCount; }
   /** Installed chunks built at the near LOD. */
   get nearChunks(): number { return this.nearCount; }
   /** Triangles of the installed near-LOD chunks. */
@@ -225,6 +270,9 @@ export class MeshStreamer {
     for (const w of this.workers) w.terminate();
     this.scene.remove(this.batch.mesh);
     this.batch.dispose();
+    this.scene.remove(this.roadBatch.mesh);
+    this.roadBatch.dispose();
+    if (this.ownsRoadMaterial) this.roadMaterial.dispose();
     this.material.dispose();
   }
 
@@ -242,6 +290,19 @@ export class MeshStreamer {
       }
     }
     this.dirty = true;
+    for (const c of this.chunks.values()) this.setRoadVisible(c, this.roadVisibleAt(c));
+  }
+
+  /** Ribbons are owned by the fine tier when the chunk's closest point is inside the fine radius. */
+  private roadVisibleAt(c: MChunk): boolean {
+    return this.fineRadius <= 0 || distToChunk(this.camX, this.camZ, c.gcx, c.gcz) > this.fineRadius;
+  }
+
+  private setRoadVisible(c: MChunk, visible: boolean): void {
+    const slot = c.roadSlot;
+    if (slot === null || slot.visible === visible) return;
+    this.roadBatch.setVisible(slot, visible);
+    this.roadVisibleCount += visible ? 1 : -1;
   }
 
   private dropAll(): void {
@@ -278,6 +339,7 @@ export class MeshStreamer {
         if (target === undefined) {
           target = {
             key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0,
+            roadSlot: null, roadTris: 0, roadBytes: 0,
             hidden: false, ready: false, disposed: false, lod: null, pending: desired, reload: false,
             failedLod: null, failedGeneration: -1,
           };
@@ -401,9 +463,14 @@ export class MeshStreamer {
     const oldTris = chunk.tris;
     const oldBytes = chunk.bytes;
     const oldLod = chunk.lod;
+    const oldRoadSlot = chunk.roadSlot;
+    const oldRoadBytes = chunk.roadBytes;
     let newSlot: BatchSlot | null = null;
     let newTris = 0;
     let newBytes = 0;
+    let newRoadSlot: BatchSlot | null = null;
+    let newRoadTris = 0;
+    let newRoadBytes = 0;
     if (idx.length > 0 && msg.positions && msg.normals && msg.uvs && msg.colors
       && msg.facade && msg.style && msg.pbr) {
       newSlot = this.batch.add({
@@ -423,13 +490,34 @@ export class MeshStreamer {
         + msg.colors.byteLength + msg.facade.byteLength + msg.style.byteLength
         + msg.pbr.byteLength + idx.byteLength;
     }
-    // The new slot is already installed, so removing the old one cannot leave a gap.
+    const roads = msg.roads;
+    if (roads !== undefined && roads.indices.length > 0) {
+      newRoadSlot = this.roadBatch.add({
+        attrs: {
+          position: [roads.positions, 3],
+          normal: [roads.normals, 3],
+          color: [roads.colors, 3],
+          aWall: [roads.walls, 4],
+        },
+        indices: roads.indices,
+      }, chunk.gcx * CHUNK_M, chunk.gcz * CHUNK_M);
+      newRoadTris = roads.indices.length / 3;
+      newRoadBytes = roads.positions.byteLength + roads.normals.byteLength
+        + roads.colors.byteLength + roads.walls.byteLength + roads.indices.byteLength;
+    }
+    // The new slots are already installed, so removing the old ones cannot leave a gap.
     if (oldSlot !== null) {
       this.batch.remove(oldSlot);
       this.triCount -= oldTris;
       this.byteCount -= oldBytes;
       this.meshCount--;
       if (oldLod === 'near') { this.nearCount--; this.nearTriCount -= oldTris; }
+    }
+    if (oldRoadSlot !== null) {
+      if (oldRoadSlot.visible) this.roadVisibleCount--;
+      this.roadBatch.remove(oldRoadSlot);
+      this.roadChunkCount--;
+      this.roadByteCount -= oldRoadBytes;
     }
     if (newSlot !== null) {
       chunk.slot = newSlot;
@@ -443,6 +531,18 @@ export class MeshStreamer {
       chunk.slot = null;
       chunk.tris = 0;
       chunk.bytes = 0;
+    }
+    chunk.roadSlot = newRoadSlot;
+    chunk.roadTris = newRoadTris;
+    chunk.roadBytes = newRoadBytes;
+    if (newRoadSlot !== null) {
+      this.roadChunkCount++;
+      this.roadByteCount += newRoadBytes;
+      if (this.roadVisibleAt(chunk)) this.roadVisibleCount++;
+      else this.roadBatch.setVisible(newRoadSlot, false);
+    } else {
+      chunk.roadTris = 0;
+      chunk.roadBytes = 0;
     }
     chunk.lod = lod;
     chunk.pending = null;
@@ -500,6 +600,15 @@ export class MeshStreamer {
       this.meshCount--;
       if (c.lod === 'near') { this.nearCount--; this.nearTriCount -= c.tris; }
       c.slot = null;
+    }
+    if (c.roadSlot !== null) {
+      if (c.roadSlot.visible) this.roadVisibleCount--;
+      this.roadBatch.remove(c.roadSlot);
+      this.roadChunkCount--;
+      this.roadByteCount -= c.roadBytes;
+      c.roadSlot = null;
+      c.roadTris = 0;
+      c.roadBytes = 0;
     }
     c.pending = null;
   }
