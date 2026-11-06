@@ -17,7 +17,8 @@ import { readPose, writePose } from './player/pose-memory.ts';
 import { Input } from './player/input.ts';
 import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, createShareButton, createTimeButton, t } from './i18n.ts';
 import { daylightAt, formatTime, readStoredTime, resolveTime, writeStoredTime } from './world/daylight.ts';
-import { NIGHT_UNIFORM } from './world/facade-shader.ts';
+import { NIGHT_UNIFORM, setGroundPbr } from './world/facade-shader.ts';
+import { createPbrLibrary } from './world/pbr-library.ts';
 import { getQuality } from './quality.ts';
 import { TouchControls } from './player/touch.ts';
 import { Minimap } from './ui/minimap.ts';
@@ -197,6 +198,9 @@ createTimeButton(document.body, timeHours, (h) => {
 createAttribution(document.body);
 watchForUpdates(document.body, () => t('updateAvailable'));
 const base = import.meta.env.BASE_URL;
+/** CC0 material textures (docs/adr/0002-realistic-buildings.md); `?pbr=0` compares against the procedural look. */
+const pbrLibrary = new URLSearchParams(location.search).get('pbr') === '0' ? null : createPbrLibrary(quality, base);
+if (pbrLibrary !== null) setGroundPbr(pbrLibrary.uniforms);
 
 async function start(): Promise<void> {
   const manifest = (await (await fetch(versioned(`${base}world/manifest.json`))).json()) as Manifest;
@@ -239,7 +243,9 @@ async function start(): Promise<void> {
     })
     : null;
   const basePhysics = fine !== null ? fine.world : streamer;
-  landmarkLayer = new LandmarkLayer(scene, createLandmarks(manifest.bbox), basePhysics, quality);
+  landmarkLayer = new LandmarkLayer(scene, createLandmarks(manifest.bbox), basePhysics, quality, {
+    pbr: pbrLibrary?.uniforms, base,
+  });
   landmarkLayer.setNight(dayFactor);
   /** Physics world: coarse/fine heights plus walkable landmark surfaces where a landmark is built. */
   const physics = new LandmarkPhysics(basePhysics, landmarkLayer);
