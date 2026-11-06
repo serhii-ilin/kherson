@@ -57,6 +57,9 @@ interface MChunk {
   pending: MeshLod | null;
   /** Rebuild the installed chunk even though its LOD has not changed (hidden set changed). */
   reload: boolean;
+  /** A job at this LOD failed during `failedGeneration`; wait for the next recompute/reload. */
+  failedLod: MeshLod | null;
+  failedGeneration: number;
 }
 
 interface Job {
@@ -65,6 +68,7 @@ interface Job {
   worker: number;
   tiles: Tile[];
   lod: MeshLod;
+  hiddenVersion: number;
 }
 
 export interface MeshStreamerOptions {
@@ -75,6 +79,8 @@ export interface MeshStreamerOptions {
   /** Metres. Near LOD with real openings; 0 disables it (default). */
   nearRadius?: number;
   workers?: number;
+  /** Test hook: replaces `new Worker(...)` (the worker still receives the same messages). */
+  workerFactory?: () => Worker;
 }
 
 /**
@@ -114,6 +120,8 @@ export class MeshStreamer {
   private nearCount = 0;
   private nearTriCount = 0;
   private downloadBytes = 0;
+  private recomputeGeneration = 0;
+  private hiddenVersion = 0;
 
   constructor(scene: THREE.Scene, coarse: WorldStreamer, manifest: Manifest, opts: MeshStreamerOptions) {
     this.scene = scene;
@@ -130,7 +138,9 @@ export class MeshStreamer {
     this.baseUrl = `${import.meta.env.BASE_URL}world/`;
     const n = Math.max(1, Math.min(2, opts.workers ?? 1));
     for (let i = 0; i < n; i++) {
-      const w = new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' });
+      const w = opts.workerFactory !== undefined
+        ? opts.workerFactory()
+        : new Worker(new URL('./mesh.worker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e: MessageEvent<CityMeshResponse>) => this.onResult(i, e.data);
       this.workers.push(w);
       this.workerLoad.push(0);
@@ -161,8 +171,17 @@ export class MeshStreamer {
         if (this.regionsReady(ref.gcx, ref.gcz)) return false;
         continue;
       }
-      if (chunk.pending !== null || chunk.reload || chunk.lod === null) return false;
-      if (chunkLod(ref.dist, chunk.lod, this.nearRadius) !== chunk.lod) return false;
+      if (chunk.pending !== null || chunk.reload || chunk.lod === null) {
+        if (chunk.pending !== null || chunk.reload) return false;
+        if (chunk.failedGeneration !== this.recomputeGeneration) return false;
+        if (chunk.failedLod !== chunkLod(ref.dist, chunk.lod, this.nearRadius)) return false;
+        continue;
+      }
+      const desired = chunkLod(ref.dist, chunk.lod, this.nearRadius);
+      if (desired !== chunk.lod) {
+        if (chunk.failedGeneration === this.recomputeGeneration && chunk.failedLod === desired) continue;
+        return false;
+      }
     }
     return this.need.length > 0;
   }
@@ -170,12 +189,17 @@ export class MeshStreamer {
   /**
    * Replaces the hidden-building set (landmarks / facade descriptors) in every worker and rebuilds
    * the installed chunks. Rare call; the old slots stay visible until each new result arrives.
+   * A job already in flight is rebuilt afterwards if it was computed with the older set.
    */
   setHiddenBuildings(keys: ReadonlySet<string>): void {
     const list = [...keys];
+    this.hiddenVersion++;
     for (const w of this.workers) w.postMessage({ type: 'hidden', keys: list } satisfies CityMeshHidden);
     for (const chunk of this.chunks.values()) {
       if (chunk.lod !== null) chunk.reload = true;
+      // An explicit reload also clears a previous failure at this LOD.
+      chunk.failedLod = null;
+      chunk.failedGeneration = -1;
     }
     this.dirty = true;
     this.pump();
@@ -205,6 +229,7 @@ export class MeshStreamer {
   }
 
   private recompute(): void {
+    this.recomputeGeneration++;
     const chunksX = this.manifest.regionsX * REGION_CHUNKS;
     const chunksZ = this.manifest.regionsZ * REGION_CHUNKS;
     const keep = neededChunks(this.camX, this.camZ, this.radius + MESH_KEEP, chunksX, chunksZ);
@@ -243,8 +268,8 @@ export class MeshStreamer {
             ? chunk.lod
             : chunkLod(ref.dist, chunk.lod, this.nearRadius);
         if (desired === null || desired !== pass) continue;
-        if (chunk !== undefined && chunk.lod === null) continue;
         if (chunk !== undefined && !chunk.reload && desired === chunk.lod) continue;
+        if (chunk !== undefined && chunk.failedGeneration === this.recomputeGeneration && chunk.failedLod === desired) continue;
         if (this.inflight >= maxJobs) { this.waiting = true; return; }
         const prepared = this.prepare(ref.gcx, ref.gcz);
         if (prepared === 'full') { this.waiting = true; return; }
@@ -254,14 +279,18 @@ export class MeshStreamer {
           target = {
             key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0,
             hidden: false, ready: false, disposed: false, lod: null, pending: desired, reload: false,
+            failedLod: null, failedGeneration: -1,
           };
           this.chunks.set(key, target);
         } else {
           target.reload = false;
           target.pending = desired;
+          target.failedLod = null;
+          target.failedGeneration = -1;
         }
         this.send({
           id: this.nextJobId++, chunk: target, worker: prepared.worker, tiles: prepared.tiles, lod: desired,
+          hiddenVersion: this.hiddenVersion,
         }, prepared.ground, false);
       }
     }
@@ -325,6 +354,7 @@ export class MeshStreamer {
       id: job.id, gcx: job.chunk.gcx, gcz: job.chunk.gcz, ground, tiles: refs, lod: job.lod,
     };
     this.jobs.set(job.id, job);
+    job.hiddenVersion = this.hiddenVersion;
     this.workerLoad[job.worker]!++;
     this.inflight++;
     this.workers[job.worker]!.postMessage(req);
@@ -352,18 +382,20 @@ export class MeshStreamer {
         chunk.disposed = true;
       }
     } else if (msg.indices !== undefined && msg.error === undefined) {
-      if (!chunk.disposed) this.install(chunk, msg, job.lod);
+      if (!chunk.disposed) this.install(chunk, msg, job.lod, job.hiddenVersion);
     } else {
       console.warn(`city mesh ${chunk.gcx},${chunk.gcz} failed: ${msg.error ?? 'unknown'}`);
       chunk.pending = null;
-      if (chunk.lod === null) chunk.lod = 'mid';
-      if (chunk.slot === null && this.chunks.get(chunk.key) === chunk) this.chunks.delete(chunk.key);
+      // Do not resend the same failed job until the camera crosses a chunk boundary or the
+      // hidden set changes: a deterministic worker exception must not spin forever.
+      chunk.failedLod = job.lod;
+      chunk.failedGeneration = this.recomputeGeneration;
     }
     this.dirty = true;
     this.pump();
   }
 
-  private install(chunk: MChunk, msg: CityMeshResponse, lod: MeshLod): void {
+  private install(chunk: MChunk, msg: CityMeshResponse, lod: MeshLod, hiddenVersion: number): void {
     const idx = msg.indices!;
     const oldSlot = chunk.slot;
     const oldTris = chunk.tris;
@@ -414,6 +446,10 @@ export class MeshStreamer {
     }
     chunk.lod = lod;
     chunk.pending = null;
+    chunk.failedLod = null;
+    chunk.failedGeneration = -1;
+    // A hidden-set change posted while this job was in flight means it used the old set.
+    if (hiddenVersion !== this.hiddenVersion) chunk.reload = true;
     chunk.ready = true;
     if (!this.chunkHasBridge(chunk.gcx, chunk.gcz)) {
       this.coarse.setStructuresHidden(chunk.gcx, chunk.gcz, true);

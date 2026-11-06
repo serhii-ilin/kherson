@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { MAT, materialColor } from '../src/world/materials';
 import { PBR_LAYER_COUNT } from '../src/world/pbr-layers';
 import { buildingKey } from '../src/world/osm-ref';
 import { OSM_TYPE, ROOF, type VBuilding, type VectorTile } from '../src/world/vector-format';
+import { regionKey } from '../src/world/stream-math';
+import type { Manifest } from '../src/world/manifest';
+import type { WorldStreamer } from '../src/world/streamer';
 import { chunkLod, meshNearRadius } from '../src/mesh/bounds';
 import { buildChunkMesh } from '../src/mesh/chunk';
 import {
   extrudeBuilding, triangleCount, type CityMesh, type ExtrudeBuilding,
 } from '../src/mesh/extrude';
+import { WINDOW_FRACTIONS, balconyVariant } from '../src/mesh/near';
+import { MeshStreamer } from '../src/mesh/streamer';
+import type { CityMeshRequest, CityMeshResponse } from '../src/mesh/protocol';
 
 function rect(x0: number, z0: number, x1: number, z1: number): [number, number][] {
   return [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
@@ -57,7 +64,7 @@ function facadeOf(mesh: CityMesh, i: number): [number, number, number, number] {
 function metricsOf(mesh: CityMesh): { levels: number; floorH: number; bay: number } {
   for (let i = 0; i < mesh.facade.length / 4; i++) {
     const f = facadeOf(mesh, i);
-    if (f[0] === 0 && Math.abs(f[3]) > 0.5) return { levels: f[1], floorH: f[2], bay: f[3] };
+    if (f[0] === 0 && Math.abs(f[3]) > 0.5) return { levels: f[1], floorH: f[2], bay: Math.abs(f[3]) };
   }
   throw new Error('no wall with windows');
 }
@@ -65,14 +72,14 @@ function metricsOf(mesh: CityMesh): { levels: number; floorH: number; bay: numbe
 const frac = (x: number): number => x - Math.floor(x);
 
 function shaderFractions(wall: number, shops: boolean, row: number): { lo: number; hi: number; x0: number; x1: number } {
-  let lo = 0.28, hi = 0.78, x0 = 0.22, x1 = 0.78;
   const historic = wall >= MAT.WALL_HISTORIC && wall <= MAT.WALL_HISTORIC_CREAM;
-  if (historic || wall === MAT.WALL_STALIN) { lo = 0.18; hi = 0.84; x0 = 0.28; x1 = 0.72; }
-  if (wall === MAT.WALL_KHRUSH) { lo = 0.32; hi = 0.72; x0 = 0.18; x1 = 0.82; }
-  if (wall === MAT.WALL_PANEL) { lo = 0.30; hi = 0.74; x0 = 0.16; x1 = 0.84; }
-  if (shops && row === 0) { lo = 0.12; hi = 0.92; x0 = 0.08; x1 = 0.92; }
-  if (wall === MAT.WALL_MODERN) { x0 = 0.06; x1 = 0.94; lo = 0.22; hi = 0.78; }
-  return { lo, hi, x0, x1 };
+  let f: { readonly lo: number; readonly hi: number; readonly x0: number; readonly x1: number } = WINDOW_FRACTIONS.default;
+  if (historic || wall === MAT.WALL_STALIN) f = WINDOW_FRACTIONS.historic;
+  if (wall === MAT.WALL_KHRUSH) f = WINDOW_FRACTIONS.khrush;
+  if (wall === MAT.WALL_PANEL) f = WINDOW_FRACTIONS.panel;
+  if (shops && row === 0) f = WINDOW_FRACTIONS.shop;
+  if (wall === MAT.WALL_MODERN) f = WINDOW_FRACTIONS.modern;
+  return f;
 }
 
 describe('near-LOD triangle budgets', () => {
@@ -271,6 +278,30 @@ describe('near-LOD bounds', () => {
 });
 
 describe('near-LOD entrances and balconies', () => {
+  it('keeps a window behind a slab-only balcony', () => {
+    const b = building({ id: 1 });
+    const mesh = near(b);
+    const m = metricsOf(mesh);
+    const f = shaderFractions(MAT.WALL_KHRUSH, false, 2);
+    const u0 = 1 * m.bay + f.x0 * m.bay;
+    const u1 = 1 * m.bay + f.x1 * m.bay;
+    const v0 = 2 * m.floorH + f.lo * m.floorH;
+    const v1 = 2 * m.floorH + f.hi * m.floorH;
+    let found = false;
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      const i0 = mesh.indices[t]!;
+      const i1 = mesh.indices[t + 1]!;
+      const i2 = mesh.indices[t + 2]!;
+      if (facadeOf(mesh, i0)[0] !== 5) continue;
+      const u = (mesh.uvs[i0 * 2]! + mesh.uvs[i1 * 2]! + mesh.uvs[i2 * 2]!) / 3;
+      const v = (mesh.uvs[i0 * 2 + 1]! + mesh.uvs[i1 * 2 + 1]! + mesh.uvs[i2 * 2 + 1]!) / 3;
+      const z = (vert(mesh, i0)[2] + vert(mesh, i1)[2] + vert(mesh, i2)[2]) / 3;
+      if (z > 11.5 && z < 12.1 && u >= u0 && u <= u1 && v >= v0 && v <= v1) found = true;
+    }
+    expect(balconyVariant(b.id, 1, 2)).toBe('none');
+    expect(found).toBe(true);
+  });
+
   it('puts the entrance on the long edge nearest a road and balconies opposite', () => {
     const mesh = near(building());
     let doorVertices = 0;
@@ -326,5 +357,85 @@ describe('near colour helpers', () => {
       break;
     }
     expect(found).toBe(true);
+  });
+});
+
+describe('mesh streamer retries and hidden-set reloads', () => {
+  class StubWorker {
+    onmessage: ((e: MessageEvent<CityMeshResponse>) => void) | null = null;
+    readonly requests: CityMeshRequest[] = [];
+    readonly hidden: string[][] = [];
+
+    postMessage(message: unknown): void {
+      const m = message as CityMeshRequest & { type?: string; keys?: string[] };
+      if (m.type === 'hidden') { this.hidden.push(m.keys ?? []); return; }
+      this.requests.push(m);
+    }
+
+    terminate(): void {}
+
+    respond(index: number, body: Partial<CityMeshResponse>): void {
+      const id = this.requests[index]!.id;
+      this.onmessage?.({ data: { id, ...body } } as MessageEvent<CityMeshResponse>);
+    }
+  }
+
+  function makeStreamer(worker: StubWorker): MeshStreamer {
+    const scene = new THREE.Scene();
+    const coarse = {
+      regionData: () => null,
+      peekRegion: () => null,
+      setStructuresHidden: () => {},
+    } as unknown as WorldStreamer;
+    const manifest: Manifest = {
+      version: 1, voxel: 1, chunk: 64, region: 512, regionsX: 1, regionsZ: 1,
+      bbox: { south: 0, west: 0, north: 512, east: 512 }, regions: {}, spawn: [10, 10],
+    };
+    const streamer = new MeshStreamer(scene, coarse, manifest, {
+      radius: 1, castShadow: false, workers: 1,
+      workerFactory: () => worker as unknown as Worker,
+    });
+    // Pretend the single region tile is an empty tile (no fetch).
+    (streamer as unknown as { tiles: Map<number, unknown> }).tiles.set(regionKey(0, 0), {
+      rx: 0, rz: 0, key: regionKey(0, 0), state: 'none', buffer: null,
+      sentMask: 0, lastUsed: 0, failedAt: 0,
+    });
+    return streamer;
+  }
+
+  it('does not resend a failed job until the next recompute', () => {
+    const worker = new StubWorker();
+    const streamer = makeStreamer(worker);
+    streamer.update(10, 10);
+    expect(worker.requests).toHaveLength(1);
+
+    worker.respond(0, { error: 'deterministic failure' });
+    expect(worker.requests).toHaveLength(1); // no hot retry
+
+    const internals = streamer as unknown as { recompute(): void; pump(): void };
+    internals.recompute();
+    internals.pump();
+    expect(worker.requests).toHaveLength(2); // exactly one retry per recompute
+
+    worker.respond(1, { error: 'deterministic failure' });
+    expect(worker.requests).toHaveLength(2);
+    streamer.dispose();
+  });
+
+  it('rebuilds a chunk whose first job was in flight when the hidden set changed', () => {
+    const worker = new StubWorker();
+    const streamer = makeStreamer(worker);
+    streamer.update(10, 10);
+    expect(worker.requests).toHaveLength(1);
+
+    streamer.setHiddenBuildings(new Set(['w1']));
+    expect(worker.hidden).toHaveLength(1);
+    // The first job finishes with the old hidden set (and an otherwise empty mesh).
+    worker.respond(0, { indices: new Uint32Array(0) });
+    expect(worker.requests).toHaveLength(2);
+
+    worker.respond(1, { indices: new Uint32Array(0) });
+    expect(worker.requests).toHaveLength(2);
+    streamer.dispose();
   });
 });

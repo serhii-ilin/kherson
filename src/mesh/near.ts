@@ -49,6 +49,47 @@ const EPS = 1e-4;
 
 interface Frac { lo: number; hi: number; x0: number; x1: number }
 
+/**
+ * Window fractions on the facade shader's world-space grid. Keep in step with
+ * `src/mesh/facade.ts` `FRAG_COLOR`: lo/hi are the vertical window band inside a storey,
+ * x0/x1 the horizontal band inside a bay. `shop` is the ground-floor override for shop styles,
+ * `modern` the glazed-band override.
+ */
+export const WINDOW_FRACTIONS = {
+  default: { lo: 0.28, hi: 0.78, x0: 0.22, x1: 0.78 },
+  historic: { lo: 0.18, hi: 0.84, x0: 0.28, x1: 0.72 },
+  khrush: { lo: 0.32, hi: 0.72, x0: 0.18, x1: 0.82 },
+  panel: { lo: 0.30, hi: 0.74, x0: 0.16, x1: 0.84 },
+  shop: { lo: 0.12, hi: 0.92, x0: 0.08, x1: 0.92 },
+  modern: { lo: 0.22, hi: 0.78, x0: 0.06, x1: 0.94 },
+} as const;
+
+/** The shader's per-style window fractions, including the shop override (see `WINDOW_FRACTIONS`). */
+export function windowFractions(wall: number, shops: boolean, row: number): Frac {
+  const historic = wall >= MAT.WALL_HISTORIC && wall <= MAT.WALL_HISTORIC_CREAM;
+  const khrush = wall === MAT.WALL_KHRUSH;
+  const panel = wall === MAT.WALL_PANEL;
+  const stalin = wall === MAT.WALL_STALIN;
+  const modern = wall === MAT.WALL_MODERN;
+  let f: Frac = WINDOW_FRACTIONS.default;
+  if (historic || stalin) f = WINDOW_FRACTIONS.historic;
+  if (khrush) f = WINDOW_FRACTIONS.khrush;
+  if (panel) f = WINDOW_FRACTIONS.panel;
+  if (shops && row === 0) f = WINDOW_FRACTIONS.shop;
+  if (modern) f = WINDOW_FRACTIONS.modern;
+  return f;
+}
+
+export type BalconyVariant = 'open' | 'glazed' | 'none';
+
+/** Deterministic ad-hoc balcony front mix: 45% open, 45% glazed, 10% slab only. */
+export function balconyVariant(id: number, bay: number, row: number): BalconyVariant {
+  const h = hash(id, Math.imul(bay, 131) + row * 17) % 100;
+  if (h < 45) return 'open';
+  if (h < 90) return 'glazed';
+  return 'none';
+}
+
 type OpeningKind = 'window' | 'shop' | 'door' | 'stair';
 
 interface Opening {
@@ -70,25 +111,6 @@ interface Opening {
 
 function scale(c: readonly [number, number, number], s: number): Colour {
   return [c[0] * s, c[1] * s, c[2] * s];
-}
-
-/** The shader's per-style window fractions (`facade.ts` FRAG_COLOR), including the shop override. */
-function fractions(wall: number, shops: boolean, row: number): Frac {
-  let lo = 0.28;
-  let hi = 0.78;
-  let x0 = 0.22;
-  let x1 = 0.78;
-  const historic = wall >= MAT.WALL_HISTORIC && wall <= MAT.WALL_HISTORIC_CREAM;
-  const khrush = wall === MAT.WALL_KHRUSH;
-  const panel = wall === MAT.WALL_PANEL;
-  const stalin = wall === MAT.WALL_STALIN;
-  const modern = wall === MAT.WALL_MODERN;
-  if (historic || stalin) { lo = 0.18; hi = 0.84; x0 = 0.28; x1 = 0.72; }
-  if (khrush) { lo = 0.32; hi = 0.72; x0 = 0.18; x1 = 0.82; }
-  if (panel) { lo = 0.30; hi = 0.74; x0 = 0.16; x1 = 0.84; }
-  if (shops && row === 0) { lo = 0.12; hi = 0.92; x0 = 0.08; x1 = 0.92; }
-  if (modern) { x0 = 0.06; x1 = 0.94; lo = 0.22; hi = 0.78; }
-  return { lo, hi, x0, x1 };
 }
 
 /** Frames: 70% white, 15% brown, 15% blue, hashed per bay and row (deterministic, Article 2.3). */
@@ -340,7 +362,7 @@ function emitOpening(
     [[o.u1, o.v0], [o.u1, o.v1], [o.u1, o.v1], [o.u1, o.v0]], [-tx, 0, -tz], dark, fWall, wallStyle, wallPbr);
   addQuad(b, pointAt(e, d0, y1, 0), pointAt(e, d1, y1, 0), pointAt(e, d1, y1, -depth), pointAt(e, d0, y1, -depth),
     [[o.u0, o.v1], [o.u1, o.v1], [o.u1, o.v1], [o.u0, o.v1]], [0, -1, 0], dark, fWall, wallStyle, wallPbr);
-  if (o.kind !== 'door') {
+  if (o.kind !== 'door' && !o.sill) {
     addQuad(b, pointAt(e, d0, y0, 0), pointAt(e, d1, y0, 0), pointAt(e, d1, y0, -depth), pointAt(e, d0, y0, -depth),
       [[o.u0, o.v0], [o.u1, o.v0], [o.u1, o.v0], [o.u0, o.v0]], [0, 1, 0], dark, fWall, wallStyle, wallPbr);
   }
@@ -359,10 +381,12 @@ function emitOpening(
     const out = 0.06;
     const thick = 0.05;
     const su = [[o.u0, o.v0], [o.u1, o.v0], [o.u1, o.v0], [o.u0, o.v0]] as const;
-    addQuad(b, pointAt(e, d0, y0, 0), pointAt(e, d1, y0, 0), pointAt(e, d1, y0, out), pointAt(e, d0, y0, out),
+    addQuad(b, pointAt(e, d0, y0, -depth), pointAt(e, d1, y0, -depth), pointAt(e, d1, y0, out), pointAt(e, d0, y0, out),
       su, [0, 1, 0], trimColor, fTrim, wallStyle, trimPbr);
     addQuad(b, pointAt(e, d0, y0, out), pointAt(e, d1, y0, out), pointAt(e, d1, y0 - thick, out), pointAt(e, d0, y0 - thick, out),
       su, [e.nx, 0, e.nz], trimColor, fTrim, wallStyle, trimPbr);
+    addQuad(b, pointAt(e, d0, y0 - thick, 0), pointAt(e, d1, y0 - thick, 0), pointAt(e, d1, y0 - thick, out), pointAt(e, d0, y0 - thick, out),
+      su, [0, -1, 0], trimColor, fTrim, wallStyle, trimPbr);
   }
 
   if (o.frame) {
@@ -460,24 +484,20 @@ function emitBalcony(
     { front: true, bottom: true, top: true, ends: true });
 
   const h = hash(building.id, Math.imul(bayIndex, 131) + row * 17);
-  const variant = h % 100;
-  if (variant >= 90) return;
+  const variant = balconyVariant(building.id, bayIndex, row);
+  if (variant === 'none') return;
   const panelColour = scale(trimColor, 0.9 + ((h >>> 8) % 17) / 100);
-  // Solid lower panel, 1.0 m high, with closed ends.
-  addQuad(b, pointAt(e, d0, yTop, out), pointAt(e, d1, yTop, out), pointAt(e, d1, yTop + 1.0, out), pointAt(e, d0, yTop + 1.0, out),
-    [[cd, row], [cd, row], [cd, row], [cd, row]], [e.nx, 0, e.nz], panelColour, fTrim, wallStyle, trimPbr);
-  const [tx, tz] = unitXZ(e);
-  addQuad(b, pointAt(e, d0, yTop, out), pointAt(e, d0, yTop + 1.0, out), pointAt(e, d0, yTop + 1.0, out - 0.08), pointAt(e, d0, yTop, out - 0.08),
-    [[cd, row], [cd, row], [cd, row], [cd, row]], [-tx, 0, -tz], panelColour, fTrim, wallStyle, trimPbr);
-  addQuad(b, pointAt(e, d1, yTop, out), pointAt(e, d1, yTop + 1.0, out), pointAt(e, d1, yTop + 1.0, out - 0.08), pointAt(e, d1, yTop, out - 0.08),
-    [[cd, row], [cd, row], [cd, row], [cd, row]], [tx, 0, tz], panelColour, fTrim, wallStyle, trimPbr);
+  // Solid lower panel, 1.0 m high: a closed 0.08 m box on the balcony front.
+  addBoxFaces(b, e, d0, d1, yTop, yTop + 1.0, out - 0.08, out, panelColour, fTrim, wallStyle, trimPbr,
+    { front: true, back: true, top: true, bottom: true, ends: true });
 
   const fc = frameColour(building.id, bayIndex, row);
   const cu = bayIndex * bay + bay / 2;
   const cv = row * facade.floorH + (0.5 * facade.floorH);
   const uv: [number, number] = [cu, cv];
   const uvs = [uv, uv, uv, uv] as const;
-  if (variant < 45) {
+  const [tx, tz] = unitXZ(e);
+  if (variant === 'open') {
     // Open: rail bar only.
     addQuad(b, pointAt(e, d0, yTop + 1.0, out), pointAt(e, d1, yTop + 1.0, out),
       pointAt(e, d1, yTop + 0.94, out), pointAt(e, d0, yTop + 0.94, out),
@@ -508,7 +528,6 @@ export function addNearParapet(
   const f: [number, number, number, number] = [2 /* PART_PARAPET */, 0, 0, 0];
   for (const e of edges) {
     if (!outerEdge(outer, e)) continue;
-    const [tx, tz] = unitXZ(e);
     const off = 0.25;
     addQuad(b, pointAt(e, 0, eave, 0), pointAt(e, e.len, eave, 0), pointAt(e, e.len, top, 0), pointAt(e, 0, top, 0),
       [[0, eave - floorBase], [e.len, eave - floorBase], [e.len, top - floorBase], [0, top - floorBase]],
@@ -518,11 +537,6 @@ export function addNearParapet(
       [-e.nx, 0, -e.nz], wallColor, f, wall, wallPbr);
     addQuad(b, pointAt(e, 0, top, 0), pointAt(e, e.len, top, 0), pointAt(e, e.len, top, -off), pointAt(e, 0, top, -off),
       [[0, 0], [e.len, 0], [e.len, off], [0, off]], [0, 1, 0], wallColor, f, wall, wallPbr);
-    // Close the two box ends at the parapet corners.
-    addQuad(b, pointAt(e, 0, eave, 0), pointAt(e, 0, top, 0), pointAt(e, 0, top, -off), pointAt(e, 0, eave, -off),
-      [[0, 0], [0, 1], [off, 1], [off, 0]], [-tx, 0, -tz], wallColor, f, wall, wallPbr);
-    addQuad(b, pointAt(e, e.len, eave, 0), pointAt(e, e.len, top, 0), pointAt(e, e.len, top, -off), pointAt(e, e.len, eave, -off),
-      [[0, 0], [0, 1], [off, 1], [off, 0]], [tx, 0, tz], wallColor, f, wall, wallPbr);
   }
 }
 
@@ -542,6 +556,9 @@ function addCourses(
     addQuad(b, pointAt(e, 0, py1, 0), pointAt(e, e.len, py1, 0),
       pointAt(e, e.len, py1, 0.06), pointAt(e, 0, py1, 0.06),
       [[0, 0], [e.len, 0], [e.len, 0.06], [0, 0.06]], [0, 1, 0], trimColor, fTrim, wallStyle, trimPbr);
+    addQuad(b, pointAt(e, 0, py0, 0), pointAt(e, e.len, py0, 0),
+      pointAt(e, e.len, py0, 0.06), pointAt(e, 0, py0, 0.06),
+      [[0, 0], [e.len, 0], [e.len, 0.06], [0, 0.06]], [0, -1, 0], trimColor, fTrim, wallStyle, trimPbr);
 
     // Cornice: three stepped boxes at the eave (0.12 / 0.24 / 0.36 m, 0.15 m high each).
     for (let s = 0; s < 3; s++) {
@@ -555,6 +572,9 @@ function addCourses(
       addQuad(b, pointAt(e, 0, yt, off - 0.12), pointAt(e, e.len, yt, off - 0.12),
         pointAt(e, e.len, yt, off), pointAt(e, 0, yt, off),
         [[0, 0], [e.len, 0], [e.len, 0.12], [0, 0.12]], [0, 1, 0], trimColor, fTrim, wallStyle, trimPbr);
+      addQuad(b, pointAt(e, 0, yb, off - 0.12), pointAt(e, e.len, yb, off - 0.12),
+        pointAt(e, e.len, yb, off), pointAt(e, 0, yb, off),
+        [[0, 0], [e.len, 0], [e.len, 0.12], [0, 0.12]], [0, -1, 0], trimColor, fTrim, wallStyle, trimPbr);
     }
   }
 }
@@ -589,10 +609,10 @@ export function addNearDetail(b: Builder, input: NearDetailInput): void {
     const rows: Opening[][] = [];
     for (let r = 0; r < levels; r++) rows.push([]);
     if (enabled) {
-      const frac = fractions(wall, shops, 0);
+      const frac = windowFractions(wall, shops, 0);
       const [k0, k1] = bayRange(e.len, bay, uShift);
       for (let row = 0; row < levels; row++) {
-        const rowFrac = fractions(wall, shops, row);
+        const rowFrac = windowFractions(wall, shops, row);
         const rowY = row * fh;
         const shop = shops && row === 0;
         const v0 = rowY + (shop ? frac.lo : rowFrac.lo) * fh;
@@ -604,7 +624,9 @@ export function addNearDetail(b: Builder, input: NearDetailInput): void {
           let u0 = k * bay + rowFrac.x0 * bay;
           let u1 = k * bay + rowFrac.x1 * bay;
           let kind: OpeningKind = shop ? 'shop' : 'window';
-          let frame = !shop && !historic;
+          // The thin cross on the top storey is not resolvable from the street; skipping it keeps
+          // the near-LOD triangle budget while every visible lower window keeps its frame.
+          let frame = !shop && !historic && row < levels - 1;
           let sill = !shop;
           let surround = !shop && historic;
           let arch = !shop && historic && row >= 1;
@@ -615,7 +637,8 @@ export function addNearDetail(b: Builder, input: NearDetailInput): void {
             kind = 'stair';
             frame = false;
             sill = false;
-          } else if (isBalcony && row >= 1 && balBays.includes(k)) {
+          } else if (isBalcony && row >= 1 && balBays.includes(k)
+            && balconyVariant(building.id, k, row) !== 'none') {
             continue; // the balcony front covers this window
           }
           const d0 = u0 - uShift;
@@ -645,8 +668,13 @@ export function addNearDetail(b: Builder, input: NearDetailInput): void {
     if (floorBase - y0 > EPS) {
       wallQuad(b, e, uShift, floorBase, facade, blank ? 0 : faceBay, 0, e.len, y0 - floorBase, 0, wallColor, wallStyle, wallPbr);
     }
-    for (let row = 0; row < levels; row++) {
-      wallRow(b, e, uShift, floorBase, facade, blank ? 0 : faceBay, row, rows[row]!, wallColor, wallStyle, wallPbr);
+    if (blank) {
+      // A whole blank gable wall is one quad, not one per storey.
+      wallQuad(b, e, uShift, floorBase, facade, 0, 0, e.len, 0, bodyH, wallColor, wallStyle, wallPbr);
+    } else {
+      for (let row = 0; row < levels; row++) {
+        wallRow(b, e, uShift, floorBase, facade, faceBay, row, rows[row]!, wallColor, wallStyle, wallPbr);
+      }
     }
 
     for (const row of rows) {
