@@ -118,6 +118,7 @@ tools/
 tests/                  Vitest unit tests
 docs/DEPLOYMENT.md      build, deploy and data-refresh guide
 docs/REALISM_PLAN.md    realism and 10× resolution roadmap
+docs/BUILDINGS_PLAN.md  realistic pre-war buildings and roads
 docs/PROGRESS.md        progress tracker: phases, open tasks, issues
 CONSTITUTION.md         project principles, budgets and working rules
 ```
@@ -130,6 +131,7 @@ CONSTITUTION.md         project principles, budgets and working rules
 - [Realism plan](docs/REALISM_PLAN.md): roadmap for lighting, facades, streets and 0.2 m near-camera detail.
 - [Requirements](docs/REQUIREMENTS.md): structured requirements (vision, performance, data, realism) and open decisions.
 - [Rendering architecture](docs/adr/0001-rendering-architecture.md): why the city becomes mesh levels of detail, and the pull requests that delete the voxel buildings.
+- [Buildings plan](docs/BUILDINGS_PLAN.md) and [ADR 0002](docs/adr/0002-realistic-buildings.md): realistic pre-war buildings and roads, from CC0 materials to hero models of the well-known areas.
 
 ## Data and attribution
 

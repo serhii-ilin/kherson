@@ -30,6 +30,7 @@ _Last updated: 2026-11-06_
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
 | Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | ✅ | `078cd08`…`2648062` |
 | Kherson trees: 15 species with a surveyed mix, branch skeletons, leaf clumps, per-species leaf and bark textures, translucency, whitewashed street trunks ([TREES.md](TREES.md)) | ✅ | `c0fbeda`, `daf4584`, `a3763a1`, `1c2ab10`, (this commit) |
+| Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md), [ADR 0002](adr/0002-realistic-buildings.md)): CC0 PBR materials, near-LOD facades, road surfaces and detail, mid-distance road ribbons, facade descriptors for Ushakova and Suvorova, hero models for the four well-known areas | 🟡 Step 0 | `c47b75c` |
 
 ## Kherson trees
 
@@ -168,7 +169,7 @@ Both poses stay inside the constitution caps (about 2.5M triangles and 400 draws
 
 ### Next
 
-- Hero landmarks as photo-based glTF (Meshopt/KTX2), starting with Hotel «Фрегат» way 116810729.
+- Hero landmarks: superseded by [ADR 0002](adr/0002-realistic-buildings.md) (parametric models with photo textures).
 - Freeze a pre-war OSM extract around 2022-02-01 and keep it in a GitHub Release, with the committed gzip as the small cache.
 - Bring street props and shop signs back in the mesh neighbourhood (they are generated with the block tier today).
 - Re-measure on a laptop before extending the meshes past this neighbourhood, and amend Article 4 only if a real device exceeds a budget.
@@ -176,7 +177,14 @@ Both poses stay inside the constitution caps (about 2.5M triangles and 400 draws
 ## Open tasks
 
 ### Next
-- ⬜ Hero landmarks as photo-based glTF, starting with Hotel «Фрегат» (way 116810729). Then the far skyline, collision and the overview off voxel columns, then delete the voxel renderer.
+- 🟡 Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md)). Heroes are parametric models with photo textures, not glTF ([ADR 0002](adr/0002-realistic-buildings.md)).
+  - ✅ Constitution amendment 7: ≤ 15 MB asset budget, CC-BY-SA facade photos (`c47b75c`)
+  - 🟡 Step 0: ADR 0002, this plan, shared contracts (vector tile v3, ground ids 64+, PBR layers, landmark `replaces`, facade descriptors)
+  - ⬜ Wave 1: A material tools and CC0 assets · B runtime PBR library · C bake v3 fields · D hero research briefs (Opus)
+  - ⬜ Wave 2: E1 near-LOD geometry · E2 building shading · F1 road surfaces and detail · F2 road shading · H architectural kit and hero plumbing
+  - ⬜ Wave 3: G mid-distance road ribbons · K facade-descriptor builder · P photo facade pipeline and credits panel
+  - ⬜ Heroes: embankment (Фрегат #32, Річморвокзал, Зелений театр) → Freedom Square (administration, court, «Україна») → Fortress (Catherine's Cathedral, Ochakiv Gate, Art Museum, Greek-Sofia, Assumption, museum, drama theatre) → Ushakova and Suvorova descriptors
+- ⬜ The far skyline, collision and the overview off voxel columns, then delete the voxel renderer (ADR 0001 phases 3–5).
 - ⬜ High-realism landmark spots: the Pier / embankment («Пірс-Набережна») and Freedom Square («Площа Свободи»). Close reconstruction from pre-war photos and panoramas only (2000–2020, nothing after 24 Feb 2022), with more detail than the rest of the city.
   - ✅ Research briefs (pre-war sources, OSM anchors, dimensions, materials): [pier](landmarks/pier.md), [Freedom Square](landmarks/freedom-square.md).
   - ✅ Landmark detail layer, first pass (see Done).
@@ -197,7 +205,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 28 | P3 | The Ushakova embankment is not in the Places menu | add it to the bake's landmark list and re-bake `public/world` |
 | 29 | P3 | Tree rows between Freedom Square and the administration came from OSM `tree_row` ways drawn after 2022 | the 2022-01-01 snapshot has 14 `tree_row` ways, none with id > 1e9 (was 798, of which 789 had id > 1e9). Owner to confirm the square in the browser |
 | 30 | P3 | Thin grass slivers remain at the edges of Freedom Square's paving; its pavers are in the plain opaque mesh, so the fine ground (polygonOffset −1/−4) can also show through them at grazing angles, as it did on the embankment | clip edge pavers to the polygon; move the pavers to the `paving` mesh kind |
-| 32 | P3 | Hotel «Фрегат» (owner's photo) still has the generic tower facade: no sail-shaped crown on the stair tower, no yellow balcony bands | landmark-style facade override for way 116810729 |
+| 32 | P3 | Hotel «Фрегат» (owner's photo) still has the generic tower facade: no sail-shaped crown on the stair tower, no yellow balcony bands | first hero of the realistic-buildings plan (embankment wave) |
 | 33 | P3 | Embankment pavers are 1.5 m slabs; the photos show small grey-beige cobbles (a 0.5 m grid would be ~3× the 129k triangles) | texture or shader pattern instead of geometry |
 | 34 | P3 | The stacked-timber monument from the owner's photos is not modelled: its spot on the embankment is not mapped | owner to point at it on the map |
 | 31 | P3 | Storeys are still guessed for ~70% of buildings (no open per-building height source covers Kherson, see [HEIGHT_SOURCES.md](HEIGHT_SOURCES.md)); short blocks (< 35 m) stay 3 storeys | add building:levels in OSM for known blocks; re-bake |
