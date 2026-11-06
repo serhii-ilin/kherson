@@ -16,9 +16,9 @@ import { CHUNK, REGION_CHUNKS } from '../world/constants.ts';
 import { CHUNK_M, chunkKey, neededChunks, regionKey, type ChunkRef } from '../world/stream-math.ts';
 import type { WorldStreamer } from '../world/streamer.ts';
 import { versioned } from '../version.ts';
-import { MESH_KEEP } from './bounds.ts';
+import { MESH_KEEP, chunkLod, type MeshLod } from './bounds.ts';
 import { createFacadeMaterial } from './facade.ts';
-import type { CityMeshRequest, CityMeshResponse, MeshTileRef } from './protocol.ts';
+import type { CityMeshHidden, CityMeshRequest, CityMeshResponse, MeshTileRef } from './protocol.ts';
 
 const MAX_TILES = 48;
 const MAX_FETCHES = 4;
@@ -51,6 +51,12 @@ interface MChunk {
   /** The worker has returned and voxel buildings for this chunk may be hidden. */
   ready: boolean;
   disposed: boolean;
+  /** Detail level of the installed slot; null while the first result is in flight. */
+  lod: MeshLod | null;
+  /** Detail level of the job in flight, or null. */
+  pending: MeshLod | null;
+  /** Rebuild the installed chunk even though its LOD has not changed (hidden set changed). */
+  reload: boolean;
 }
 
 interface Job {
@@ -58,6 +64,7 @@ interface Job {
   chunk: MChunk;
   worker: number;
   tiles: Tile[];
+  lod: MeshLod;
 }
 
 export interface MeshStreamerOptions {
@@ -65,6 +72,8 @@ export interface MeshStreamerOptions {
   radius: number;
   /** When false, meshes are built but do not cast shadows (Low quality). */
   castShadow: boolean;
+  /** Metres. Near LOD with real openings; 0 disables it (default). */
+  nearRadius?: number;
   workers?: number;
 }
 
@@ -98,9 +107,12 @@ export class MeshStreamer {
   private waiting = false;
   private lastTry = 0;
   private readonly radius: number;
+  private readonly nearRadius: number;
   private meshCount = 0;
   private triCount = 0;
   private byteCount = 0;
+  private nearCount = 0;
+  private nearTriCount = 0;
   private downloadBytes = 0;
 
   constructor(scene: THREE.Scene, coarse: WorldStreamer, manifest: Manifest, opts: MeshStreamerOptions) {
@@ -108,6 +120,7 @@ export class MeshStreamer {
     this.coarse = coarse;
     this.manifest = manifest;
     this.radius = opts.radius;
+    this.nearRadius = opts.nearRadius ?? 0;
     this.material = createFacadeMaterial();
     // A 640 m view is on the order of 150k vertices (about 40 triangles and ~6 KB per building).
     // ChunkBatch grows if a dense view exceeds this. Staying near 200k vertices keeps the
@@ -127,6 +140,10 @@ export class MeshStreamer {
   get chunkCount(): number { return this.meshCount; }
   get inflightJobs(): number { return this.inflight; }
   get triangles(): number { return this.triCount; }
+  /** Installed chunks built at the near LOD. */
+  get nearChunks(): number { return this.nearCount; }
+  /** Triangles of the installed near-LOD chunks. */
+  get nearTriangles(): number { return this.nearTriCount; }
   /** Vertex and index buffers of the installed meshes. */
   get gpuBytes(): number { return this.byteCount; }
   /** Bytes of vector tiles this streamer has fetched (the fine tier may fetch the same files). */
@@ -139,10 +156,29 @@ export class MeshStreamer {
   get isSettled(): boolean {
     if (this.inflight > 0 || this.fetchActive > 0) return false;
     for (const ref of this.need) {
-      if (this.chunks.has(chunkKey(ref.gcx, ref.gcz))) continue;
-      if (this.regionsReady(ref.gcx, ref.gcz)) return false;
+      const chunk = this.chunks.get(chunkKey(ref.gcx, ref.gcz));
+      if (chunk === undefined) {
+        if (this.regionsReady(ref.gcx, ref.gcz)) return false;
+        continue;
+      }
+      if (chunk.pending !== null || chunk.reload || chunk.lod === null) return false;
+      if (chunkLod(ref.dist, chunk.lod, this.nearRadius) !== chunk.lod) return false;
     }
     return this.need.length > 0;
+  }
+
+  /**
+   * Replaces the hidden-building set (landmarks / facade descriptors) in every worker and rebuilds
+   * the installed chunks. Rare call; the old slots stay visible until each new result arrives.
+   */
+  setHiddenBuildings(keys: ReadonlySet<string>): void {
+    const list = [...keys];
+    for (const w of this.workers) w.postMessage({ type: 'hidden', keys: list } satisfies CityMeshHidden);
+    for (const chunk of this.chunks.values()) {
+      if (chunk.lod !== null) chunk.reload = true;
+    }
+    this.dirty = true;
+    this.pump();
   }
 
   update(x: number, z: number): void {
@@ -195,18 +231,39 @@ export class MeshStreamer {
     this.lastTry = performance.now();
     this.tick++;
     const maxJobs = this.workers.length * MAX_JOBS;
-    for (const ref of this.need) {
-      const key = chunkKey(ref.gcx, ref.gcz);
-      if (this.chunks.has(key)) continue;
-      if (this.inflight >= maxJobs) { this.waiting = true; return; }
-      const prepared = this.prepare(ref.gcx, ref.gcz);
-      if (prepared === 'full') { this.waiting = true; return; }
-      if (prepared === null) { this.waiting = true; continue; }
-      const chunk: MChunk = {
-        key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0, hidden: false, ready: false, disposed: false,
-      };
-      this.chunks.set(key, chunk);
-      this.send({ id: this.nextJobId++, chunk, worker: prepared.worker, tiles: prepared.tiles }, prepared.ground, false);
+    // Near jobs go first; mid chunks and mid→near or near→mid swaps follow.
+    for (const pass of ['near', 'mid'] as const) {
+      for (const ref of this.need) {
+        const key = chunkKey(ref.gcx, ref.gcz);
+        const chunk = this.chunks.get(key);
+        if (chunk !== undefined && chunk.pending !== null) continue;
+        const desired = chunk === undefined
+          ? chunkLod(ref.dist, null, this.nearRadius)
+          : chunk.reload
+            ? chunk.lod
+            : chunkLod(ref.dist, chunk.lod, this.nearRadius);
+        if (desired === null || desired !== pass) continue;
+        if (chunk !== undefined && chunk.lod === null) continue;
+        if (chunk !== undefined && !chunk.reload && desired === chunk.lod) continue;
+        if (this.inflight >= maxJobs) { this.waiting = true; return; }
+        const prepared = this.prepare(ref.gcx, ref.gcz);
+        if (prepared === 'full') { this.waiting = true; return; }
+        if (prepared === null) { this.waiting = true; continue; }
+        let target = chunk;
+        if (target === undefined) {
+          target = {
+            key, gcx: ref.gcx, gcz: ref.gcz, slot: null, tris: 0, bytes: 0,
+            hidden: false, ready: false, disposed: false, lod: null, pending: desired, reload: false,
+          };
+          this.chunks.set(key, target);
+        } else {
+          target.reload = false;
+          target.pending = desired;
+        }
+        this.send({
+          id: this.nextJobId++, chunk: target, worker: prepared.worker, tiles: prepared.tiles, lod: desired,
+        }, prepared.ground, false);
+      }
     }
   }
 
@@ -264,7 +321,9 @@ export class MeshStreamer {
         t.sentMask |= 1 << job.worker;
       }
     }
-    const req: CityMeshRequest = { id: job.id, gcx: job.chunk.gcx, gcz: job.chunk.gcz, ground, tiles: refs };
+    const req: CityMeshRequest = {
+      id: job.id, gcx: job.chunk.gcx, gcz: job.chunk.gcz, ground, tiles: refs, lod: job.lod,
+    };
     this.jobs.set(job.id, job);
     this.workerLoad[job.worker]!++;
     this.inflight++;
@@ -286,21 +345,36 @@ export class MeshStreamer {
         this.send(job, again.ground, true);
         return;
       }
-      if (this.chunks.get(chunk.key) === chunk) this.chunks.delete(chunk.key);
-      chunk.disposed = true;
+      if (this.chunks.get(chunk.key) === chunk) {
+        this.chunks.delete(chunk.key);
+        this.drop(chunk);
+      } else {
+        chunk.disposed = true;
+      }
     } else if (msg.indices !== undefined && msg.error === undefined) {
-      if (!chunk.disposed) this.install(chunk, msg);
+      if (!chunk.disposed) this.install(chunk, msg, job.lod);
     } else {
       console.warn(`city mesh ${chunk.gcx},${chunk.gcz} failed: ${msg.error ?? 'unknown'}`);
+      chunk.pending = null;
+      if (chunk.lod === null) chunk.lod = 'mid';
+      if (chunk.slot === null && this.chunks.get(chunk.key) === chunk) this.chunks.delete(chunk.key);
     }
     this.dirty = true;
     this.pump();
   }
 
-  private install(chunk: MChunk, msg: CityMeshResponse): void {
+  private install(chunk: MChunk, msg: CityMeshResponse, lod: MeshLod): void {
     const idx = msg.indices!;
-    if (idx.length > 0 && msg.positions && msg.normals && msg.uvs && msg.colors && msg.facade && msg.style) {
-      chunk.slot = this.batch.add({
+    const oldSlot = chunk.slot;
+    const oldTris = chunk.tris;
+    const oldBytes = chunk.bytes;
+    const oldLod = chunk.lod;
+    let newSlot: BatchSlot | null = null;
+    let newTris = 0;
+    let newBytes = 0;
+    if (idx.length > 0 && msg.positions && msg.normals && msg.uvs && msg.colors
+      && msg.facade && msg.style && msg.pbr) {
+      newSlot = this.batch.add({
         attrs: {
           position: [msg.positions, 3],
           normal: [msg.normals, 3],
@@ -308,16 +382,39 @@ export class MeshStreamer {
           aUvM: [msg.uvs, 2],
           aFacade: [msg.facade, 4],
           aStyle: [msg.style, 1],
+          aPbr: [msg.pbr, 1],
         },
         indices: idx,
       }, chunk.gcx * CHUNK_M, chunk.gcz * CHUNK_M);
-      chunk.tris = idx.length / 3;
-      chunk.bytes = msg.positions.byteLength + msg.normals.byteLength + msg.uvs.byteLength
-        + msg.colors.byteLength + msg.facade.byteLength + msg.style.byteLength + idx.byteLength;
-      this.triCount += chunk.tris;
-      this.byteCount += chunk.bytes;
-      this.meshCount++;
+      newTris = idx.length / 3;
+      newBytes = msg.positions.byteLength + msg.normals.byteLength + msg.uvs.byteLength
+        + msg.colors.byteLength + msg.facade.byteLength + msg.style.byteLength
+        + msg.pbr.byteLength + idx.byteLength;
     }
+    // The new slot is already installed, so removing the old one cannot leave a gap.
+    if (oldSlot !== null) {
+      this.batch.remove(oldSlot);
+      this.triCount -= oldTris;
+      this.byteCount -= oldBytes;
+      this.meshCount--;
+      if (oldLod === 'near') { this.nearCount--; this.nearTriCount -= oldTris; }
+    }
+    if (newSlot !== null) {
+      chunk.slot = newSlot;
+      chunk.tris = newTris;
+      chunk.bytes = newBytes;
+      this.triCount += newTris;
+      this.byteCount += newBytes;
+      this.meshCount++;
+      if (lod === 'near') { this.nearCount++; this.nearTriCount += newTris; }
+    } else {
+      chunk.slot = null;
+      chunk.tris = 0;
+      chunk.bytes = 0;
+    }
+    chunk.lod = lod;
+    chunk.pending = null;
+    chunk.reload = false;
     chunk.ready = true;
     if (!this.chunkHasBridge(chunk.gcx, chunk.gcz)) {
       this.coarse.setStructuresHidden(chunk.gcx, chunk.gcz, true);
@@ -363,11 +460,13 @@ export class MeshStreamer {
     }
     if (c.slot !== null) {
       this.batch.remove(c.slot);
-      c.slot = null;
       this.triCount -= c.tris;
       this.byteCount -= c.bytes;
       this.meshCount--;
+      if (c.lod === 'near') { this.nearCount--; this.nearTriCount -= c.tris; }
+      c.slot = null;
     }
+    c.pending = null;
   }
 
   private getTile(rx: number, rz: number): Tile | null {

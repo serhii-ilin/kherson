@@ -25,6 +25,27 @@ export function meshViewRadius(quality: 'high' | 'low', mobile: boolean): number
 /** Keep finished chunks this far past the radius so a small step does not rebuild them. */
 export const MESH_KEEP = 96;
 
+/**
+ * Near-LOD radius for real window / balcony geometry. 100 m on a desktop at High, 50 m on a
+ * phone at High, and 0 on Low (no near LOD; mid stays as before).
+ */
+export function meshNearRadius(quality: 'high' | 'low', mobile: boolean): number {
+  if (quality === 'low') return 0;
+  return mobile ? 50 : 100;
+}
+
+export type MeshLod = 'near' | 'mid';
+
+/**
+ * LOD of a chunk at its distance from the camera. Once near, it stays near until the chunk is
+ * 32 m past the near radius, so a chunk on the boundary does not flip on every step.
+ */
+export function chunkLod(dist: number, current: MeshLod | null, nearR: number): MeshLod {
+  if (nearR <= 0) return 'mid';
+  if (current === 'near') return dist <= nearR + 32 ? 'near' : 'mid';
+  return dist <= nearR ? 'near' : 'mid';
+}
+
 export interface Aabb {
   x0: number;
   z0: number;
