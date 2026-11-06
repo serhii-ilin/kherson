@@ -110,7 +110,7 @@ Primary target: **laptops**, including **integrated GPU**. Phones and desktops a
 | CA-04 | Assumption: GitHub Pages remains the host; serverless static delivery remains non-negotiable unless the constitution is amended. |
 | CA-05 | Assumption: “Pre-war” means latest verified appearance in ~2016–early 2022 after decommunization renames, without post-invasion damage. |
 | CA-06 | Assumption: Primary users are on **laptops**; phones and desktops must not be broken. |
-| CA-07 | Open: code licence still unset (`CONSTITUTION` Art. 8.3) — affects redistribution of derived textures (e.g. CC-BY-SA). |
+| CA-07 | Open: code licence still unset (`CONSTITUTION` Art. 8.4). CC-BY-SA facade textures keep their own licence (Art. 8.3). |
 
 ---
 
@@ -118,14 +118,14 @@ Primary target: **laptops**, including **integrated GPU**. Phones and desktops a
 
 | ID | Question | Needed from |
 |---|---|---|
-| OQ-01 | Renderer: stay on voxels, or move to a hybrid. **Decided 2026-11-01:** hybrid, for the whole city, not a centre box. Fabric is streamed OSM meshes (near detail, mid extrusion, far skyline). Memorable sites become photo-based glTF later (Meshopt/KTX2). The voxel buildings are deleted in a later PR, after collision no longer reads them. Record: [ADR 0001](adr/0001-rendering-architecture.md). The centre `?renderer=mesh` box is only the first slice. | Owner — decided |
+| OQ-01 | Renderer: stay on voxels, or move to a hybrid. **Decided 2026-11-01:** hybrid, for the whole city, not a centre box. Fabric is streamed OSM meshes (near detail, mid extrusion, far skyline). Memorable sites become photo-based glTF later (Meshopt/KTX2); superseded 2026-11-06 by [ADR 0002](adr/0002-realistic-buildings.md): parametric TypeScript heroes with WebP photo textures. The voxel buildings are deleted in a later PR, after collision no longer reads them. Record: [ADR 0001](adr/0001-rendering-architecture.md). The centre `?renderer=mesh` box is only the first slice. | Owner — decided |
 | OQ-02 | Bring Antonivskyi bridge / Karantynnyi back past the city cut? **Bridge decided** in the restoration pass: the road bridge (Q4067525) is included intact, with a 30 m corridor and 450 m of trunk approaches. The city polygon is not widened. The railway bridge (Q4067523) is not included. Karantynnyi island is still open. | Owner — bridge decided |
 | OQ-03 | Freedom Square tree_rows (post-2022 OSM ids) — exclude? **Decided** in the restoration pass: tree rows mapped after January 2022 stay. They were missing from the 2022-01-01 extract, not missing from the city. | Owner — decided |
 | OQ-04 | Phone default quality HQ vs LQ? | Owner |
 | OQ-05 | Choose a code licence. | Owner |
 | OQ-06 | Locations of timber monument (#34) and standing statue (#36). | Owner |
-| OQ-07 | Amend Art. 4 baked-world ≤30 MB if textured mesh streaming exceeds it. | Owner + measured spike |
-| OQ-08 | Acceptable use of CC-BY-SA Commons photos as baked texture sources given OQ-05. | Owner |
+| OQ-07 | Amend Art. 4 baked-world ≤30 MB if textured mesh streaming exceeds it. **Decided 2026-11-06:** a separate ≤15 MB budget for `public/assets/` (amendment 7); the baked world stays ≤30 MB. | Owner — decided |
+| OQ-08 | Acceptable use of CC-BY-SA Commons photos as baked texture sources given OQ-05. **Decided 2026-11-06:** allowed for photo-derived facade textures only, dated before 24 Feb 2022, credited in `docs/ASSET_CREDITS.md` and in the app (Art. 8.3). | Owner — decided |
 
 ---
 

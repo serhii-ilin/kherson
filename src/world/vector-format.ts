@@ -12,18 +12,25 @@
  *   strings:   varint count, then per string: varint byteLength, UTF-8 bytes
  *   buildings: varint count, then per building:
  *              u32 id, varint heightCm, varint minHeightCm, u8 levels, u8 wall, u8 roof, u8 roofShape,
+ *              u8 flags (bit 0 height heuristic, bits 1-2 OSM type: 0 way, 1 relation, 2 node),
+ *              [v3: varint colour, varint roofColour, u8 material, u8 roofMaterial, varint startYear],
  *              varint (name + 1), varint ringCount, rings
  *   roads:     varint count, then per road: u8 kind, u8 flags, varint widthCm, u8 lanes, s8 layer,
- *              varint (name + 1), polyline
+ *              [v3: u8 surface], varint (name + 1), polyline
  *   areas:     varint count, then per area: u8 mat, u8 prio, varint ringCount, rings
  *   lines:     varint count, then per line: u8 kind, varint heightCm (0 = unknown), polyline
  *   points:    varint count, then per point: u8 kind, u8 dir, zigzag-varint x, zigzag-varint z, varint (name + 1)
  * A ring or polyline is: varint pointCount, then the first point as zigzag varints (x, z) and each
  * following point as zigzag-varint deltas from the previous one. Rings are not closed (no repeated
  * first point); ring 0 is the outer ring, the rest are holes.
+ *
+ * Version 3 adds the bracketed fields. The decoder still reads version 2 (those fields are then
+ * absent), so a tile cached from an older deploy keeps working.
  */
 
-export const VECTOR_VERSION = 2;
+export const VECTOR_VERSION = 3;
+/** Oldest version `decodeVectorTile` accepts. */
+export const VECTOR_MIN_VERSION = 2;
 
 /** `VRoad.kind`: OSM highway class. */
 export const ROAD = {
@@ -54,6 +61,32 @@ export const ROAD_LIT = 8;
 export const ROAD_UNPAVED = 16;
 /** A `*_link` road. */
 export const ROAD_LINK = 32;
+/** Tram tracks run inside the carriageway (set into the road surface). */
+export const ROAD_TRAM_EMBEDDED = 64;
+/** The road has a cycle lane or track (`cycleway*=lane|track`). */
+export const ROAD_CYCLE = 128;
+
+/** `VRoad.surface` (v3): the OSM `surface` value. 0 = untagged (the renderer picks a class default). */
+export const SURFACE = {
+  UNKNOWN: 0,
+  ASPHALT: 1,
+  CONCRETE: 2,
+  /** `concrete:plates` / `concrete:lanes`. */
+  CONCRETE_PLATES: 3,
+  /** `paving_stones` (concrete pavers, "бетонна плитка"). */
+  PAVING_STONES: 4,
+  /** `sett` (cut granite setts, "бруківка"). */
+  SETT: 5,
+  /** `cobblestone` / `unhewn_cobblestone`. */
+  COBBLESTONE: 6,
+  COMPACTED: 7,
+  /** `gravel` / `fine_gravel` / `pebblestone`. */
+  GRAVEL: 8,
+  /** `dirt` / `ground` / `earth` / `mud` / `sand` / `grass` / `unpaved`. */
+  DIRT: 9,
+  /** `wood` / `metal` / other paved. */
+  OTHER: 10,
+} as const;
 
 /** `VLine.kind`. */
 export const LINE = {
@@ -91,6 +124,45 @@ export const ROOF = {
   SKILLION: 6,
 } as const;
 
+/** `VBuilding.osmType` (v3). */
+export const OSM_TYPE = {
+  WAY: 0,
+  RELATION: 1,
+  NODE: 2,
+} as const;
+
+/** `VBuilding.material` (v3): `building:material` / `building:facade:material`. 0 = untagged. */
+export const BUILDING_MATERIAL = {
+  UNKNOWN: 0,
+  PLASTER: 1,
+  BRICK: 2,
+  /** White silicate (sand-lime) brick, common on Soviet blocks. */
+  SILICATE_BRICK: 3,
+  CONCRETE: 4,
+  PANEL: 5,
+  /** Stone, including Kherson's shell limestone (ракушняк). */
+  STONE: 6,
+  GLASS: 7,
+  WOOD: 8,
+  METAL: 9,
+} as const;
+
+/** `VBuilding.roofMaterial` (v3): `roof:material`. 0 = untagged. */
+export const ROOF_MATERIAL = {
+  UNKNOWN: 0,
+  /** Painted standing-seam sheet metal. */
+  TIN_SEAM: 1,
+  CLAY_TILE: 2,
+  /** Corrugated asbestos-cement sheets (шифер, `eternit`). */
+  ETERNIT: 3,
+  /** Bitumen / roofing felt / tar paper. */
+  BITUMEN: 4,
+  CONCRETE: 5,
+  COPPER: 6,
+  GOLD: 7,
+  METAL_TILE: 8,
+} as const;
+
 export interface VBuilding {
   /** Low 32 bits of the OSM id (unsigned), for deterministic per-building hashing. */
   id: number;
@@ -102,6 +174,18 @@ export interface VBuilding {
   levels: number;
   /** 1 when the bake filled height/storeys from a footprint heuristic, 0 for explicit/unknown. */
   heightHeuristic?: number;
+  /** `OSM_TYPE`; omitted for a way. With `id` it names the OSM element (overrides key on it). */
+  osmType?: number;
+  /** `building:colour` as 0xRRGGBB + 1 (so 0 = untagged); omitted when untagged. */
+  colour?: number;
+  /** `roof:colour` as 0xRRGGBB + 1; omitted when untagged. */
+  roofColour?: number;
+  /** `BUILDING_MATERIAL`; omitted when untagged. */
+  material?: number;
+  /** `ROOF_MATERIAL`; omitted when untagged. */
+  roofMaterial?: number;
+  /** Year from `start_date`; omitted when unknown. */
+  startYear?: number;
   /** MAT wall id (style, see src/world/materials.ts). */
   wall: number;
   /** MAT roof id. */
@@ -122,6 +206,8 @@ export interface VRoad {
   lanes: number;
   /** OSM `layer`, clamped to -128..127. */
   layer: number;
+  /** `SURFACE`; omitted when untagged (v2 tiles never have it). */
+  surface?: number;
   name: number;
 }
 
@@ -367,7 +453,12 @@ export function encodeVectorTile(tile: VectorTile): Uint8Array {
     w.u8(b.wall);
     w.u8(b.roof);
     w.u8(b.roofShape);
-    w.u8(b.heightHeuristic ?? 0);
+    w.u8((b.heightHeuristic ? 1 : 0) | ((b.osmType ?? 0) & 3) << 1);
+    w.varint(b.colour ?? 0);
+    w.varint(b.roofColour ?? 0);
+    w.u8(b.material ?? 0);
+    w.u8(b.roofMaterial ?? 0);
+    w.varint(b.startYear ?? 0);
     w.varint(b.name + 1);
     w.varint(b.rings.length);
     for (const ring of b.rings) writePolyline(w, ring);
@@ -380,6 +471,7 @@ export function encodeVectorTile(tile: VectorTile): Uint8Array {
     w.varint(road.widthCm);
     w.u8(road.lanes);
     w.i8(road.layer);
+    w.u8(road.surface ?? 0);
     w.varint(road.name + 1);
     writePolyline(w, road.pts);
   }
@@ -419,7 +511,9 @@ export function decodeVectorTile(input: ArrayBuffer | Uint8Array): VectorTile {
   if (buf.length < HEADER_SIZE) throw new Error('truncated vector tile');
   const r = new ByteReader(buf);
   r.pos = 4;
-  if (r.u16() !== VECTOR_VERSION) throw new Error('unsupported vector tile version');
+  const version = r.u16();
+  if (version < VECTOR_MIN_VERSION || version > VECTOR_VERSION) throw new Error('unsupported vector tile version');
+  const v3 = version >= 3;
   const rx = r.u16();
   const rz = r.u16();
 
@@ -440,10 +534,27 @@ export function decodeVectorTile(input: ArrayBuffer | Uint8Array): VectorTile {
     const wall = r.u8();
     const roof = r.u8();
     const roofShape = r.u8();
-    const heightHeuristic = r.u8();
+    const flags = r.u8();
+    const heightHeuristic = flags & 1;
+    const osmType = (flags >> 1) & 3;
+    const colour = v3 ? r.varint() : 0;
+    const roofColour = v3 ? r.varint() : 0;
+    const material = v3 ? r.u8() : 0;
+    const roofMaterial = v3 ? r.u8() : 0;
+    const startYear = v3 ? r.varint() : 0;
     const name = r.varint() - 1;
     const rings = readRings(r, r.varint());
-    buildings.push({ id, rings, heightCm, minHeightCm, levels, ...(heightHeuristic ? { heightHeuristic } : {}), wall, roof, roofShape, name });
+    buildings.push({
+      id, rings, heightCm, minHeightCm, levels,
+      ...(heightHeuristic ? { heightHeuristic } : {}),
+      ...(osmType ? { osmType } : {}),
+      ...(colour ? { colour } : {}),
+      ...(roofColour ? { roofColour } : {}),
+      ...(material ? { material } : {}),
+      ...(roofMaterial ? { roofMaterial } : {}),
+      ...(startYear ? { startYear } : {}),
+      wall, roof, roofShape, name,
+    });
   }
 
   const roads: VRoad[] = [];
@@ -454,9 +565,10 @@ export function decodeVectorTile(input: ArrayBuffer | Uint8Array): VectorTile {
     const widthCm = r.varint();
     const lanes = r.u8();
     const layer = r.i8();
+    const surface = v3 ? r.u8() : 0;
     const name = r.varint() - 1;
     const pts = readPolyline(r);
-    roads.push({ pts, kind, flags, widthCm, lanes, layer, name });
+    roads.push({ pts, kind, flags, widthCm, lanes, layer, ...(surface ? { surface } : {}), name });
   }
 
   const areas: VArea[] = [];

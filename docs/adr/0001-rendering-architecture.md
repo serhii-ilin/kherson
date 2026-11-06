@@ -1,6 +1,6 @@
 # ADR 0001: Rendering architecture
 
-Status: **accepted** (owner direction, 2026-11-01). Realistic rendering is for the whole city, not a centre box. This record chooses how. It does not implement the later phases.
+Status: **accepted** (owner direction, 2026-11-01). Hero landmarks (glTF, KTX2) and the near-building budget are superseded by [ADR 0002](0002-realistic-buildings.md) (2026-11-06). Realistic rendering is for the whole city, not a centre box. This record chooses how. It does not implement the later phases.
 
 The centre prototype in this PR (`?renderer=mesh`, box x 9984–11264, z 8320–10496) is phase 0 only. It stays small so the pull request can be reviewed.
 

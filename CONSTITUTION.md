@@ -48,6 +48,7 @@ Measure with the dev HUD (`renderer.info`) at the spawn point (Freedom Square), 
 | Concurrent audio voices | at most 24 | at most 24 |
 | Bird recordings, encoded (Opus/WebM and AAC/M4A together) | at most 1.6 MB, mono, fetched only after a user gesture | same |
 | Baked world (`public/world/`) | at most 30 MB | same |
+| Realistic assets (`public/assets/`: material textures and facade photos) | at most 15 MB; materials fetched at start in the size for the quality setting, a facade photo only within 600 m of its building | same |
 
 A **Low** quality setting must exist so any device can fall back to the 2 m tier without shadows.
 
@@ -89,7 +90,8 @@ A change is done only when all of these hold:
 
 1. **Attribution:** map data is © OpenStreetMap contributors, under ODbL. The attribution must be visible in the README and in the running app (bottom-left on desktop, bottom centre on phones). The baked world is a derived database under ODbL.
 2. **Assets:** prefer procedurally generated assets (models, sounds). Wind and water stay synthesised. Any other external asset needs a licence compatible with public redistribution (CC0, CC-BY or public domain) and credit in the README. **Bird recordings are the exception to “prefer procedural”, and a tighter one:** birds are voiced only by recordings, and a recording may be used only when the file is CC0 or public domain (no BY, NC, SA or ND, and no ripped audio). Provenance — source URL, author, licence — goes in `docs/AUDIO_CREDITS.md`. The encoded set stays inside the Article 4 budget, is mono, and is fetched only after a user gesture. A species with no suitable recording is left out of the soundscape; there are no synthetic bird voices, and a clip that fails to load stays silent. The app may show a short CC0 line beside the map credit; that line is provenance, not a licence condition.
-3. **Code licence:** none chosen yet; the owner decides.
+3. **Facade photos:** photo-derived facade textures may also be CC-BY-SA (besides CC0, CC-BY and public domain). The photo must be dated before 24 February 2022, and no Google Street View or Google 3D Tiles content is used. Each texture file keeps its source's licence; author, source URL, date and licence go in `docs/ASSET_CREDITS.md` and in an in-app credits panel. CC-BY-SA applies to those texture files only, not to code or other data.
+4. **Code licence:** none chosen yet; the owner decides.
 
 ## Article 9: How the work is done (AI-assisted workflow)
 
@@ -114,7 +116,7 @@ Working rules:
 
 These are known gaps against this constitution. Fix them before adding new features where possible:
 
-- Choose a code licence (Article 8.3).
+- Choose a code licence (Article 8.4).
 ### Measured frame rates
 
 | Date | Device | Quality | Result |
@@ -130,3 +132,4 @@ These are known gaps against this constitution. Fix them before adding new featu
 4. **2026-11-06 — no synthetic birds.** The owner asked for the bird voices that do not sound natural to go. Article 8.2 now voices birds only with CC0 or public-domain recordings: a species without one is left out, and a failed download is silent instead of synthesised. Wind, water and the fish splash stay procedural, and the 1.5 MB budget is unchanged. Approved by the owner in the request for this change.
 5. **2026-11-06 — gulls over the Dnipro.** The owner asked to hear gulls now and then over the river, and the recording set had 26 KB left. Article 4 raises the bird-recording budget from 1.5 MB to 1.6 MB. It stays mono, CC0 or public domain, and fetched only after a gesture. Approved by the owner, who chose 1.6 MB over dropping existing clips or going to 2 MB.
 6. **2026-11-06 — realistic Kherson; new delegation.** The owner changed the project's goal to a realistic view of the city, so the Purpose now says voxels are a means, not the look. The owner also moved implementation to opencode agents on `opencode-go/deepseek-v4.1-flash`, with a Claude Sonnet agent reviewing every diff and Opus planning and verifying (Article 9). Approved by the owner with the realistic-trees plan.
+7. **2026-11-06 — realistic buildings and roads.** The owner asked for photo-realistic, pre-war buildings and roads, especially in the well-known areas. Article 4 gains a separate 15 MB budget for realistic assets (CC0 material textures and facade photos), fetched lazily; the 30 MB baked-world budget is unchanged. Article 8.3 allows CC-BY-SA for photo-derived facade textures only, from photos dated before 24 February 2022, credited in `docs/ASSET_CREDITS.md` and in the app (settles REQUIREMENTS OQ-08). Approved by the owner in the planning session for this change.

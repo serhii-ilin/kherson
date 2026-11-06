@@ -1,9 +1,12 @@
 import type { Quality } from '../quality.ts';
 import type { PropModel } from '../fine/prop-models.ts';
+import type { OsmRef } from '../world/osm-ref.ts';
 
 /** `paving` is opaque but drawn with a stronger depth bias than the fine ground, which is itself pulled toward the
- * camera (polygonOffset −1/−4); without it the lawn shows through low pavers at grazing angles. */
-export type LandmarkMeshKind = 'opaque' | 'paving' | 'water' | 'lamp';
+ * camera (polygonOffset −1/−4); without it the lawn shows through low pavers at grazing angles.
+ * `textured` samples the shared PBR material layers (`pbr`, src/world/pbr-layers.ts) or a facade photo (`photo`),
+ * tinted by the vertex colour. */
+export type LandmarkMeshKind = 'opaque' | 'paving' | 'water' | 'lamp' | 'textured';
 
 export interface LandmarkMeshData {
   positions: Float32Array;
@@ -11,6 +14,12 @@ export interface LandmarkMeshData {
   colors: Float32Array;
   indices: Uint32Array;
   kind: LandmarkMeshKind;
+  /** `textured` only: 2 per vertex. Metres for PBR layers (the layer's own scale applies); 0..1 for a photo. */
+  uvs?: Float32Array;
+  /** `textured` only: one `PBR_LAYER` index per vertex, or -1 for plain vertex colour. */
+  pbr?: Float32Array;
+  /** `textured` only: id of a facade photo in data/photo-textures.json; `uvs` then address the photo. */
+  photo?: string;
 }
 
 export interface LandmarkSurface {
@@ -55,6 +64,8 @@ export interface LandmarkBuildContext {
   groundAt(x: number, z: number): number | null;
   isWater?(x: number, z: number): boolean;
   quality: Quality;
+  /** Level of detail requested by the layer: `near` within 250 m, `far` beyond. Absent means `near`. */
+  lod?: 'near' | 'far';
 }
 
 export interface LandmarkAnchor {
@@ -73,6 +84,8 @@ export interface Landmark {
   propExclusions?: readonly LandmarkPropExclusion[];
   /** Only actual treeless paving or tight hand-item clearances; never a broad landmark bbox. */
   vegetationExclusions?: readonly (readonly [number, number][])[];
+  /** OSM buildings this landmark replaces: the mesh streamer skips them in every level of detail. */
+  replaces?: readonly OsmRef[];
   ready?(ctx: LandmarkBuildContext): boolean;
   build(ctx: LandmarkBuildContext): LandmarkBuild;
 }
