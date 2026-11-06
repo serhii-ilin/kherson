@@ -1,6 +1,8 @@
 import { getQuality, setQuality } from './quality.ts';
 import { translit, type Place } from './ui/places.ts';
 import { TIME_PRESETS, formatTime, nextPreset } from './world/daylight.ts';
+import { PHOTO_CREDITS, creditsSummary } from './world/photo-credits.ts';
+import type { CreditsPanel } from './ui/credits.ts';
 
 export type Lang = 'uk' | 'en';
 export const LANGS: readonly Lang[] = ['uk', 'en'];
@@ -23,6 +25,11 @@ const STRINGS = {
     attribution: 'Дані мапи © учасники OpenStreetMap',
     attributionBirds: 'Записи птахів: CC0',
     attributionBirdsTip: 'Серпокрильці, голуби, горлиці й співочі птахи: записи CC0 та суспільного надбання (xeno-canto, Wikimedia Commons, Freesound).',
+    creditsButton: 'Фото: автори',
+    creditsTitle: 'Автори фото',
+    creditsClose: 'Закрити',
+    creditsMaterials: 'Матеріали: ambientCG, CC0',
+    creditsEmpty: 'Фотографій фасадів ще немає.',
     north: 'Пн',
     failed: 'Не вдалося запустити',
     switchTo: 'Switch to English',
@@ -54,6 +61,11 @@ const STRINGS = {
     attribution: 'Map data © OpenStreetMap contributors',
     attributionBirds: 'Bird recordings: CC0',
     attributionBirdsTip: 'Swifts, pigeons, collared doves and songbirds: CC0 and public-domain recordings (xeno-canto, Wikimedia Commons, Freesound).',
+    creditsButton: 'Photos: credits',
+    creditsTitle: 'Photo credits',
+    creditsClose: 'Close',
+    creditsMaterials: 'Materials: ambientCG, CC0',
+    creditsEmpty: 'No facade photos yet.',
     north: 'N',
     failed: 'Failed to start',
     switchTo: 'Перемкнути на українську',
@@ -126,6 +138,11 @@ export function getLang(): Lang {
 
 export function t(key: StringKey): string {
   return STRINGS[current][key];
+}
+
+/** Every string in one language, for parity tests and tooling. */
+export function stringsFor(lang: Lang): Readonly<Record<StringKey, string>> {
+  return STRINGS[lang];
 }
 
 export function setLang(lang: Lang): void {
@@ -321,8 +338,12 @@ export function createShareButton(parent: HTMLElement, getUrl: () => string): HT
   return btn;
 }
 
-/** The ODbL credit for the map data (Constitution 8.1), plus provenance for the CC0 bird recordings. */
-export function createAttribution(parent: HTMLElement): HTMLDivElement {
+/**
+ * The ODbL credit for the map data (Constitution 8.1), provenance for the CC0 bird recordings and the
+ * facade-photo credits link (8.3). When the maintainer passes the panel it opens synchronously;
+ * otherwise one is created on first use, so `main.ts` does not have to wire it.
+ */
+export function createAttribution(parent: HTMLElement, credits?: CreditsPanel): HTMLDivElement {
   const box = document.createElement('div');
   box.className = 'vk-attribution';
   const a = document.createElement('a');
@@ -332,14 +353,34 @@ export function createAttribution(parent: HTMLElement): HTMLDivElement {
   a.rel = 'noopener';
   const birds = document.createElement('span');
   birds.className = 'vk-attribution-birds';
+  const creditsButton = document.createElement('button');
+  creditsButton.type = 'button';
+  creditsButton.className = 'vk-attribution-credits';
+  creditsButton.setAttribute('aria-haspopup', 'dialog');
+
+  let lazyPanel: Promise<CreditsPanel> | null = null;
+  const openCredits = (): void => {
+    if (credits !== undefined) {
+      credits.open();
+      return;
+    }
+    lazyPanel ??= import('./ui/credits.ts').then(({ createCredits }) => createCredits(document.body));
+    void lazyPanel.then((panel) => panel.open());
+  };
+  creditsButton.addEventListener('click', openCredits);
+
   const render = (): void => {
     a.textContent = t('attribution');
     birds.textContent = t('attributionBirds');
     birds.title = t('attributionBirdsTip');
+    creditsButton.textContent = t('creditsButton');
+    const summary = creditsSummary(PHOTO_CREDITS, current);
+    creditsButton.title = summary === '' ? t('creditsEmpty') : summary;
+    creditsButton.setAttribute('aria-label', summary === '' ? t('creditsButton') : `${t('creditsButton')} — ${summary}`);
   };
   render();
   onLangChange(render);
-  box.append(a, birds);
+  box.append(a, birds, creditsButton);
   parent.appendChild(box);
   return box;
 }

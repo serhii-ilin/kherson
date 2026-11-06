@@ -8,6 +8,7 @@
     "types": ["vite/client", "node"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "isolatedModules": true
   },
