@@ -12,8 +12,8 @@ const LO = PBR_SIZE.low;
 const AR_BYTES = HI * HI * 4;
 
 interface Slice {
-  ar: Uint8Array;
-  na: Uint8Array;
+  a: Uint8Array;
+  n: Uint8Array;
 }
 
 function filled(size: number, value: number): Uint8Array {
@@ -28,23 +28,23 @@ function sliceOf(data: Uint8Array, size: number, layer: number): Uint8Array {
 }
 
 /** Which layer and which of the two maps an asset URL asks for. */
-function parseUrl(url: string): { layer: number; kind: 'ar' | 'na' } {
-  const m = /materials\/(?:hi|lo)\/(.+)_(ar|na)\.webp/.exec(url);
+function parseUrl(url: string): { layer: number; kind: 'a' | 'n' } {
+  const m = /materials\/(?:hi|lo)\/(.+)_(a|n)\.webp/.exec(url);
   if (!m) throw new Error(`unexpected PBR URL ${url}`);
   const layer = PBR_LAYER_NAMES.indexOf(m[1]!);
   if (layer < 0) throw new Error(`unknown PBR layer ${m[1]}`);
-  return { layer, kind: m[2] as 'ar' | 'na' };
+  return { layer, kind: m[2] as 'a' | 'n' };
 }
 
 /**
  * Injected loader that encodes the layer and map in the fetched bytes, then decodes to a flat byte value
- * `2 * layer + (na ? 1 : 0)`, so the assembled array can be checked layer by layer.
+ * `2 * layer + (n ? 1 : 0)`, so the assembled array can be checked layer by layer.
  */
 function fakeDeps(): PbrLoaderDeps {
   return {
     async fetchBytes(url) {
       const { layer, kind } = parseUrl(url);
-      return new Uint8Array([layer, kind === 'na' ? 1 : 0]).buffer;
+      return new Uint8Array([layer, kind === 'n' ? 1 : 0]).buffer;
     },
     async decode(bytes, size) {
       const tag = new Uint8Array(bytes);
@@ -66,61 +66,61 @@ describe('pbrAssetUrls', () => {
     for (let layer = 0; layer < PBR_LAYER_COUNT; layer++) {
       const entry = urls[layer]!;
       expect(entry.layer).toBe(layer);
-      expect(entry.ar).toBe(
-        `/kherson/assets/materials/hi/${PBR_LAYER_NAMES[layer]}_ar.webp?v=${BUILD_ID}`,
+      expect(entry.a).toBe(
+        `/kherson/assets/materials/hi/${PBR_LAYER_NAMES[layer]}_a.webp?v=${BUILD_ID}`,
       );
-      expect(entry.na).toBe(
-        `/kherson/assets/materials/hi/${PBR_LAYER_NAMES[layer]}_na.webp?v=${BUILD_ID}`,
+      expect(entry.n).toBe(
+        `/kherson/assets/materials/hi/${PBR_LAYER_NAMES[layer]}_n.webp?v=${BUILD_ID}`,
       );
     }
-    expect(urls[0]!.ar).toContain('/hi/stucco_smooth_ar.webp');
+    expect(urls[0]!.a).toContain('/hi/stucco_smooth_a.webp');
   });
 
   it('uses the lo folder at low quality and accepts a base without a trailing slash', () => {
     const urls = pbrAssetUrls('low', '/kherson');
     expect(urls).toHaveLength(PBR_LAYER_COUNT);
-    expect(urls[PBR_LAYER_COUNT - 1]!.ar).toBe(
-      `/kherson/assets/materials/lo/${PBR_LAYER_NAMES[PBR_LAYER_COUNT - 1]}_ar.webp?v=${BUILD_ID}`,
+    expect(urls[PBR_LAYER_COUNT - 1]!.a).toBe(
+      `/kherson/assets/materials/lo/${PBR_LAYER_NAMES[PBR_LAYER_COUNT - 1]}_a.webp?v=${BUILD_ID}`,
     );
-    expect(new Set(urls.map((u) => u.ar)).size).toBe(PBR_LAYER_COUNT);
-    expect(new Set(urls.map((u) => u.na)).size).toBe(PBR_LAYER_COUNT);
+    expect(new Set(urls.map((u) => u.a)).size).toBe(PBR_LAYER_COUNT);
+    expect(new Set(urls.map((u) => u.n)).size).toBe(PBR_LAYER_COUNT);
   });
 });
 
 describe('neutralLayer and assembleLayers', () => {
-  it('writes one RGBA neutral texel per pixel', () => {
+  it('writes one opaque RGBA neutral texel per pixel', () => {
     const size = 4;
-    const { ar, na } = neutralLayer(size);
-    expect(ar).toHaveLength(size * size * 4);
-    expect(na).toHaveLength(size * size * 4);
+    const { a, n } = neutralLayer(size);
+    expect(a).toHaveLength(size * size * 4);
+    expect(n).toHaveLength(size * size * 4);
     for (let i = 0; i < size * size; i++) {
-      expect(Array.from(ar.subarray(i * 4, i * 4 + 4))).toEqual([128, 128, 128, 230]);
-      expect(Array.from(na.subarray(i * 4, i * 4 + 4))).toEqual([128, 128, 255, 255]);
+      expect(Array.from(a.subarray(i * 4, i * 4 + 4))).toEqual([128, 128, 128, 255]);
+      expect(Array.from(n.subarray(i * 4, i * 4 + 4))).toEqual([128, 128, 230, 255]);
     }
   });
 
   it('puts each loaded slice at layer * size * size * 4 and fills null or missing slices with neutral', () => {
     const size = 4;
     const layers: (Slice | null)[] = new Array(PBR_LAYER_COUNT).fill(null);
-    layers[2] = { ar: filled(size, 11), na: filled(size, 12) };
-    layers[PBR_LAYER_COUNT - 1] = { ar: filled(size, 21), na: filled(size, 22) };
+    layers[2] = { a: filled(size, 11), n: filled(size, 12) };
+    layers[PBR_LAYER_COUNT - 1] = { a: filled(size, 21), n: filled(size, 22) };
 
     const out = assembleLayers(size, layers);
     const stride = size * size * 4;
-    expect(out.ar).toHaveLength(PBR_LAYER_COUNT * stride);
-    expect(out.na).toHaveLength(PBR_LAYER_COUNT * stride);
+    expect(out.a).toHaveLength(PBR_LAYER_COUNT * stride);
+    expect(out.n).toHaveLength(PBR_LAYER_COUNT * stride);
     const neutral = neutralLayer(size);
 
     for (let layer = 0; layer < PBR_LAYER_COUNT; layer++) {
-      const ar = sliceOf(out.ar, size, layer);
-      const na = sliceOf(out.na, size, layer);
+      const a = sliceOf(out.a, size, layer);
+      const n = sliceOf(out.n, size, layer);
       const custom = layers[layer];
       if (custom) {
-        expect(ar).toEqual(custom.ar);
-        expect(na).toEqual(custom.na);
+        expect(a).toEqual(custom.a);
+        expect(n).toEqual(custom.n);
       } else {
-        expect(ar).toEqual(neutral.ar);
-        expect(na).toEqual(neutral.na);
+        expect(a).toEqual(neutral.a);
+        expect(n).toEqual(neutral.n);
       }
     }
   });
@@ -134,39 +134,39 @@ describe('createPbrLibrary', () => {
   it('starts with small neutral arrays and stable uniform objects', () => {
     const lib = createPbrLibrary('high', '/kherson/', fakeDeps());
     const uniforms = lib.uniforms;
-    const ar = uniforms.uPbrAR.value;
-    const na = uniforms.uPbrNA.value;
-    expect(ar.image.width).toBe(4);
-    expect(ar.image.height).toBe(4);
-    expect(ar.image.depth).toBe(PBR_LAYER_COUNT);
-    expect(na.image.depth).toBe(PBR_LAYER_COUNT);
+    const a = uniforms.uPbrA.value;
+    const n = uniforms.uPbrN.value;
+    expect(a.image.width).toBe(4);
+    expect(a.image.height).toBe(4);
+    expect(a.image.depth).toBe(PBR_LAYER_COUNT);
+    expect(n.image.depth).toBe(PBR_LAYER_COUNT);
     expect(uniforms.uPbrTile.value).toEqual(new Float32Array(PBR_TILE_M));
     lib.dispose();
     expect(lib.uniforms).toBe(uniforms);
-    expect(lib.uniforms.uPbrAR.value).toBe(ar);
-    expect(lib.uniforms.uPbrNA.value).toBe(na);
+    expect(lib.uniforms.uPbrA.value).toBe(a);
+    expect(lib.uniforms.uPbrN.value).toBe(n);
   });
 
   it('loads every layer, keeps the texture objects, and uploads one full array', async () => {
     const lib = createPbrLibrary('high', '/kherson/', fakeDeps());
     const uniforms = lib.uniforms;
-    const arObject = uniforms.uPbrAR;
-    const naObject = uniforms.uPbrNA;
-    const arTexture = arObject.value;
-    const naTexture = naObject.value;
-    const arVersion = arTexture.version;
-    const naVersion = naTexture.version;
+    const aObject = uniforms.uPbrA;
+    const nObject = uniforms.uPbrN;
+    const aTexture = aObject.value;
+    const nTexture = nObject.value;
+    const aVersion = aTexture.version;
+    const nVersion = nTexture.version;
 
     await expect(lib.ready).resolves.toBe(true);
     expect(lib.loaded()).toBe(true);
 
     expect(lib.uniforms).toBe(uniforms);
-    expect(lib.uniforms.uPbrAR).toBe(arObject);
-    expect(lib.uniforms.uPbrNA).toBe(naObject);
-    expect(lib.uniforms.uPbrAR.value).toBe(arTexture);
-    expect(lib.uniforms.uPbrNA.value).toBe(naTexture);
+    expect(lib.uniforms.uPbrA).toBe(aObject);
+    expect(lib.uniforms.uPbrN).toBe(nObject);
+    expect(lib.uniforms.uPbrA.value).toBe(aTexture);
+    expect(lib.uniforms.uPbrN.value).toBe(nTexture);
 
-    for (const tex of [arTexture, naTexture]) {
+    for (const tex of [aTexture, nTexture]) {
       expect(tex).toBeInstanceOf(THREE.DataArrayTexture);
       expect(tex.image.width).toBe(HI);
       expect(tex.image.height).toBe(HI);
@@ -178,37 +178,52 @@ describe('createPbrLibrary', () => {
       expect(tex.generateMipmaps).toBe(true);
     }
     // `needsUpdate` is a write-only setter in three: one swap must bump each version exactly once.
-    expect(arTexture.version).toBe(arVersion + 1);
-    expect(naTexture.version).toBe(naVersion + 1);
-    expect(arTexture.anisotropy).toBe(4);
+    expect(aTexture.version).toBe(aVersion + 1);
+    expect(nTexture.version).toBe(nVersion + 1);
+    expect(aTexture.anisotropy).toBe(4);
 
-    const arData = arTexture.image.data as Uint8Array;
-    const naData = naTexture.image.data as Uint8Array;
-    expect(arData).toHaveLength(HI * HI * 4 * PBR_LAYER_COUNT);
-    expect(naData).toHaveLength(HI * HI * 4 * PBR_LAYER_COUNT);
+    const aData = aTexture.image.data as Uint8Array;
+    const nData = nTexture.image.data as Uint8Array;
+    expect(aData).toHaveLength(HI * HI * 4 * PBR_LAYER_COUNT);
+    expect(nData).toHaveLength(HI * HI * 4 * PBR_LAYER_COUNT);
     for (let layer = 0; layer < PBR_LAYER_COUNT; layer++) {
-      const ar = sliceOf(arData, HI, layer);
-      const na = sliceOf(naData, HI, layer);
-      expect(ar[0]).toBe(layer * 2);
-      expect(ar[AR_BYTES - 1]).toBe(layer * 2);
-      expect(na[0]).toBe(layer * 2 + 1);
-      expect(na[AR_BYTES - 1]).toBe(layer * 2 + 1);
+      const a = sliceOf(aData, HI, layer);
+      const n = sliceOf(nData, HI, layer);
+      expect(a[0]).toBe(layer * 2);
+      expect(a[AR_BYTES - 1]).toBe(layer * 2);
+      expect(n[0]).toBe(layer * 2 + 1);
+      expect(n[AR_BYTES - 1]).toBe(layer * 2 + 1);
     }
+    lib.dispose();
+  });
+
+  it('disposes each old texture once when swapping in the full arrays', async () => {
+    const lib = createPbrLibrary('high', '/kherson/', fakeDeps());
+    const aTexture = lib.uniforms.uPbrA.value;
+    const nTexture = lib.uniforms.uPbrN.value;
+    const aDispose = vi.spyOn(aTexture, 'dispose');
+    const nDispose = vi.spyOn(nTexture, 'dispose');
+
+    await expect(lib.ready).resolves.toBe(true);
+    expect(aDispose).toHaveBeenCalledTimes(1);
+    expect(nDispose).toHaveBeenCalledTimes(1);
+    expect(lib.uniforms.uPbrA.value).toBe(aTexture);
+    expect(lib.uniforms.uPbrN.value).toBe(nTexture);
     lib.dispose();
   });
 
   it('loads the low tier at 256 px', async () => {
     const lib = createPbrLibrary('low', '/kherson/', fakeDeps());
     await expect(lib.ready).resolves.toBe(true);
-    expect(lib.uniforms.uPbrAR.value.image.width).toBe(LO);
-    expect((lib.uniforms.uPbrAR.value.image.data as Uint8Array)).toHaveLength(LO * LO * 4 * PBR_LAYER_COUNT);
+    expect(lib.uniforms.uPbrA.value.image.width).toBe(LO);
+    expect((lib.uniforms.uPbrA.value.image.data as Uint8Array)).toHaveLength(LO * LO * 4 * PBR_LAYER_COUNT);
     lib.dispose();
   });
 
   it('keeps a failed layer neutral, loads the rest, warns once and resolves false', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const failedLayer = 5;
-    const failedUrl = `${PBR_LAYER_NAMES[failedLayer]}_na.webp`;
+    const failedUrl = `${PBR_LAYER_NAMES[failedLayer]}_n.webp`;
     const deps = fakeDeps();
     const base = deps.fetchBytes;
     deps.fetchBytes = async (url) => {
@@ -221,16 +236,16 @@ describe('createPbrLibrary', () => {
     expect(lib.loaded()).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
 
-    const arData = lib.uniforms.uPbrAR.value.image.data as Uint8Array;
-    const naData = lib.uniforms.uPbrNA.value.image.data as Uint8Array;
+    const aData = lib.uniforms.uPbrA.value.image.data as Uint8Array;
+    const nData = lib.uniforms.uPbrN.value.image.data as Uint8Array;
     const neutral = neutralLayer(HI);
-    expect(sliceOf(arData, HI, failedLayer)).toEqual(neutral.ar);
-    expect(sliceOf(naData, HI, failedLayer)).toEqual(neutral.na);
+    expect(sliceOf(aData, HI, failedLayer)).toEqual(neutral.a);
+    expect(sliceOf(nData, HI, failedLayer)).toEqual(neutral.n);
 
     const neighbour = failedLayer + 1;
-    expect(sliceOf(arData, HI, neighbour)[0]).toBe(neighbour * 2);
-    expect(sliceOf(naData, HI, neighbour)[0]).toBe(neighbour * 2 + 1);
-    expect(lib.uniforms.uPbrAR.value.image.depth).toBe(PBR_LAYER_COUNT);
+    expect(sliceOf(aData, HI, neighbour)[0]).toBe(neighbour * 2);
+    expect(sliceOf(nData, HI, neighbour)[0]).toBe(neighbour * 2 + 1);
+    expect(lib.uniforms.uPbrA.value.image.depth).toBe(PBR_LAYER_COUNT);
     lib.dispose();
   });
 
@@ -267,10 +282,10 @@ describe('PBR GLSL chunk', () => {
     return n;
   };
 
-  it('declares the sampler array with one tile per layer', () => {
+  it('declares the sampler arrays with one tile per layer', () => {
     expect(PBR_PARS).toContain('precision highp sampler2DArray;');
-    expect(PBR_PARS).toContain('uniform sampler2DArray uPbrAR;');
-    expect(PBR_PARS).toContain('uniform sampler2DArray uPbrNA;');
+    expect(PBR_PARS).toContain('uniform sampler2DArray uPbrA;');
+    expect(PBR_PARS).toContain('uniform sampler2DArray uPbrN;');
     expect(PBR_PARS).toContain(`uniform float uPbrTile[${PBR_LAYER_COUNT}];`);
     expect(PBR_PARS).toContain('struct PbrSample');
   });
@@ -289,10 +304,13 @@ describe('PBR GLSL chunk', () => {
 
   it('follows the decode, anti-tiling and distance-fade contract', () => {
     expect(PBR_PARS).toContain('textureGrad(');
-    expect(PBR_PARS).toContain('ar.rgb * 2.0');
-    expect(PBR_PARS).toContain('naA.rg * 2.0 - 1.0');
-    expect(PBR_PARS).toContain('naB.rg * 2.0 - 1.0');
+    expect(PBR_PARS).toContain('albedo.rgb * 2.0');
+    expect(PBR_PARS).toContain('nA.rg * 2.0 - 1.0');
+    expect(PBR_PARS).toContain('nB.rg * 2.0 - 1.0');
+    expect(PBR_PARS).toContain('sqrt(max(0.0, 1.0 - dot(nxy, nxy)))');
+    expect(PBR_PARS).toContain('pbrValueNoise(uv * 0.25) * 8.0');
+    expect(PBR_PARS).toContain('smoothstep(0.2, 0.8');
     expect(PBR_PARS).toContain('smoothstep(250.0, 400.0, dist)');
-    expect(PBR_PARS).toContain('uPbrTile[int(layer)]');
+    expect(PBR_PARS).toContain('uPbrTile[layerIndex]');
   });
 });
