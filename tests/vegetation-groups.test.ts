@@ -132,6 +132,21 @@ describe('modelOf', () => {
       expect(ALL_SPECIES[Math.floor(m / VARIANTS)]).toBe(expected[(seed >> 3) & 3]);
     }
   });
+
+  it('folds borrowed-shape species onto the original seven in voxel mode, so voxel draw calls do not grow', () => {
+    const originals = new Set<number>([1, 2, 3, 4, 5, 6, 7, ...BUSH_SPECIES]);
+    const used = new Set<number>();
+    for (const species of [SPECIES.GENERIC, ...ALL_SPECIES]) {
+      for (let seed = 0; seed < 64; seed++) {
+        const f = feature(species >= SPECIES.BUSH ? FEATURE_BUSH : FEATURE_TREE, 5, species, seed);
+        const s = ALL_SPECIES[Math.floor(modelOf(f, true) / VARIANTS)]!;
+        expect(originals.has(s), `species ${species} -> ${s}`).toBe(true);
+        used.add(s);
+      }
+    }
+    expect(used.size).toBe(originals.size);
+    expect(ALL_SPECIES[Math.floor(modelOf(feature(FEATURE_TREE, 5, SPECIES.THUJA, 0), true) / VARIANTS)]).toBe(SPECIES.PINE);
+  });
 });
 
 describe('realistic tree shader chunks', () => {

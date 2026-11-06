@@ -66,6 +66,11 @@ const VOXEL_SHAPE_OF: Readonly<Record<number, number>> = {
   [SPECIES.WALNUT]: SPECIES.CHESTNUT,
 };
 
+/** The species whose voxel shape `species` is drawn with; the renderer shares those models (and draw calls). */
+export function voxelShapeSpecies(species: number): number {
+  return VOXEL_SHAPE_OF[species] ?? species;
+}
+
 function getSpeciesShape(species: number, variant: number, rng: () => number): SpeciesShape {
   const known = VOXEL_SHAPE_OF[species] ?? species;
   const speciesId = known === SPECIES.GENERIC ? (variant === 1 ? SPECIES.LINDEN : SPECIES.CHESTNUT) : known;

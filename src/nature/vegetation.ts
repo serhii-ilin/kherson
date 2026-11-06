@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { F_GROUND_H, F_STRUCT_H, REGION, VOXEL } from '../world/constants.ts';
 import { FEATURE_BUSH, FEATURE_TREE, type Feature } from '../world/format.ts';
 import { jitterX, jitterZ } from './placement.ts';
-import { BUSH_SPECIES, SPECIES, TREE_SPECIES, VARIANTS, buildModel, type VegModel } from './models.ts';
+import { BUSH_SPECIES, SPECIES, TREE_SPECIES, VARIANTS, buildModel, voxelShapeSpecies, type VegModel } from './models.ts';
 import { variantScale } from './realistic.ts';
 import { BARK_LAYERS, LEAF_LAYERS } from './tree-atlas.ts';
 import { makeBarkLayers, makeLeafLayers } from './tree-textures.ts';
@@ -97,7 +97,8 @@ export function whiteOf(f: Feature): 0 | 1 {
   return f.type === FEATURE_TREE && f.param === 6 ? 1 : 0;
 }
 
-export function modelOf(f: Feature): number {
+/** Model index of a feature. `voxel` folds species without a voxel shape of their own onto the one they borrow. */
+export function modelOf(f: Feature, voxel = false): number {
   let sp = f.species;
   if (sp === SPECIES.GENERIC) {
     // Old baked data has no species; pick one of the common Kherson trees from the seed.
@@ -108,6 +109,7 @@ export function modelOf(f: Feature): number {
       default: sp = SPECIES.CHESTNUT; break;
     }
   }
+  if (voxel) sp = voxelShapeSpecies(sp);
   let si = SPECIES_INDEX.get(sp);
   if (si === undefined) si = f.type === FEATURE_BUSH ? TREE_SPECIES.length : 0;
   return si * VARIANTS + (((f.seed >> 6) & 3) % VARIANTS);
@@ -402,7 +404,7 @@ export class Vegetation {
       const l = 1 + (((s * 151 + 29) & 255) / 255 * 2 - 1) * 0.1;
       col.setRGB(l * (1 + h * 3), l, l * (1 - h * 3));
       r.tint[i * 3] = col.r; r.tint[i * 3 + 1] = col.g; r.tint[i * 3 + 2] = col.b;
-      const m = modelOf(f);
+      const m = modelOf(f, this.voxel);
       r.model[i] = m;
       r.white[i] = whiteOf(f);
       if (m < FIRST_BUSH_MODEL) r.trees++;
