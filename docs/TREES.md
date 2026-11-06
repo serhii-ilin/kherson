@@ -52,7 +52,7 @@ The weights below are per table in `tools/bake/trees.ts`, and each pick is a has
 | Table | Mix (weights) |
 |---|---|
 | Street (sidewalk border of residential to primary roads) | robinia 22, plane 12, chestnut 12, linden 12, maple 12, elm 8, gleditsia 6, catalpa 5, poplar 5, ailanthus 3, mulberry 3 |
-| Park | chestnut 15, maple 14, linden 12, robinia 10, plane 8, elm 8, poplar 8, thuja 5, pine 4, catalpa 4, gleditsia 4, willow 4, ailanthus 2, mulberry 2; the near-water willow rule still applies |
+| Park | chestnut 15, maple 14, linden 12, robinia 10, plane 8, elm 8, poplar 8, thuja 5, pine 4, catalpa 4, gleditsia 4, willow 4, ailanthus 2, mulberry 2; willows grow only on natural banks within about 6 m of water, not behind the embankment |
 | Tree row (`natural=tree_row`) | poplar 35, robinia 25, elm 20, gleditsia 10, maple 10 |
 | Forest, scrub, meadow, untagged | as before, with `GENERIC` replaced by elm, maple, mulberry and walnut |
 | Wetland, reed, sandy forest | unchanged (willow and poplar; the 70% pine rule near sand) |

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { SPECIES } from '../src/nature/species.ts';
+import { MAT } from '../src/world/materials.ts';
 import {
+  nearWaterWillow,
   pick,
   speciesOfTags,
   TREE_PARAM,
@@ -110,6 +112,27 @@ describe('bake trees', () => {
     expect(speciesOfTags({ genus: 'Prunus' }, 1)).toBe(SPECIES.MULBERRY);
     expect(speciesOfTags({ genus: 'Malus' }, 1)).toBe(SPECIES.MULBERRY);
     expect(speciesOfTags({ genus: 'Pyrus' }, 1)).toBe(SPECIES.MULBERRY);
+  });
+
+  it('makes forest trees willows near water with probability 0.6', () => {
+    expect(nearWaterWillow(SPECIES.MAPLE, MAT.FOREST, 8, 0.5)).toBe(SPECIES.WILLOW);
+    expect(nearWaterWillow(SPECIES.MAPLE, MAT.FOREST, 8, 0.7)).toBe(SPECIES.MAPLE);
+  });
+
+  it('makes park trees willows only on a natural bank within about 6 m of water', () => {
+    for (const r of [0, 0.2, 0.5, 0.9]) {
+      expect(nearWaterWillow(SPECIES.MAPLE, MAT.PARK, 8, r)).toBe(SPECIES.MAPLE);
+    }
+    expect(nearWaterWillow(SPECIES.MAPLE, MAT.PARK, 2, 0.2)).toBe(SPECIES.WILLOW);
+    expect(nearWaterWillow(SPECIES.MAPLE, MAT.PARK, 2, 0.5)).toBe(SPECIES.MAPLE);
+  });
+
+  it('leaves pine, willow and other ground types unchanged by the near-water rule', () => {
+    expect(nearWaterWillow(SPECIES.PINE, MAT.FOREST, 1, 0.1)).toBe(SPECIES.PINE);
+    expect(nearWaterWillow(SPECIES.PINE, MAT.PARK, 1, 0.1)).toBe(SPECIES.PINE);
+    expect(nearWaterWillow(SPECIES.WILLOW, MAT.FOREST, 1, 0.9)).toBe(SPECIES.WILLOW);
+    expect(nearWaterWillow(SPECIES.WILLOW, MAT.PARK, 1, 0.9)).toBe(SPECIES.WILLOW);
+    expect(nearWaterWillow(SPECIES.MAPLE, MAT.GRASS, 1, 0.1)).toBe(SPECIES.MAPLE);
   });
 
   it('gives untagged trees a deterministic non-GENERIC species', () => {
