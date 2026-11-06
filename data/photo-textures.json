@@ -1,0 +1,5 @@
+{
+  "note": "Facade photo manifest (CONSTITUTION 8.3, docs/adr/0002-realistic-buildings.md). Each row names a dated, licensed Wikimedia Commons original; `npm run fetch-photos -- --write-sha` downloads it into the git-ignored data/photo-sources/ and records its SHA-256, then `npm run rectify-photos` rectifies the wall at `corners`, writes public/assets/facades/<id>.webp, and regenerates docs/ASSET_CREDITS.md and src/world/photo-credits.data.json. The private evidence/ folder is never read. Adds rows only after the licence and pre-2022-02-24 date are checked.",
+  "userAgent": "voxel-kherson (https://github.com/serhii-ilin/kherson)",
+  "photos": []
+}
