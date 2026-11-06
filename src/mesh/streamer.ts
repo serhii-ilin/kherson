@@ -102,7 +102,6 @@ export class MeshStreamer {
   private readonly material: THREE.MeshStandardMaterial;
   private readonly batch: ChunkBatch;
   private readonly roadMaterial: THREE.Material;
-  private readonly ownsRoadMaterial: boolean;
   private readonly roadBatch: ChunkBatch;
   private readonly workers: Worker[] = [];
   private readonly workerLoad: number[] = [];
@@ -152,23 +151,17 @@ export class MeshStreamer {
     this.batch = new ChunkBatch(this.material, { instances: 800, vertices: 200_000, castShadow: opts.castShadow });
     scene.add(this.batch.mesh);
 
+    // Always clone: polygonOffset on the shared coarse material would shift the coarse ground too.
     const base = opts.roadMaterial ?? coarse.material;
-    if (opts.roadMaterial !== undefined) {
-      this.roadMaterial = opts.roadMaterial;
-      this.ownsRoadMaterial = false;
-    } else if (base !== undefined) {
-      const clone = base.clone() as THREE.Material;
+    const clone = (base ?? new THREE.MeshLambertMaterial({ vertexColors: true })).clone() as THREE.Material;
+    if (base !== undefined) {
       clone.onBeforeCompile = base.onBeforeCompile;
       clone.customProgramCacheKey = base.customProgramCacheKey;
-      this.roadMaterial = clone;
-      this.ownsRoadMaterial = true;
-    } else {
-      this.roadMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
-      this.ownsRoadMaterial = true;
     }
-    this.roadMaterial.polygonOffset = true;
-    this.roadMaterial.polygonOffsetFactor = -1;
-    this.roadMaterial.polygonOffsetUnits = -4;
+    clone.polygonOffset = true;
+    clone.polygonOffsetFactor = -1;
+    clone.polygonOffsetUnits = -4;
+    this.roadMaterial = clone;
     // Ribbons never cast shadows (the fine tier is off there anyway and they are millimetres thick).
     this.roadBatch = new ChunkBatch(this.roadMaterial, { instances: 800, vertices: 120_000, castShadow: false });
     scene.add(this.roadBatch.mesh);
@@ -272,7 +265,7 @@ export class MeshStreamer {
     this.batch.dispose();
     this.scene.remove(this.roadBatch.mesh);
     this.roadBatch.dispose();
-    if (this.ownsRoadMaterial) this.roadMaterial.dispose();
+    this.roadMaterial.dispose();
     this.material.dispose();
   }
 

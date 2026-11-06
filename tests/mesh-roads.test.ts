@@ -76,8 +76,10 @@ function inside(x: number, z: number, ax: number, az: number, bx: number, bz: nu
   const d1 = (x - bx) * (az - bz) - (ax - bx) * (z - bz);
   const d2 = (x - cx) * (bz - cz) - (bx - cx) * (z - cz);
   const d3 = (x - ax) * (cz - az) - (cx - ax) * (z - az);
-  const neg = d1 < -1e-9 || d2 < -1e-9 || d3 < -1e-9;
-  const pos = d1 > 1e-9 || d2 > 1e-9 || d3 > 1e-9;
+  // float32 vertex buffers put a double-precision edge point ~1e-6 off the stored edge
+  const eps = 1e-4;
+  const neg = d1 < -eps || d2 < -eps || d3 < -eps;
+  const pos = d1 > eps || d2 > eps || d3 > eps;
   return !(neg && pos);
 }
 
@@ -127,6 +129,50 @@ describe('road ribbons: width', () => {
       const z = 32 + Math.sin(a) * 3;
       expect(covers(mesh, x, z, MAT.ASPHALT), `gap at ${x.toFixed(2)},${z.toFixed(2)}`).toBe(true);
     }
+  });
+
+  function triangleArea(mesh: RoadMesh, t: number): number {
+    const i0 = mesh.indices[t]!;
+    const i1 = mesh.indices[t + 1]!;
+    const i2 = mesh.indices[t + 2]!;
+    const x0 = mesh.positions[i0 * 3]!, z0 = mesh.positions[i0 * 3 + 2]!;
+    const x1 = mesh.positions[i1 * 3]!, z1 = mesh.positions[i1 * 3 + 2]!;
+    const x2 = mesh.positions[i2 * 3]!, z2 = mesh.positions[i2 * 3 + 2]!;
+    return (x1 - x0) * (z2 - z0) - (z1 - z0) * (x2 - x0);
+  }
+
+  /** Continuous outer boundary and no inverted asphalt triangles at a turn of `angleDeg`. */
+  function expectCleanTurn(angleDeg: number): void {
+    const b = 32;
+    const a = (angleDeg * Math.PI) / 180;
+    const dx = Math.cos(a), dz = Math.sin(a);
+    const mesh = build([road([[4, b], [b, b], [b + dx * 20, b + dz * 20]], 8)]);
+    // the left side is outside this turn; sample the whole outer chord (the bevel edge beyond the cap)
+    const ox = b, oz = b - 4;
+    const bx = b + dz * 4, bz = b - dx * 4;
+    for (let k = 0; k <= 4; k++) {
+      const t = k / 4;
+      const x = ox + (bx - ox) * t;
+      const z = oz + (bz - oz) * t;
+      expect(covers(mesh, x, z, MAT.ASPHALT), `outer gap at ${x.toFixed(2)},${z.toFixed(2)}`).toBe(true);
+    }
+    let ref = 0;
+    for (let t = 0; t < mesh.indices.length; t += 3) {
+      if (mesh.walls[mesh.indices[t]! * 4] !== MAT.ASPHALT) continue;
+      const area = triangleArea(mesh, t);
+      if (Math.abs(area) < 1e-6) continue;
+      const sign = Math.sign(area);
+      if (ref === 0) ref = sign;
+      expect(sign, `inverted triangle at ${angleDeg} deg`).toBe(ref);
+    }
+  }
+
+  it('keeps a ~120 degree turn continuous and free of inverted inner triangles', () => {
+    expectCleanTurn(120);
+  });
+
+  it('bevels a sharper turn beyond the mitre cap', () => {
+    expectCleanTurn(160);
   });
 });
 
@@ -296,9 +342,26 @@ describe('road ribbons: classes, surfaces and height', () => {
       const mat = mesh.walls[i * 4]!;
       const x = mesh.positions[i * 3]!;
       const z = mesh.positions[i * 3 + 2]!;
-      const want = ground(x, z) + ROAD_RIBBON_LIFT + (mat === MAT.MARKING ? ROAD_MARKING_LIFT : 0);
+      const lift = mat === MAT.MARKING ? ROAD_RIBBON_LIFT + ROAD_MARKING_LIFT
+        : mat === MAT.SIDEWALK ? ROAD_RIBBON_LIFT - 0.005
+          : ROAD_RIBBON_LIFT;
+      const want = ground(x, z) + lift;
       expect(Math.abs(mesh.positions[i * 3 + 1]! - want)).toBeLessThanOrEqual(0.01);
     }
+  });
+
+  it('puts sidewalk bands 5 mm under the carriageway at a junction', () => {
+    const mesh = build([
+      road([[0, 32], [64, 32]], 8, { flags: ROAD_SIDEWALK }),
+      road([[32, 0], [32, 64]], 8, { flags: ROAD_SIDEWALK }),
+    ]);
+    const asphalt = verticesOf(mesh, MAT.ASPHALT).map((p) => p[1]);
+    const sidewalk = verticesOf(mesh, MAT.SIDEWALK).map((p) => p[1]);
+    expect(sidewalk.length).toBeGreaterThan(0);
+    expect(asphalt.length).toBeGreaterThan(0);
+    for (const y of asphalt) expect(y).toBeCloseTo(4.06, 3);
+    for (const y of sidewalk) expect(y).toBeCloseTo(4.055, 3);
+    expect(Math.max(...sidewalk)).toBeLessThan(Math.min(...asphalt));
   });
 });
 
@@ -356,7 +419,10 @@ describe('mesh streamer: ribbon visibility', () => {
     indices: new Uint32Array([0, 1, 2]),
   };
 
-  function makeStreamer(worker: StubWorker, fineRadius: number): MeshStreamer {
+  function makeStreamer(
+    worker: StubWorker, fineRadius: number,
+    roadMaterial: THREE.Material = new THREE.MeshBasicMaterial({ vertexColors: true }),
+  ): MeshStreamer {
     const scene = new THREE.Scene();
     const coarse = {
       regionData: () => null,
@@ -370,7 +436,7 @@ describe('mesh streamer: ribbon visibility', () => {
     };
     const streamer = new MeshStreamer(scene, coarse, manifest, {
       radius: 100, castShadow: false, workers: 1, fineRadius,
-      roadMaterial: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      roadMaterial,
       workerFactory: () => worker as unknown as Worker,
     });
     (streamer as unknown as { tiles: Map<number, unknown> }).tiles.set(regionKey(0, 0), {
@@ -421,6 +487,21 @@ describe('mesh streamer: ribbon visibility', () => {
     streamer.update(96, 32);
     answerAll(worker);
     expectVisibility(streamer, 96, 32, 40);
+    streamer.dispose();
+  });
+
+  it('clones the road material instead of mutating the shared coarse material', () => {
+    const passed = new THREE.MeshLambertMaterial({ vertexColors: true });
+    expect(passed.polygonOffset).toBe(false);
+    const streamer = makeStreamer(new StubWorker(), 40, passed);
+    const batch = (streamer as unknown as {
+      roadBatch: { mesh: { material: THREE.Material } };
+    }).roadBatch;
+    expect(batch.mesh.material).not.toBe(passed);
+    expect(batch.mesh.material.polygonOffset).toBe(true);
+    expect(batch.mesh.material.polygonOffsetFactor).toBe(-1);
+    expect(batch.mesh.material.polygonOffsetUnits).toBe(-4);
+    expect(passed.polygonOffset).toBe(false);
     streamer.dispose();
   });
 

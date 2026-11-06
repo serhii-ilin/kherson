@@ -28,8 +28,8 @@ export const ROAD_MARKING_LIFT = 0.02;
 const SEGMENT_M = 8;
 const SIDEWALK_M = 2.5;
 const SIDEWALK_MAJOR_M = 3.5;
-/** Offset cap at a mitre join: twice the half-width (one road width). */
-const MITER_LIMIT = 2;
+/** Offset cap at a mitre join: 2 x the full width, i.e. twice the half-width offset. */
+const MITER_LIMIT = 4;
 /** Carriageway ends within this distance of one another form a junction. */
 const JUNCTION_END_M = 3;
 /** Markings stop this far short of a junction. */
@@ -41,6 +41,8 @@ const MIN_CARRIAGEWAY_M = 2.5;
 const PAVING_HALF = 1;
 const PAVING_MIN_WIDTH_M = 1.5;
 const JUNCTION_LIFT = ROAD_RIBBON_LIFT - 0.005;
+/** Sidewalk bands sit just under the carriageway so asphalt wins where the two overlap at junctions. */
+const SIDEWALK_LIFT = ROAD_RIBBON_LIFT - 0.005;
 
 /** Vertex buffers of a chunk's road ribbons. */
 export interface RoadMesh {
@@ -71,16 +73,22 @@ interface Piece {
   len: number;
 }
 
-/** Densified centre line with a mitre offset frame at every vertex. */
+/** Densified centre line with per-side join frames. */
 interface Dense {
   x: Float64Array;
   z: Float64Array;
   s: Float64Array;
-  /** Unit mitre direction (right of travel). */
-  mx: Float64Array;
-  mz: Float64Array;
-  /** Mitre length factor: offset point = p + m * distance * ms. */
-  ms: Float64Array;
+  /**
+   * Unit offset direction at each vertex and side (index `i * 2 + side`, side 0 = right of
+   * travel, 1 = left). `in*` ends the incoming segment, `out*` starts the outgoing one; they
+   * differ only at a bevel join.
+   */
+  inX: Float64Array;
+  inZ: Float64Array;
+  outX: Float64Array;
+  outZ: Float64Array;
+  /** 1 when the join is bevelled on that side. */
+  bevel: Uint8Array;
   n: number;
 }
 
@@ -194,16 +202,90 @@ function densify(p: Piece): Dense {
   k++;
   const s = new Float64Array(count);
   for (let i = 1; i < count; i++) s[i] = s[i - 1]! + Math.hypot(x[i]! - x[i - 1]!, z[i]! - z[i - 1]!);
-  const mx = new Float64Array(count);
-  const mz = new Float64Array(count);
-  const ms = new Float64Array(count);
+  const inX = new Float64Array(count * 2);
+  const inZ = new Float64Array(count * 2);
+  const outX = new Float64Array(count * 2);
+  const outZ = new Float64Array(count * 2);
+  const bevel = new Uint8Array(count * 2);
+  const maxOffset = p.half + p.band;
   for (let i = 0; i < count; i++) {
-    joinAt(x, z, count, i, joinTmp);
-    mx[i] = joinTmp[0]!;
-    mz[i] = joinTmp[1]!;
-    ms[i] = joinTmp[2]!;
+    let r0x: number, r0z: number, r1x: number, r1z: number;
+    let d0x = 0, d0z = 0, d1x = 0, d1z = 0;
+    let prevLen = 0, nextLen = 0;
+    let cross = 0;
+    let interior = false;
+    if (i > 0 && i < count - 1) {
+      interior = true;
+      d0x = x[i]! - x[i - 1]!;
+      d0z = z[i]! - z[i - 1]!;
+      d1x = x[i + 1]! - x[i]!;
+      d1z = z[i + 1]! - z[i]!;
+      prevLen = Math.hypot(d0x, d0z) || 1;
+      nextLen = Math.hypot(d1x, d1z) || 1;
+      d0x /= prevLen; d0z /= prevLen;
+      d1x /= nextLen; d1z /= nextLen;
+      r0x = -d0z; r0z = d0x;
+      r1x = -d1z; r1z = d1x;
+      cross = d0x * d1z - d0z * d1x;
+    } else {
+      const a = i <= 0 ? 0 : i - 1;
+      const b = i <= 0 ? 1 : i;
+      const l = Math.hypot(x[b]! - x[a]!, z[b]! - z[a]!) || 1;
+      r0x = -(z[b]! - z[a]!) / l;
+      r0z = (x[b]! - x[a]!) / l;
+      r1x = r0x;
+      r1z = r0z;
+    }
+    let mx = r0x + r1x;
+    let mz = r0z + r1z;
+    let ml = Math.hypot(mx, mz);
+    const uturn = ml < 1e-6;
+    if (uturn) {
+      mx = r0x;
+      mz = r0z;
+      ml = 1;
+    }
+    mx /= ml;
+    mz /= ml;
+    const dot = mx * r0x + mz * r0z;
+    const scale = dot > 1e-6 ? 1 / dot : MITER_LIMIT;
+    for (let side = 0; side < 2; side++) {
+      const sign = side === 0 ? 1 : -1;
+      let ix = sign * r0x, iz = sign * r0z;
+      let ox = ix, oz = iz;
+      let bev = 0;
+      if (interior) {
+        const outer = sign * cross < 0;
+        if (uturn || (outer && scale > MITER_LIMIT)) {
+          // bevel: each adjacent segment keeps its own offset, the gap is filled separately
+          ix = sign * r0x;
+          iz = sign * r0z;
+          ox = sign * r1x;
+          oz = sign * r1z;
+          bev = 1;
+        } else {
+          let sc = scale;
+          if (!outer) {
+            // Clip the inner mitre at the corner bisector so a short segment cannot fold back.
+            const ux = sign * mx, uz = sign * mz;
+            const back = -(ux * d0x + uz * d0z) * maxOffset * sc;
+            if (back > prevLen * 0.5) sc *= (prevLen * 0.5) / back;
+            const fwd = (ux * d1x + uz * d1z) * maxOffset * sc;
+            if (fwd > nextLen * 0.5) sc *= (nextLen * 0.5) / fwd;
+          }
+          ix = sign * mx * sc;
+          iz = sign * mz * sc;
+          ox = ix;
+          oz = iz;
+        }
+      }
+      const k = i * 2 + side;
+      inX[k] = ix; inZ[k] = iz;
+      outX[k] = ox; outZ[k] = oz;
+      bevel[k] = bev;
+    }
   }
-  return { x, z, s, mx, mz, ms, n: count };
+  return { x, z, s, inX, inZ, outX, outZ, bevel, n: count };
 }
 
 /** Sutherland-Hodgman against one axis-aligned half-plane, interpolating heights. */
@@ -232,6 +314,17 @@ function clipPlane(
     }
   }
   return out;
+}
+
+function pointInTriangle(
+  px: number, pz: number,
+  ax: number, az: number, bx: number, bz: number, cx: number, cz: number,
+): boolean {
+  const d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz);
+  const d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz);
+  const d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az);
+  const eps = 1e-9;
+  return !((d1 < -eps || d2 < -eps || d3 < -eps) && (d1 > eps || d2 > eps || d3 > eps));
 }
 
 /** Convex hull (Andrew's monotone chain) of flat [x, z, …] pairs, returned as flat pairs. */
@@ -283,6 +376,7 @@ class RibbonBuilder {
   private bx = new Float64Array(32);
   private by = new Float64Array(32);
   private bz = new Float64Array(32);
+  private polyIdx = new Int32Array(16);
 
   private readonly x0: number;
   private readonly z0: number;
@@ -409,65 +503,126 @@ class RibbonBuilder {
     }
     // A polygon clipped to a line has no surface; emitting it would duplicate border vertices.
     if (Math.abs(area) < 1e-9) return;
-    const first = this.vertex(X[0]!, Y[0]!, Z[0]!, mat);
-    let prev = this.vertex(X[1]!, Y[1]!, Z[1]!, mat);
-    for (let i = 2; i < count; i++) {
-      const cur = this.vertex(X[i]!, Y[i]!, Z[i]!, mat);
+    if (area > 0) {
+      // Up-facing faces wind clockwise in (x, z); reverse a polygon that came out the other way.
+      for (let a = 0, b = count - 1; a < b; a++, b--) {
+        let t = X[a]!; X[a] = X[b]!; X[b] = t;
+        t = Y[a]!; Y[a] = Y[b]!; Y[b] = t;
+        t = Z[a]!; Z[a] = Z[b]!; Z[b] = t;
+      }
+    }
+    const base = this.vcount;
+    for (let i = 0; i < count; i++) this.vertex(X[i]!, Y[i]!, Z[i]!, mat);
+    // Ear-clip the clipped polygon: a clipped or inner-join quad can be concave, and a plain fan
+    // would then emit a back-facing triangle. Up-facing faces are clockwise in (x, z).
+    let m = count;
+    for (let i = 0; i < m; i++) this.polyIdx[i] = i;
+    while (m > 3) {
+      let ear = -1;
+      for (let a = 0; a < m; a++) {
+        const ia = this.polyIdx[(a + m - 1) % m]!;
+        const ib = this.polyIdx[a]!;
+        const ic = this.polyIdx[(a + 1) % m]!;
+        const cross = (X[ib]! - X[ia]!) * (Z[ic]! - Z[ia]!) - (Z[ib]! - Z[ia]!) * (X[ic]! - X[ia]!);
+        if (cross >= -1e-9) continue;
+        let clear = true;
+        for (let b = 0; b < m && clear; b++) {
+          const ip = this.polyIdx[b]!;
+          if (ip === ia || ip === ib || ip === ic) continue;
+          if (pointInTriangle(X[ip]!, Z[ip]!, X[ia]!, Z[ia]!, X[ib]!, Z[ib]!, X[ic]!, Z[ic]!)) clear = false;
+        }
+        if (clear) { ear = a; break; }
+      }
+      if (ear < 0) break;
+      const ia = this.polyIdx[(ear + m - 1) % m]!;
+      const ib = this.polyIdx[ear]!;
+      const ic = this.polyIdx[(ear + 1) % m]!;
       this.growIdx(3);
-      this.idx[this.icount++] = first;
-      this.idx[this.icount++] = prev;
-      this.idx[this.icount++] = cur;
-      prev = cur;
+      this.idx[this.icount++] = base + ia;
+      this.idx[this.icount++] = base + ib;
+      this.idx[this.icount++] = base + ic;
+      for (let k = ear; k + 1 < m; k++) this.polyIdx[k] = this.polyIdx[k + 1]!;
+      m--;
+    }
+    if (m === 3) {
+      this.growIdx(3);
+      this.idx[this.icount++] = base + this.polyIdx[0]!;
+      this.idx[this.icount++] = base + this.polyIdx[1]!;
+      this.idx[this.icount++] = base + this.polyIdx[2]!;
+    } else if (m > 3) {
+      // pathological non-simple polygon: fall back to a fan
+      for (let i = 2; i < m; i++) {
+        this.growIdx(3);
+        this.idx[this.icount++] = base + this.polyIdx[0]!;
+        this.idx[this.icount++] = base + this.polyIdx[i - 1]!;
+        this.idx[this.icount++] = base + this.polyIdx[i]!;
+      }
     }
   }
 
-  private groundAt(x: number, z: number): number {
-    return this.ground(x, z) + ROAD_RIBBON_LIFT;
+  private groundAt(x: number, z: number, lift = ROAD_RIBBON_LIFT): number {
+    return this.ground(x, z) + lift;
   }
 
-  /** Carriageway/foot strip from the dense offset frame. */
-  strip(d: Dense, i: number, j: number, inner: number, outer: number, mat: number, side: -1 | 1 | 0): void {
-    if (side === 0) {
-      const rix = d.x[i]! + d.mx[i]! * inner * d.ms[i]!;
-      const riz = d.z[i]! + d.mz[i]! * inner * d.ms[i]!;
-      const rjx = d.x[j]! + d.mx[j]! * inner * d.ms[j]!;
-      const rjz = d.z[j]! + d.mz[j]! * inner * d.ms[j]!;
-      const lix = d.x[i]! - d.mx[i]! * inner * d.ms[i]!;
-      const liz = d.z[i]! - d.mz[i]! * inner * d.ms[i]!;
-      const ljx = d.x[j]! - d.mx[j]! * inner * d.ms[j]!;
-      const ljz = d.z[j]! - d.mz[j]! * inner * d.ms[j]!;
+  /**
+   * One side of a carriageway/foot strip between two lateral distances (`lo` to `hi`, normally
+   * 0 = centre line), including the bevel gap at the start of the segment when the join is bevelled.
+   */
+  sideStrip(
+    d: Dense, i: number, j: number, lo: number, hi: number, side: -1 | 1, mat: number,
+    lift = ROAD_RIBBON_LIFT,
+  ): void {
+    const si = side > 0 ? 0 : 1;
+    const kI = i * 2 + si;
+    const kJ = j * 2 + si;
+    const cxI = d.x[i]!, czI = d.z[i]!;
+    const cxJ = d.x[j]!, czJ = d.z[j]!;
+    // start vertex uses the outgoing frame, end vertex the incoming frame
+    const lix = lo === 0 ? cxI : cxI + d.outX[kI]! * lo;
+    const liz = lo === 0 ? czI : czI + d.outZ[kI]! * lo;
+    const ljx = lo === 0 ? cxJ : cxJ + d.inX[kJ]! * lo;
+    const ljz = lo === 0 ? czJ : czJ + d.inZ[kJ]! * lo;
+    const hix = cxI + d.outX[kI]! * hi;
+    const hiz = czI + d.outZ[kI]! * hi;
+    const hjx = cxJ + d.inX[kJ]! * hi;
+    const hjz = czJ + d.inZ[kJ]! * hi;
+    if (side > 0) {
       this.quad(
         mat,
-        rix, this.groundAt(rix, riz), riz,
-        rjx, this.groundAt(rjx, rjz), rjz,
-        ljx, this.groundAt(ljx, ljz), ljz,
-        lix, this.groundAt(lix, liz), liz,
-      );
-      return;
-    }
-    const iix = d.x[i]! + side * d.mx[i]! * inner * d.ms[i]!;
-    const iiz = d.z[i]! + side * d.mz[i]! * inner * d.ms[i]!;
-    const ijx = d.x[j]! + side * d.mx[j]! * inner * d.ms[j]!;
-    const ijz = d.z[j]! + side * d.mz[j]! * inner * d.ms[j]!;
-    const oix = d.x[i]! + side * d.mx[i]! * outer * d.ms[i]!;
-    const oiz = d.z[i]! + side * d.mz[i]! * outer * d.ms[i]!;
-    const ojx = d.x[j]! + side * d.mx[j]! * outer * d.ms[j]!;
-    const ojz = d.z[j]! + side * d.mz[j]! * outer * d.ms[j]!;
-    if (side < 0) {
-      this.quad(
-        mat,
-        iix, this.groundAt(iix, iiz), iiz,
-        ijx, this.groundAt(ijx, ijz), ijz,
-        ojx, this.groundAt(ojx, ojz), ojz,
-        oix, this.groundAt(oix, oiz), oiz,
+        hix, this.groundAt(hix, hiz, lift), hiz,
+        hjx, this.groundAt(hjx, hjz, lift), hjz,
+        ljx, this.groundAt(ljx, ljz, lift), ljz,
+        lix, this.groundAt(lix, liz, lift), liz,
       );
     } else {
       this.quad(
         mat,
-        oix, this.groundAt(oix, oiz), oiz,
-        ojx, this.groundAt(ojx, ojz), ojz,
-        ijx, this.groundAt(ijx, ijz), ijz,
-        iix, this.groundAt(iix, iiz), iiz,
+        lix, this.groundAt(lix, liz, lift), liz,
+        ljx, this.groundAt(ljx, ljz, lift), ljz,
+        hjx, this.groundAt(hjx, hjz, lift), hjz,
+        hix, this.groundAt(hix, hiz, lift), hiz,
+      );
+    }
+    if (i === 0 || d.bevel[kI] === 0) return;
+    // Bevel gap: the previous segment ended on the incoming frame, this one starts on the outgoing.
+    const aix = lo === 0 ? cxI : cxI + d.inX[kI]! * lo;
+    const aiz = lo === 0 ? czI : czI + d.inZ[kI]! * lo;
+    const ahx = cxI + d.inX[kI]! * hi;
+    const ahz = czI + d.inZ[kI]! * hi;
+    if (lo === 0) {
+      this.triangle(
+        mat,
+        cxI, this.groundAt(cxI, czI, lift), czI,
+        ahx, this.groundAt(ahx, ahz, lift), ahz,
+        hix, this.groundAt(hix, hiz, lift), hiz,
+      );
+    } else {
+      this.quad(
+        mat,
+        aix, this.groundAt(aix, aiz, lift), aiz,
+        ahx, this.groundAt(ahx, ahz, lift), ahz,
+        hix, this.groundAt(hix, hiz, lift), hiz,
+        lix, this.groundAt(lix, liz, lift), liz,
       );
     }
   }
@@ -480,10 +635,14 @@ class RibbonBuilder {
     if (span <= 1e-9 || b - a <= 1e-9) return;
     const fa = (a - s0) / span;
     const fb = (b - s0) / span;
-    const pix = d.x[i]! + d.mx[i]! * offset * d.ms[i]!;
-    const piz = d.z[i]! + d.mz[i]! * offset * d.ms[i]!;
-    const pjx = d.x[j]! + d.mx[j]! * offset * d.ms[j]!;
-    const pjz = d.z[j]! + d.mz[j]! * offset * d.ms[j]!;
+    const si = offset >= 0 ? 0 : 1;
+    const dist = Math.abs(offset);
+    const kI = i * 2 + si;
+    const kJ = j * 2 + si;
+    const pix = d.x[i]! + d.outX[kI]! * dist;
+    const piz = d.z[i]! + d.outZ[kI]! * dist;
+    const pjx = d.x[j]! + d.inX[kJ]! * dist;
+    const pjz = d.z[j]! + d.inZ[kJ]! * dist;
     const ax = pix + (pjx - pix) * fa, az = piz + (pjz - piz) * fa;
     const bx = pix + (pjx - pix) * fb, bz = piz + (pjz - piz) * fb;
     const dx = d.x[j]! - d.x[i]!, dz = d.z[j]! - d.z[i]!;
@@ -787,13 +946,16 @@ export function buildRoadRibbons(
     const mat = p.paving ? MAT.PAVING : carriagewayMat(p);
     for (let i = 0; i + 1 < d.n; i++) {
       if (p.paving) {
-        builder.strip(d, i, i + 1, PAVING_HALF, PAVING_HALF, mat, 0);
+        builder.sideStrip(d, i, i + 1, 0, PAVING_HALF, 1, mat);
+        builder.sideStrip(d, i, i + 1, 0, PAVING_HALF, -1, mat);
         continue;
       }
-      builder.strip(d, i, i + 1, p.half, p.half, mat, 0);
+      builder.sideStrip(d, i, i + 1, 0, p.half, 1, mat);
+      builder.sideStrip(d, i, i + 1, 0, p.half, -1, mat);
       if (p.band > 0) {
-        builder.strip(d, i, i + 1, p.half, p.half + p.band, MAT.SIDEWALK, -1);
-        builder.strip(d, i, i + 1, p.half, p.half + p.band, MAT.SIDEWALK, 1);
+        const outer = p.half + p.band;
+        builder.sideStrip(d, i, i + 1, p.half, outer, 1, MAT.SIDEWALK, SIDEWALK_LIFT);
+        builder.sideStrip(d, i, i + 1, p.half, outer, -1, MAT.SIDEWALK, SIDEWALK_LIFT);
       }
     }
     if (p.car) markings(builder, p, d, clear);

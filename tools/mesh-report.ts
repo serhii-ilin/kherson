@@ -63,6 +63,9 @@ let viewChunks = 0;
 let viewBuildings = 0;
 let ribbonTris = 0;
 let ribbonChunks = 0;
+let maxRibbonTris = 0;
+let maxRibbonGcx = 0;
+let maxRibbonGcz = 0;
 let viewRibbonTris = 0;
 let viewRibbonChunks = 0;
 const SPAWN_X = 10293;
@@ -79,6 +82,11 @@ for (let gcz = gz0 - 8; gcz <= gz1 + 8; gcz++) {
     const n = triangleCount(mesh);
     const roads = buildChunkRoads(neigh, gcx, gcz, ground);
     const rn = roads.indices.length / 3;
+    if (rn > maxRibbonTris) {
+      maxRibbonTris = rn;
+      maxRibbonGcx = gcx;
+      maxRibbonGcz = gcz;
+    }
     if (inBox) {
       for (const b of buildingsInChunk(neigh, gcx, gcz, ground, box)) seen.add(b.id);
       if (n > 0) { chunks++; tris += n; bytes += meshByteSize(mesh); }
@@ -128,6 +136,8 @@ console.log(JSON.stringify({
   ribbonChunks,
   ribbonTriangles: ribbonTris,
   ribbonTrianglesPerChunk: ribbonChunks > 0 ? Number((ribbonTris / ribbonChunks).toFixed(1)) : 0,
+  maxRibbonTriangles: maxRibbonTris,
+  maxRibbonChunk: [maxRibbonGcx, maxRibbonGcz],
   viewRibbonChunks,
   viewRibbonTriangles: viewRibbonTris,
 }, null, 2));
