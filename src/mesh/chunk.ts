@@ -6,13 +6,20 @@
 import { VOXEL } from '../world/constants.ts';
 import { CHUNK_M } from '../world/stream-math.ts';
 import { GM, GW } from '../fine/block-input.ts';
+import { buildingKey } from '../world/osm-ref.ts';
 import type { VectorTile, VBuilding } from '../world/vector-format.ts';
 import type { Aabb } from './bounds.ts';
 import {
   emptyMesh, extrudeBuilding, mergeMeshes, type CityMesh, type ExtrudeBuilding,
 } from './extrude.ts';
+import type { NearRoad } from './near.ts';
 
 const REGION_M = 512;
+
+export interface ChunkMeshOptions {
+  lod?: 'near' | 'mid';
+  hidden?: ReadonlySet<string>;
+}
 
 function ringMetres(ring: Int32Array, ox: number, oz: number): [number, number][] {
   const out: [number, number][] = [];
@@ -118,7 +125,29 @@ function one(
     roof: b.roof,
     roofShape: b.roofShape,
     groundY: footprintGround(rings, groundAt),
+    osmType: b.osmType,
+    colour: b.colour,
+    roofColour: b.roofColour,
+    material: b.material,
+    roofMaterial: b.roofMaterial,
   }];
+}
+
+/** Drivable roads of the 3×3 tile neighbourhood, world metres (same frame as the building rings). */
+function roadsInTiles(tiles: readonly VectorTile[]): NearRoad[] {
+  const out: NearRoad[] = [];
+  for (const tile of tiles) {
+    const ox = tile.rx * REGION_M;
+    const oz = tile.rz * REGION_M;
+    for (const road of tile.roads) {
+      const pts: [number, number][] = [];
+      for (let i = 0; i + 1 < road.pts.length; i += 2) {
+        pts.push([ox + road.pts[i]! / 100, oz + road.pts[i + 1]! / 100]);
+      }
+      if (pts.length >= 2) out.push({ pts, kind: road.kind });
+    }
+  }
+  return out;
 }
 
 /** Merged mesh of every building this chunk owns. Empty when there are none. */
@@ -126,10 +155,15 @@ export function buildChunkMesh(
   tiles: readonly VectorTile[], gcx: number, gcz: number,
   groundAt: (x: number, z: number) => number,
   box?: Aabb,
+  opts: ChunkMeshOptions = {},
 ): CityMesh {
-  const list = buildingsInChunk(tiles, gcx, gcz, groundAt, box);
+  const lod = opts.lod ?? 'mid';
+  const hidden = opts.hidden;
+  const list = buildingsInChunk(tiles, gcx, gcz, groundAt, box)
+    .filter((b) => hidden === undefined || !hidden.has(buildingKey(b.id, b.osmType)));
   if (list.length === 0) return emptyMesh();
   const ox = gcx * CHUNK_M;
   const oz = gcz * CHUNK_M;
-  return mergeMeshes(list.map((b) => extrudeBuilding(b, ox, oz)));
+  const roads = lod === 'near' ? roadsInTiles(tiles) : undefined;
+  return mergeMeshes(list.map((b) => extrudeBuilding(b, ox, oz, { lod, roads })));
 }

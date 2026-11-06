@@ -16,7 +16,9 @@
  */
 import { Earcut } from 'three/src/extras/Earcut.js';
 import { MAT, materialColor } from '../world/materials.ts';
+import { PBR_LAYER, materialLayer, roofLayer, wallLayer } from '../world/pbr-layers.ts';
 import { ROOF } from '../world/vector-format.ts';
+import { addNearDetail, addNearParapet, isEndWall, type NearRoad } from './near.ts';
 
 export interface ExtrudeBuilding {
   id: number;
@@ -33,6 +35,23 @@ export interface ExtrudeBuilding {
   roofShape: number;
   /** Lowest ground under the footprint, metres. */
   groundY: number;
+  /** `OSM_TYPE` (v3); with `id` it names the OSM element. */
+  osmType?: number;
+  /** `building:colour` as 0xRRGGBB + 1 (v3); 0/undefined = none. */
+  colour?: number;
+  /** `roof:colour` as 0xRRGGBB + 1 (v3); 0/undefined = none. */
+  roofColour?: number;
+  /** `BUILDING_MATERIAL` (v3); 0/undefined = style layer. */
+  material?: number;
+  /** `ROOF_MATERIAL` (v3); 0/undefined = roof colour/shape. */
+  roofMaterial?: number;
+}
+
+export interface ExtrudeOptions {
+  /** `near` builds real openings; `mid` is the legacy shader-painted grid. */
+  lod?: 'near' | 'mid';
+  /** Drivable road centrelines near the chunk, world metres (for entrance placement). */
+  roads?: readonly NearRoad[];
 }
 
 export interface CityMesh {
@@ -41,17 +60,22 @@ export interface CityMesh {
   /** Metres: along the wall and up from the floor, or across the roof. */
   uvs: Float32Array;
   colors: Float32Array;
-  /** part (0 wall, 1 roof, 2 parapet, 3 soffit), levels, floor height (m), bay (m; 0 = no windows). */
+  /**
+   * part (0 wall, 1 roof, 2 parapet, 3 soffit, 4 trim, 5 glass, 6 frame/rail, 7 door),
+   * levels, floor height (m), bay (m; negative = windows are real geometry, 0 = no windows).
+   */
   facade: Float32Array;
   /** Material id, plus 0.5 when the ground floor is a shop front. */
   style: Float32Array;
+  /** One `PBR_LAYER` index per vertex, or -1 for none. */
+  pbr: Float32Array;
   indices: Uint32Array;
 }
 
 export type RoofKind = 'flat' | 'gable' | 'hip' | 'pyramid' | 'skillion' | 'dome';
 
-interface Pt { x: number; z: number }
-interface Facade {
+export interface Pt { x: number; z: number }
+export interface Facade {
   levels: number;
   floorH: number;
   bay: number;
@@ -80,14 +104,18 @@ const HISTORIC: Spec = { floor: 3.6, bay: 3.2, windows: true, shops: true, tall:
 for (let m = MAT.WALL_HISTORIC; m <= MAT.WALL_HISTORIC_CREAM; m++) SPECS.set(m, HISTORIC);
 for (const m of HOUSE) if (m !== MAT.WALL_HOUSE) SPECS.set(m, SPECS.get(MAT.WALL_HOUSE)!);
 
-const PART_WALL = 0;
-const PART_ROOF = 1;
-const PART_PARAPET = 2;
-const PART_SOFFIT = 3;
+export const PART_WALL = 0;
+export const PART_ROOF = 1;
+export const PART_PARAPET = 2;
+export const PART_SOFFIT = 3;
+export const PART_TRIM = 4;
+export const PART_GLASS = 5;
+export const PART_FRAME = 6;
+export const PART_DOOR = 7;
 const SKIRT = 0.4;
 const PARAPET = 0.45;
 
-function hash(a: number, b = 0): number {
+export function hash(a: number, b = 0): number {
   let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul((b | 0) + 0x7f4a7c15, 0x85ebca6b);
   h ^= h >>> 15;
   h = Math.imul(h, 0x2c1b3c6d);
@@ -97,8 +125,15 @@ function hash(a: number, b = 0): number {
   return h >>> 0;
 }
 
-function specOf(wall: number): Spec {
+export function specOf(wall: number): Spec {
   return SPECS.get(wall) ?? SPECS.get(MAT.WALL_APART)!;
+}
+
+/** v3 `colour` (0xRRGGBB + 1) as linear-ish 0..1 floats, or null when untagged. */
+export function decodeColour(value: number | undefined): [number, number, number] | null {
+  if (value === undefined || value <= 0) return null;
+  const c = value - 1;
+  return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
 }
 
 export function roofKindOf(wall: number, shape: number, hasHole: boolean): RoofKind {
@@ -121,7 +156,7 @@ export function facadeMetrics(wall: number, bodyH: number, levels: number): Faca
   return { levels: lv, floorH: h / lv, bay: spec.bay, shops: spec.shops };
 }
 
-function vary(rgb: readonly [number, number, number], id: number): [number, number, number] {
+export function vary(rgb: readonly [number, number, number], id: number): [number, number, number] {
   const s = 0.93 + (hash(id, 9) % 8) * 0.012;
   return [rgb[0] * s, rgb[1] * s, rgb[2] * s];
 }
@@ -178,20 +213,21 @@ function ensureWinding(ring: Pt[], ccw: boolean): Pt[] {
   return ring;
 }
 
-class Builder {
+export class Builder {
   private readonly pos: number[] = [];
   private readonly nor: number[] = [];
   private readonly uv: number[] = [];
   private readonly col: number[] = [];
   private readonly fac: number[] = [];
   private readonly sty: number[] = [];
+  private readonly pbr: number[] = [];
   private readonly idx: number[] = [];
   private n = 0;
 
   vert(
     x: number, y: number, z: number, nx: number, ny: number, nz: number,
     u: number, v: number, color: readonly [number, number, number],
-    facade: readonly [number, number, number, number], style: number,
+    facade: readonly [number, number, number, number], style: number, pbr = -1,
   ): number {
     this.pos.push(x, y, z);
     this.nor.push(nx, ny, nz);
@@ -199,6 +235,7 @@ class Builder {
     this.col.push(color[0], color[1], color[2]);
     this.fac.push(facade[0], facade[1], facade[2], facade[3]);
     this.sty.push(style);
+    this.pbr.push(pbr);
     return this.n++;
   }
 
@@ -220,6 +257,7 @@ class Builder {
       colors: Float32Array.from(this.col),
       facade: Float32Array.from(this.fac),
       style: Float32Array.from(this.sty),
+      pbr: Float32Array.from(this.pbr),
       indices: Uint32Array.from(this.idx),
     };
   }
@@ -231,7 +269,7 @@ function unit(x: number, y: number, z: number): [number, number, number] {
 }
 
 /** Triangle with an explicit normal. `ccw` is the vertex order as seen along the normal. */
-function addFace(
+export function addFace(
   b: Builder,
   pts: ReadonlyArray<readonly [number, number, number]>,
   uvs: ReadonlyArray<readonly [number, number]>,
@@ -239,13 +277,38 @@ function addFace(
   color: readonly [number, number, number],
   facade: readonly [number, number, number, number],
   style: number,
+  pbr = -1,
 ): void {
   const [nx, ny, nz] = unit(n[0], n[1], n[2]);
-  const ids = pts.map((p, i) => b.vert(p[0], p[1], p[2], nx, ny, nz, uvs[i]![0], uvs[i]![1], color, facade, style));
+  const ids = pts.map((p, i) => b.vert(p[0], p[1], p[2], nx, ny, nz, uvs[i]![0], uvs[i]![1], color, facade, style, pbr));
   if (ids.length === 3) b.tri(ids[0]!, ids[1]!, ids[2]!);
   else if (ids.length === 4) {
     b.tri(ids[0]!, ids[1]!, ids[2]!);
     b.tri(ids[0]!, ids[2]!, ids[3]!);
+  }
+}
+
+/** Quad with an explicit normal, reordered when needed so the front face points along it. */
+export function addQuad(
+  b: Builder,
+  p0: readonly [number, number, number], p1: readonly [number, number, number],
+  p2: readonly [number, number, number], p3: readonly [number, number, number],
+  uvs: ReadonlyArray<readonly [number, number]>,
+  n: readonly [number, number, number],
+  color: readonly [number, number, number],
+  facade: readonly [number, number, number, number],
+  style: number,
+  pbr = -1,
+): void {
+  const [ux, uy, uz] = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  const [vx, vy, vz] = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+  const cx = uy * vz - uz * vy;
+  const cy = uz * vx - ux * vz;
+  const cz = ux * vy - uy * vx;
+  if (cx * n[0] + cy * n[1] + cz * n[2] < 0) {
+    addFace(b, [p0, p3, p2, p1], [uvs[0]!, uvs[3]!, uvs[2]!, uvs[1]!], n, color, facade, style, pbr);
+  } else {
+    addFace(b, [p0, p1, p2, p3], uvs, n, color, facade, style, pbr);
   }
 }
 
@@ -257,9 +320,9 @@ function triNormal(
   return unit(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
 }
 
-interface Edge { ax: number; az: number; bx: number; bz: number; len: number; nx: number; nz: number }
+export interface Edge { ax: number; az: number; bx: number; bz: number; len: number; nx: number; nz: number }
 
-function edgesOf(rings: Pt[][]): Edge[] {
+export function edgesOf(rings: Pt[][]): Edge[] {
   const out: Edge[] = [];
   for (const ring of rings) {
     const n = ring.length;
@@ -287,9 +350,9 @@ function edgesOf(rings: Pt[][]): Edge[] {
   return out;
 }
 
-function addWall(
+export function addWall(
   b: Builder, e: Edge, y0: number, yA: number, yB: number, floorBase: number, u0: number,
-  color: [number, number, number], facade: Facade, style: number, part: number,
+  color: [number, number, number], facade: Facade, style: number, part: number, pbr = -1,
 ): void {
   const f: [number, number, number, number] = [part, facade.levels, facade.floorH, facade.bay];
   const vA0 = y0 - floorBase;
@@ -300,7 +363,7 @@ function addWall(
     b,
     [[e.bx, y0, e.bz], [e.ax, y0, e.az], [e.ax, yA, e.az], [e.bx, yB, e.bz]],
     [[u0 + e.len, vB0], [u0, vA0], [u0, vA1], [u0 + e.len, vB1]],
-    [e.nx, 0, e.nz], color, f, style,
+    [e.nx, 0, e.nz], color, f, style, pbr,
   );
 }
 
@@ -389,7 +452,7 @@ function addRoofTri(
   b: Builder,
   a: readonly [number, number, number], c: readonly [number, number, number], d: readonly [number, number, number],
   uva: readonly [number, number], uvc: readonly [number, number], uvd: readonly [number, number],
-  color: [number, number, number], style: number,
+  color: [number, number, number], style: number, pbr: number,
 ): void {
   let n = triNormal(a, c, d);
   let p0 = a, p1 = c, p2 = d, t0 = uva, t1 = uvc, t2 = uvd;
@@ -398,11 +461,12 @@ function addRoofTri(
     p1 = d; p2 = c; t1 = uvd; t2 = uvc;
   }
   const facade: [number, number, number, number] = [PART_ROOF, 0, 0, 0];
-  addFace(b, [p0, p1, p2], [t0, t1, t2], n, color, facade, style);
+  addFace(b, [p0, p1, p2], [t0, t1, t2], n, color, facade, style, pbr);
 }
 
 function addCap(
   b: Builder, rings: Pt[][], y: number, color: [number, number, number], style: number, up: boolean, part: number,
+  pbr: number,
 ): void {
   const flat: number[] = [];
   const holes: number[] = [];
@@ -418,24 +482,24 @@ function addCap(
     const ids = [tri[t]!, tri[t + 1]!, tri[t + 2]!];
     const pts = ids.map((i) => [flat[i * 2]!, y, flat[i * 2 + 1]!] as [number, number, number]);
     const uvs = ids.map((i) => [flat[i * 2]!, flat[i * 2 + 1]!] as [number, number]);
-    if (up) addFace(b, [pts[0]!, pts[2]!, pts[1]!], [uvs[0]!, uvs[2]!, uvs[1]!], [0, ny, 0], color, facade, style);
-    else addFace(b, pts, uvs, [0, ny, 0], color, facade, style);
+    if (up) addFace(b, [pts[0]!, pts[2]!, pts[1]!], [uvs[0]!, uvs[2]!, uvs[1]!], [0, ny, 0], color, facade, style, pbr);
+    else addFace(b, pts, uvs, [0, ny, 0], color, facade, style, pbr);
   }
 }
 
 function addPitched(
   b: Builder, ring: Pt[], kind: RoofKind, eave: number, ridgeY: number, f: Frame,
-  color: [number, number, number], style: number,
+  color: [number, number, number], style: number, pbr: number,
 ): void {
   const hits = ridgeHits(ring, f);
   if (hits.length < 2 && kind !== 'pyramid') {
-    addPyramid(b, ring, eave, ridgeY, color, style);
+    addPyramid(b, ring, eave, ridgeY, color, style, pbr);
     return;
   }
   let r0 = hits[0]!;
   let r1 = hits[hits.length - 1]!;
   if (kind === 'pyramid') {
-    addPyramid(b, ring, eave, ridgeY, color, style);
+    addPyramid(b, ring, eave, ridgeY, color, style, pbr);
     return;
   }
   if (kind === 'hip') {
@@ -443,7 +507,7 @@ function addPitched(
     const halfB = (f.bMax - f.bMin) / 2;
     const inset = Math.min(halfB, span / 2 - 0.4);
     if (!(inset > 0.3)) {
-      addPyramid(b, ring, eave, ridgeY, color, style);
+      addPyramid(b, ring, eave, ridgeY, color, style, pbr);
       return;
     }
     const dx = (r1.x - r0.x) / span;
@@ -463,19 +527,19 @@ function addPitched(
     const yc: [number, number, number] = [c.x, eave, c.z];
     if (close) {
       const p = p0;
-      addRoofTri(b, ya, yc, [p.x, ridgeY, p.z], [0, 0], [Math.hypot(c.x - a.x, c.z - a.z), 0], [Math.hypot(c.x - a.x, c.z - a.z) / 2, Math.hypot(p.x - a.x, p.z - a.z)], color, style);
+      addRoofTri(b, ya, yc, [p.x, ridgeY, p.z], [0, 0], [Math.hypot(c.x - a.x, c.z - a.z), 0], [Math.hypot(c.x - a.x, c.z - a.z) / 2, Math.hypot(p.x - a.x, p.z - a.z)], color, style, pbr);
     } else {
       const len = Math.hypot(c.x - a.x, c.z - a.z);
       const rise = Math.hypot((p0.x + p1.x) / 2 - (a.x + c.x) / 2, (p0.z + p1.z) / 2 - (a.z + c.z) / 2);
-      addRoofTri(b, ya, yc, [p1.x, ridgeY, p1.z], [0, 0], [len, 0], [len, rise], color, style);
-      addRoofTri(b, ya, [p1.x, ridgeY, p1.z], [p0.x, ridgeY, p0.z], [0, 0], [len, rise], [0, rise], color, style);
+      addRoofTri(b, ya, yc, [p1.x, ridgeY, p1.z], [0, 0], [len, 0], [len, rise], color, style, pbr);
+      addRoofTri(b, ya, [p1.x, ridgeY, p1.z], [p0.x, ridgeY, p0.z], [0, 0], [len, rise], [0, rise], color, style, pbr);
     }
   }
 }
 
 function addPyramid(
   b: Builder, ring: Pt[], eave: number, peakY: number,
-  color: [number, number, number], style: number,
+  color: [number, number, number], style: number, pbr: number,
 ): void {
   let cx = 0, cz = 0;
   for (const p of ring) { cx += p.x; cz += p.z; }
@@ -491,7 +555,7 @@ function addPyramid(
       b,
       [a.x, eave, a.z], [c.x, eave, c.z], [cx, peakY, cz],
       [u, 0], [u + len, 0], [u + len / 2, rise],
-      color, style,
+      color, style, pbr,
     );
     u += len;
   }
@@ -499,7 +563,7 @@ function addPyramid(
 
 function addDome(
   b: Builder, center: Pt, radius: number, eave: number, rise: number,
-  color: [number, number, number], style: number,
+  color: [number, number, number], style: number, pbr: number,
 ): void {
   const seg = 12;
   const steps = 3;
@@ -527,7 +591,7 @@ function addDome(
       for (let i = 0; i < lo.length; i++) {
         const a = lo[i]!;
         const c = lo[(i + 1) % lo.length]!;
-        addRoofTri(b, [a.x, a.y, a.z], [c.x, c.y, c.z], [p.x, p.y, p.z], [i, s], [i + 1, s], [i + 0.5, s + 1], color, style);
+        addRoofTri(b, [a.x, a.y, a.z], [c.x, c.y, c.z], [p.x, p.y, p.z], [i, s], [i + 1, s], [i + 0.5, s + 1], color, style, pbr);
       }
     } else {
       for (let i = 0; i < lo.length; i++) {
@@ -535,8 +599,8 @@ function addDome(
         const c = lo[(i + 1) % lo.length]!;
         const d = hi[(i + 1) % hi.length]!;
         const e = hi[i]!;
-        addRoofTri(b, [a.x, a.y, a.z], [c.x, c.y, c.z], [d.x, d.y, d.z], [i, s], [i + 1, s], [i + 1, s + 1], color, style);
-        addRoofTri(b, [a.x, a.y, a.z], [d.x, d.y, d.z], [e.x, e.y, e.z], [i, s], [i + 1, s + 1], [i, s + 1], color, style);
+        addRoofTri(b, [a.x, a.y, a.z], [c.x, c.y, c.z], [d.x, d.y, d.z], [i, s], [i + 1, s], [i + 1, s + 1], color, style, pbr);
+        addRoofTri(b, [a.x, a.y, a.z], [d.x, d.y, d.z], [e.x, e.y, e.z], [i, s], [i + 1, s + 1], [i, s + 1], color, style, pbr);
       }
     }
   }
@@ -555,7 +619,9 @@ function circleInside(rings: Pt[][], c: Pt, r: number): boolean {
  * Extrude `building`. Positions are world metres minus (`originX`, `originZ`) so a chunk mesh
  * can sit at the chunk's NW corner. An unusable footprint returns an empty mesh.
  */
-export function extrudeBuilding(building: ExtrudeBuilding, originX = 0, originZ = 0): CityMesh {
+export function extrudeBuilding(
+  building: ExtrudeBuilding, originX = 0, originZ = 0, opts: ExtrudeOptions = {},
+): CityMesh {
   const bld = new Builder();
   const rings = building.rings.map((r) => toRing(r)).filter((r) => r.length >= 3);
   if (rings.length === 0) return bld.finish(originX, originZ);
@@ -564,6 +630,7 @@ export function extrudeBuilding(building: ExtrudeBuilding, originX = 0, originZ 
   const area = Math.abs(signedArea(rings[0]!));
   if (area < 1.5 || area > 40000) return bld.finish(originX, originZ);
 
+  const lod = opts.lod ?? 'mid';
   const heightM = Math.max(2.4, building.heightM);
   const minH = Math.max(0, building.minHeightM);
   const floorBase = building.groundY + minH;
@@ -578,8 +645,14 @@ export function extrudeBuilding(building: ExtrudeBuilding, originX = 0, originZ 
   const eave = kind === 'flat' ? top - Math.min(PARAPET, (top - floorBase) * 0.18) : top - rise;
   const bodyH = Math.max(0.5, eave - floorBase);
   const facade = facadeMetrics(building.wall, bodyH, building.levels);
-  const wallColor = vary(materialColor(building.wall), building.id);
-  const roofColor = vary(materialColor(building.roof), building.id ^ 0x51);
+  const wallColor = vary(decodeColour(building.colour) ?? materialColor(building.wall), building.id);
+  const roofColor = vary(decodeColour(building.roofColour) ?? materialColor(building.roof), building.id ^ 0x51);
+  const explicitLayer = materialLayer(building.material ?? 0);
+  const wallPbr = explicitLayer >= 0 ? explicitLayer : wallLayer(building.wall);
+  const roofPbr = roofLayer(building.roofMaterial ?? 0, building.roof, kind === 'flat');
+  const historic = isHistoric(building.wall);
+  const trimColor = vary(materialColor(historic ? MAT.TRIM : MAT.CONCRETE), building.id ^ 0x33);
+  const trimPbr = historic ? PBR_LAYER.STUCCO_SMOOTH : PBR_LAYER.CONCRETE;
   const wallStyle = building.wall + (facade.shops ? 0.5 : 0);
   const uShift = ((hash(building.id, 4) % 1000) / 1000) * (facade.bay > 0 ? facade.bay : 3);
   const y0 = minH > 0.3 ? floorBase : floorBase - SKIRT;
@@ -602,39 +675,55 @@ export function extrudeBuilding(building: ExtrudeBuilding, originX = 0, originZ 
     } else kind = 'pyramid';
   }
 
-  for (const e of edges) {
-    const yA = yAt(e.ax, e.az);
-    const yB = yAt(e.bx, e.bz);
-    addWall(bld, e, y0, yA, yB, floorBase, uShift, wallColor, facade, wallStyle, PART_WALL);
-    if (kind === 'gable' && gable0 !== null && gable1 !== null) {
+  if (lod === 'near' && kind !== 'skillion') {
+    addNearDetail(bld, {
+      building, rings, edges, kind, y0, floorBase, eave, bodyH, top, facade, uShift,
+      wallStyle, wallColor, wallPbr, roofPbr, trimColor, trimPbr, roads: opts.roads,
+    });
+  } else {
+    for (const e of edges) {
+      const yA = yAt(e.ax, e.az);
+      const yB = yAt(e.bx, e.bz);
+      const blank = isEndWall(rings[0]!, edges, building.wall, e);
+      const ef = blank ? { ...facade, bay: 0 } : facade;
+      addWall(bld, e, y0, yA, yB, floorBase, uShift, wallColor, ef, wallStyle, PART_WALL, wallPbr);
+    }
+  }
+
+  // Gable ends sit above the eave, where the shader would never paint a window anyway.
+  if (kind === 'gable' && gable0 !== null && gable1 !== null) {
+    for (const e of edges) {
       const a = { x: e.ax, z: e.az };
       const c = { x: e.bx, z: e.bz };
       const peak = pointOnSeg(gable0, a, c, 0.35) ? gable0 : pointOnSeg(gable1, a, c, 0.35) ? gable1 : null;
-      if (peak !== null) {
-        const fA: [number, number, number, number] = [PART_WALL, facade.levels, facade.floorH, facade.bay];
-        addFace(
-          bld,
-          [[e.bx, yB, e.bz], [e.ax, yA, e.az], [peak.x, top, peak.z]],
-          [[uShift + e.len, yB - floorBase], [uShift, yA - floorBase], [uShift + e.len / 2, top - floorBase]],
-          [e.nx, 0, e.nz], wallColor, fA, wallStyle,
-        );
-      }
+      if (peak === null) continue;
+      const fA: [number, number, number, number] = [PART_WALL, facade.levels, facade.floorH, 0];
+      addFace(
+        bld,
+        [[e.bx, eave, e.bz], [e.ax, eave, e.az], [peak.x, top, peak.z]],
+        [[uShift + e.len, eave - floorBase], [uShift, eave - floorBase], [uShift + e.len / 2, top - floorBase]],
+        [e.nx, 0, e.nz], wallColor, fA, wallStyle, wallPbr,
+      );
     }
   }
 
   if (kind === 'flat') {
-    addCap(bld, rings, eave, roofColor, building.roof, true, PART_ROOF);
-    for (const e of edges) {
-      if (!outerEdge(rings[0]!, e)) continue;
-      addWall(bld, e, eave, top, top, floorBase, 0, wallColor, { ...facade, bay: 0 }, building.wall, PART_PARAPET);
-      const inx = -e.nx * 0.22;
-      const inz = -e.nz * 0.22;
-      addFace(
-        bld,
-        [[e.bx, top, e.bz], [e.ax, top, e.az], [e.ax + inx, top, e.az + inz], [e.bx + inx, top, e.bz + inz]],
-        [[e.len, 0], [0, 0], [0, 0.22], [e.len, 0.22]],
-        [0, 1, 0], wallColor, [PART_PARAPET, 0, 0, 0], building.wall,
-      );
+    addCap(bld, rings, eave, roofColor, building.roof, true, PART_ROOF, roofPbr);
+    if (lod === 'near') {
+      addNearParapet(bld, edges, rings[0]!, eave, top, floorBase, wallColor, wallPbr, building.wall);
+    } else {
+      for (const e of edges) {
+        if (!outerEdge(rings[0]!, e)) continue;
+        addWall(bld, e, eave, top, top, floorBase, 0, wallColor, { ...facade, bay: 0 }, building.wall, PART_PARAPET, wallPbr);
+        const inx = -e.nx * 0.22;
+        const inz = -e.nz * 0.22;
+        addFace(
+          bld,
+          [[e.bx, top, e.bz], [e.ax, top, e.az], [e.ax + inx, top, e.az + inz], [e.bx + inx, top, e.bz + inz]],
+          [[e.len, 0], [0, 0], [0, 0.22], [e.len, 0.22]],
+          [0, 1, 0], wallColor, [PART_PARAPET, 0, 0, 0], building.wall, wallPbr,
+        );
+      }
     }
   } else if (kind === 'skillion') {
     const flat: number[] = [];
@@ -647,7 +736,7 @@ export function extrudeBuilding(building: ExtrudeBuilding, originX = 0, originZ 
         const z = flat[i * 2 + 1]!;
         return [x, yAt(x, z), z] as [number, number, number];
       });
-      addRoofTri(bld, pts[0]!, pts[1]!, pts[2]!, [pts[0]![0], pts[0]![2]], [pts[1]![0], pts[1]![2]], [pts[2]![0], pts[2]![2]], roofColor, building.roof);
+      addRoofTri(bld, pts[0]!, pts[1]!, pts[2]!, [pts[0]![0], pts[0]![2]], [pts[1]![0], pts[1]![2]], [pts[2]![0], pts[2]![2]], roofColor, building.roof, roofPbr);
     }
   } else if (kind === 'dome') {
     let cx = 0, cz = 0;
@@ -657,18 +746,22 @@ export function extrudeBuilding(building: ExtrudeBuilding, originX = 0, originZ 
     const radius = Math.min(f.aMax - f.aMin, f.bMax - f.bMin) * 0.36;
     const center = { x: cx, z: cz };
     if (radius >= 1.5 && circleInside(rings, center, radius)) {
-      addCap(bld, rings, eave, roofColor, building.roof, true, PART_ROOF);
-      addDome(bld, center, radius, eave, rise, roofColor, building.roof);
-    } else addPyramid(bld, rings[0]!, eave, top, roofColor, building.roof);
+      addCap(bld, rings, eave, roofColor, building.roof, true, PART_ROOF, roofPbr);
+      addDome(bld, center, radius, eave, rise, roofColor, building.roof, roofPbr);
+    } else addPyramid(bld, rings[0]!, eave, top, roofColor, building.roof, roofPbr);
   } else {
-    addPitched(bld, rings[0]!, kind, eave, top, f, roofColor, building.roof);
+    addPitched(bld, rings[0]!, kind, eave, top, f, roofColor, building.roof, roofPbr);
   }
 
-  if (minH > 0.3) addCap(bld, rings, floorBase, wallColor, building.wall, false, PART_SOFFIT);
+  if (minH > 0.3) addCap(bld, rings, floorBase, wallColor, building.wall, false, PART_SOFFIT, wallPbr);
   return bld.finish(originX, originZ);
 }
 
-function outerEdge(outer: readonly Pt[], e: Edge): boolean {
+export function isHistoric(wall: number): boolean {
+  return (wall >= MAT.WALL_HISTORIC && wall <= MAT.WALL_HISTORIC_CREAM) || wall === MAT.WALL_STALIN;
+}
+
+export function outerEdge(outer: readonly Pt[], e: Edge): boolean {
   const mx = (e.ax + e.bx) / 2;
   const mz = (e.az + e.bz) / 2;
   for (let i = 0; i < outer.length; i++) {
@@ -683,7 +776,7 @@ export function emptyMesh(): CityMesh {
   return {
     positions: new Float32Array(0), normals: new Float32Array(0), uvs: new Float32Array(0),
     colors: new Float32Array(0), facade: new Float32Array(0), style: new Float32Array(0),
-    indices: new Uint32Array(0),
+    pbr: new Float32Array(0), indices: new Uint32Array(0),
   };
 }
 
@@ -702,6 +795,7 @@ export function mergeMeshes(parts: readonly CityMesh[]): CityMesh {
   const colors = new Float32Array(nv * 3);
   const facade = new Float32Array(nv * 4);
   const style = new Float32Array(nv);
+  const pbr = new Float32Array(nv);
   const indices = new Uint32Array(ni);
   let v = 0;
   let i = 0;
@@ -713,19 +807,21 @@ export function mergeMeshes(parts: readonly CityMesh[]): CityMesh {
     colors.set(p.colors, v * 3);
     facade.set(p.facade, v * 4);
     style.set(p.style, v);
+    pbr.set(p.pbr, v);
     for (let k = 0; k < p.indices.length; k++) indices[i + k] = p.indices[k]! + v;
     v += n;
     i += p.indices.length;
   }
-  return { positions, normals, uvs, colors, facade, style, indices };
+  return { positions, normals, uvs, colors, facade, style, pbr, indices };
 }
 
 export function triangleCount(mesh: CityMesh): number {
   return mesh.indices.length / 3;
 }
 
-/** GPU buffer bytes of one mesh (positions, normals, UVs, colours, facade, style, indices). */
+/** GPU buffer bytes of one mesh (positions, normals, UVs, colours, facade, style, pbr, indices). */
 export function meshByteSize(mesh: CityMesh): number {
   return mesh.positions.byteLength + mesh.normals.byteLength + mesh.uvs.byteLength
-    + mesh.colors.byteLength + mesh.facade.byteLength + mesh.style.byteLength + mesh.indices.byteLength;
+    + mesh.colors.byteLength + mesh.facade.byteLength + mesh.style.byteLength
+    + mesh.pbr.byteLength + mesh.indices.byteLength;
 }
