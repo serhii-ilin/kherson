@@ -1,3 +1,8 @@
+import * as THREE from 'three';
+import { PBR_PARS } from './pbr-glsl.ts';
+import { groundLayer, PBR_LAYER, PBR_LAYER_COUNT, PBR_TILE_M } from './pbr-layers.ts';
+import type { PbrUniforms } from './pbr-library.ts';
+
 /**
  * Procedural detail for the coarse tier, injected into the chunk MeshLambertMaterial:
  *  - upward faces: world-space value noise, asphalt grain, sidewalk tile grid, plaza paving, plus the
@@ -12,6 +17,103 @@
 interface ShaderSource {
   vertexShader: string;
   fragmentShader: string;
+}
+
+/** Last MAT id in the generated ground-layer table; F2's fine ids end at STOP_LINE (72). */
+const GROUND_PBR_ID_MAX = 80;
+
+/**
+ * `groundLayer()` for ids 0..80, generated here so the shader table can never drift from pbr-layers.ts.
+ * The test parses the emitted GLSL and checks every entry against `groundLayer(id)`.
+ */
+const GROUND_PBR_LAYERS: readonly number[] = Array.from(
+  { length: GROUND_PBR_ID_MAX + 1 },
+  (_, id) => groundLayer(id),
+);
+
+/** Layers whose albedo is the surface colour rather than a brightness detail to multiply into the palette. */
+const GROUND_PBR_COLOR_LAYERS: readonly number[] = [
+  PBR_LAYER.SETT_GRANITE,
+  PBR_LAYER.PAVERS_BEHATON,
+  PBR_LAYER.GRAVEL,
+  PBR_LAYER.GRANITE,
+];
+
+const glslFloats = (values: readonly number[]): string => values.map((value) => value.toFixed(1)).join(', ');
+
+/** Fragment GLSL for the ground PBR branch: the generated layer table, its query and the colour-layer test. */
+export const GROUND_PBR_GLSL = /* glsl */ `
+uniform float uGroundPbrOn;
+// Written in color_fragment and read after normal_fragment_maps, so the ground bump reaches Lambert lighting.
+float gPbrNtsOn = 0.0;
+vec3 gPbrNTS = vec3( 0.0, 0.0, 1.0 );
+const float gGroundPbrLayers[${GROUND_PBR_ID_MAX + 1}] = float[${GROUND_PBR_ID_MAX + 1}](
+  ${glslFloats(GROUND_PBR_LAYERS)}
+);
+float groundPbrLayer( float id ) {
+  int i = int( id + 0.5 );
+  if ( i < 0 || i > ${GROUND_PBR_ID_MAX} ) return -1.0;
+  return gGroundPbrLayers[i];
+}
+bool groundPbrColorLayer( float layer ) {
+  return layer == ${glslFloats(GROUND_PBR_COLOR_LAYERS).replaceAll(', ', ' || layer == ')};
+}
+float gLuma( vec3 c ) {
+  return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+}
+`;
+
+/**
+ * One neutral 1x1x20 array per map, created once. It keeps every material's uniform set valid before the
+ * library downloads; `uGroundPbrOn` stays 0, so the shader never samples it.
+ */
+function neutralArrayTexture(roughness: number): THREE.DataArrayTexture {
+  const data = new Uint8Array(PBR_LAYER_COUNT * 4);
+  for (let i = 0; i < PBR_LAYER_COUNT; i++) {
+    const o = i * 4;
+    data[o] = 128;
+    data[o + 1] = 128;
+    data[o + 2] = roughness;
+    data[o + 3] = 255;
+  }
+  const texture = new THREE.DataArrayTexture(data, 1, 1, PBR_LAYER_COUNT);
+  texture.colorSpace = THREE.LinearSRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const DUMMY_PBR_A = neutralArrayTexture(128);
+const DUMMY_PBR_N = neutralArrayTexture(230);
+
+/**
+ * Shared uniform objects bound by every ground material. The coarse material has no
+ * `customProgramCacheKey`, and the fine tier clones its shader hooks, so both tiers must compile one program:
+ * `setGroundPbr` only swaps `.value` here and never touches the shader source.
+ */
+const DUMMY_PBR_TILE: Float32Array = new Float32Array(PBR_TILE_M);
+const uPbrA = { value: DUMMY_PBR_A };
+const uPbrN = { value: DUMMY_PBR_N };
+const uPbrTile: { value: Float32Array } = { value: DUMMY_PBR_TILE };
+const uGroundPbrOn = { value: 0 };
+
+/** Point the ground shaders at a loaded PBR library, or back at neutral dummy arrays. No recompile. */
+export function setGroundPbr(uniforms: PbrUniforms | null): void {
+  if (uniforms === null) {
+    uPbrA.value = DUMMY_PBR_A;
+    uPbrN.value = DUMMY_PBR_N;
+    uPbrTile.value = DUMMY_PBR_TILE;
+    uGroundPbrOn.value = 0;
+    return;
+  }
+  uPbrA.value = uniforms.uPbrA.value;
+  uPbrN.value = uniforms.uPbrN.value;
+  uPbrTile.value = uniforms.uPbrTile.value;
+  uGroundPbrOn.value = 1;
 }
 
 /** Shared constant uniform for materials that never fade. */
@@ -33,6 +135,10 @@ export function facadeShader(this: { userData?: Record<string, unknown> } | void
   const fade = (this && this.userData?.uFade) as { value: number } | undefined;
   shader.uniforms.uFade = fade ?? NO_FADE;
   shader.uniforms.uNight = NIGHT_UNIFORM;
+  shader.uniforms.uPbrA = uPbrA;
+  shader.uniforms.uPbrN = uPbrN;
+  shader.uniforms.uPbrTile = uPbrTile;
+  shader.uniforms.uGroundPbrOn = uGroundPbrOn;
   shader.vertexShader = shader.vertexShader
     .replace(
       '#include <common>',
@@ -60,6 +166,8 @@ varying vec2 vRun;`,
     .replace(
       '#include <common>',
       `#include <common>
+${PBR_PARS}
+${GROUND_PBR_GLSL}
 varying vec3 vGWorld;
 varying vec3 vGN;
 varying vec4 vWall;
@@ -209,6 +317,8 @@ vec4 fStyle( float m ) {
   float gDist = length( vViewPosition );
   float gFade = 1.0 - smoothstep( 120.0, 400.0, gDist );
   gGlow = vec3( 0.0 );
+  gPbrNtsOn = 0.0;
+  gPbrNTS = vec3( 0.0, 0.0, 1.0 );
   if ( vGN.y > 0.5 ) {
     // ---- ground and roofs
     float gn = ( gVNoise( vGWorld.xz / 8.0 ) * 0.6 + gVNoise( vGWorld.xz / 32.0 ) * 0.4 ) * 2.0 - 1.0;
@@ -219,6 +329,28 @@ vec4 fStyle( float m ) {
     vec2 gw = vGWorld.xz;
     float px = max( fwidth( gw.x ), fwidth( gw.y ) );
     float fine = gFade * ( 1.0 - smoothstep( 0.15, 0.6, px ) );
+    // PBR library: the layer table is generated from groundLayer() (no drifting ids). While the library
+    // has not arrived uGroundPbrOn is 0, so nothing is sampled. gPattern fades the procedural patterns
+    // that the textures replace, while keeping the low-frequency tone variation and asphalt cracks.
+    float gLayer = groundPbrLayer( vWall.x );
+    float gPbrKeep = 1.0 - smoothstep( 250.0, 400.0, gDist );
+    bool gPbr = uGroundPbrOn > 0.5 && gLayer >= 0.0;
+    float gPattern = gPbr ? ( 1.0 - gPbrKeep ) : 1.0;
+    PbrSample gs;
+    gs.detail = vec3( 1.0 );
+    gs.rough = 0.9;
+    gs.nTS = vec3( 0.0, 0.0, 1.0 );
+    gs.ao = 1.0;
+    if ( gPbr ) {
+      gs = pbrSample( gLayer, gw, gDist );
+      if ( vWall.x > 66.5 && vWall.x < 67.5 ) {
+        // asphalt patch: a touch darker and smoother than the road around it
+        gs.detail *= 0.90;
+        gs.nTS = normalize( vec3( gs.nTS.xy * 0.6, gs.nTS.z ) );
+      }
+      gPbrNTS = gs.nTS;
+      gPbrNtsOn = gPbrKeep > 0.001 ? 1.0 : 0.0;
+    }
     // 0.2 m blades-of-grass speckle on green ground (matters for the fine tier only; fades with distance)
     if ( gk > 0.1 ) {
       diffuseColor.rgb *= 1.0 + 0.08 * fine * ( gHash( floor( gw * 5.0 ) ) - 0.5 );
@@ -233,13 +365,18 @@ vec4 fStyle( float m ) {
     if ( vWall.x > 6.5 && vWall.x < 7.5 ) {
       // rail ballast: coarse gravel
       float gv = gHash( floor( gw * 8.0 ) ) * 0.65 + gHash( floor( gw * 23.0 ) ) * 0.35;
-      diffuseColor.rgb *= 1.0 + 0.30 * fine * ( gv - 0.5 );
-    } else if ( vWall.x > 10.5 && vWall.x < 11.5 ) {
-      // road marking: flat white, chipped and dirtied by wear noise
+      diffuseColor.rgb *= 1.0 + 0.30 * fine * gPattern * ( gv - 0.5 );
+    } else if ( ( vWall.x > 10.5 && vWall.x < 11.5 ) || ( vWall.x > 71.5 && vWall.x < 72.5 ) ) {
+      // road marking and stop line: flat white, chipped and dirtied by wear noise
       float wear = gVNoise( gw * 7.0 ) * 0.6 + gVNoise( gw * 29.0 ) * 0.4;
       float worn = smoothstep( 0.52, 0.78, wear ) * 0.45;
       diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.38, 0.39, 0.40 ), worn * mix( 0.35, 1.0, fine ) );
       diffuseColor.rgb *= 1.0 + 0.06 * fine * ( gHash( floor( gw * 5.0 ) ) - 0.5 );
+      if ( uGroundPbrOn > 0.5 ) {
+        // paint over asphalt: keep 30% of the asphalt texture so it reads as a painted surface
+        PbrSample ms = pbrSample( ${PBR_LAYER.ASPHALT.toFixed(1)}, gw, gDist );
+        diffuseColor.rgb *= mix( vec3( 1.0 ), ms.detail, 0.3 );
+      }
     } else if ( vWall.x > 11.5 && vWall.x < 12.5 ) {
       // steel rail head: faint brushed variation
       diffuseColor.rgb *= 1.0 + 0.16 * fine * ( gHash( floor( gw * 12.0 ) ) - 0.5 );
@@ -248,12 +385,12 @@ vec4 fStyle( float m ) {
       vec2 pv = gw / 0.4;
       vec2 pf2 = fract( pv );
       float pline = 1.0 - ( fBox( pf2.x, 0.03, 0.97, 0.06 ) * fBox( pf2.y, 0.03, 0.97, 0.06 ) );
-      diffuseColor.rgb *= 1.0 - 0.12 * fine * pline;
-      diffuseColor.rgb *= 1.0 + 0.06 * fine * ( gHash( floor( pv ) ) - 0.5 );
-    } else if ( vWall.x > 2.5 && vWall.x < 3.5 ) {
-      // asphalt: fine grain
+      diffuseColor.rgb *= 1.0 - 0.12 * fine * gPattern * pline;
+      diffuseColor.rgb *= 1.0 + 0.06 * fine * gPattern * ( gHash( floor( pv ) ) - 0.5 );
+    } else if ( ( vWall.x > 2.5 && vWall.x < 3.5 ) || ( vWall.x > 66.5 && vWall.x < 67.5 ) ) {
+      // asphalt and repair patch: fine grain
       float gr = gHash( floor( gw * 6.0 ) );
-      diffuseColor.rgb *= 1.0 + 0.10 * fine * ( gr - 0.5 );
+      diffuseColor.rgb *= 1.0 + 0.10 * fine * gPattern * ( gr - 0.5 );
       // sparse low-frequency darker patches (repairs, oil) and hairline cracks along noise iso-lines
       float pat = gVNoise( gw / 3.5 + 11.0 );
       diffuseColor.rgb *= 1.0 - 0.14 * gFade * smoothstep( 0.62, 0.8, pat );
@@ -261,29 +398,58 @@ vec4 fStyle( float m ) {
       float cw = max( fwidth( cn ), 1e-4 );
       float crack = 1.0 - smoothstep( 0.0, 1.0, abs( cn - 0.5 ) / ( cw * 1.5 ) );
       float cmask = smoothstep( 0.68, 0.85, gVNoise( gw / 9.0 + 2.0 ) );
-      // cracks are pixel-wide iso-lines, so they must stay faint and close or they read as drawn curves
+      // cracks are pixel-wide iso-lines, so they must stay faint and close or they read as drawn curves;
+      // the asphalt texture keeps them, faint, instead of replacing them
       float cnear = 1.0 - smoothstep( 4.0, 12.0, gDist );
-      diffuseColor.rgb *= 1.0 - 0.16 * crack * cmask * cnear * fine * ( 1.0 - smoothstep( 0.05, 0.25, px ) );
+      diffuseColor.rgb *= 1.0 - 0.16 * ( 0.45 + 0.55 * gPattern ) * crack * cmask * cnear * fine * ( 1.0 - smoothstep( 0.05, 0.25, px ) );
     } else if ( vWall.x > 3.5 && vWall.x < 4.5 ) {
       // sidewalk: 0.5 m tiles
       vec2 tf = fract( gw / 0.5 );
       float line = 1.0 - ( fBox( tf.x, 0.04, 0.96, 0.08 ) * fBox( tf.y, 0.04, 0.96, 0.08 ) );
-      diffuseColor.rgb *= 1.0 - 0.10 * fine * line;
+      diffuseColor.rgb *= 1.0 - 0.10 * fine * gPattern * line;
       float th = gHash( floor( gw / 0.5 ) + 3.0 );
-      diffuseColor.rgb *= 1.0 + 0.03 * fine * ( gHash( floor( gw / 0.5 ) ) - 0.5 );
+      diffuseColor.rgb *= 1.0 + 0.03 * fine * gPattern * ( gHash( floor( gw / 0.5 ) ) - 0.5 );
       // the odd darker / cracked tile
-      diffuseColor.rgb *= 1.0 - 0.08 * fine * step( 0.93, th ) - 0.05 * fine * step( 0.985, th );
+      diffuseColor.rgb *= 1.0 - 0.08 * fine * gPattern * step( 0.93, th ) - 0.05 * fine * gPattern * step( 0.985, th );
       vec2 tc = tf - 0.5;
       float tcr = 1.0 - smoothstep( 0.0, 0.03 + px, abs( tc.x * 0.8 + tc.y * 0.6 + 0.1 * sin( tc.y * 9.0 ) ) );
-      diffuseColor.rgb *= 1.0 - 0.25 * fine * tcr * step( 0.97, th );
+      diffuseColor.rgb *= 1.0 - 0.25 * fine * gPattern * tcr * step( 0.97, th );
     } else if ( vWall.x > 9.5 && vWall.x < 10.5 ) {
       // plaza: 1.5 m paving with offset courses
       vec2 pg = gw / 1.5;
       pg.x += 0.5 * mod( floor( pg.y ), 2.0 );
       vec2 pf = fract( pg );
       float line = 1.0 - ( fBox( pf.x, 0.03, 0.97, 0.06 ) * fBox( pf.y, 0.03, 0.97, 0.06 ) );
-      diffuseColor.rgb *= 1.0 - 0.09 * fine * line;
-      diffuseColor.rgb *= 1.0 + 0.04 * fine * ( gHash( floor( pg ) ) - 0.5 );
+      diffuseColor.rgb *= 1.0 - 0.09 * fine * gPattern * line;
+      diffuseColor.rgb *= 1.0 + 0.04 * fine * gPattern * ( gHash( floor( pg ) ) - 0.5 );
+    } else if ( vWall.x > 69.5 && vWall.x < 70.5 ) {
+      // cast-iron manhole cover: dark turning rings, a fine raised grid, a little rust
+      vec2 mc = floor( gw / 0.7 ) + 0.5;
+      float mr = length( gw - mc * 0.7 ) / 0.35;
+      float ring = 0.5 + 0.5 * cos( mr * 46.0 );
+      float grid = max( step( 0.84, fract( gw.x / 0.035 ) ), step( 0.84, fract( gw.y / 0.035 ) ) );
+      float rust = smoothstep( 0.72, 0.94, gVNoise( gw * 23.0 + 4.0 ) );
+      diffuseColor.rgb *= 1.0 - 0.16 * fine * ring;
+      diffuseColor.rgb *= 1.0 - 0.22 * fine * grid;
+      diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.30, 0.17, 0.10 ), 0.28 * fine * rust );
+    } else if ( vWall.x > 70.5 && vWall.x < 71.5 ) {
+      // storm-drain grate: parallel slots across the short axis, a dark frame and worn metal edges
+      float sx = fract( gw.x / 0.055 );
+      float slot = fBox( sx, 0.12, 0.88, px / 0.055 + 0.05 );
+      diffuseColor.rgb *= 1.0 - 0.72 * fine * slot;
+      float rim = max( step( fract( gw.x / 0.4 ), 0.08 ), step( fract( gw.y / 0.8 ), 0.08 ) );
+      diffuseColor.rgb *= 1.0 - 0.30 * fine * rim;
+      diffuseColor.rgb *= 1.0 + 0.12 * fine * ( gHash( floor( gw * 20.0 ) ) - 0.5 );
+    }
+    if ( gPbr ) {
+      if ( groundPbrColorLayer( gLayer ) ) {
+        // sett, pavers, gravel and granite: the texture is the colour, modulated by the palette luminance
+        float baseLum = gLuma( diffuseColor.rgb );
+        vec3 tex = clamp( gs.detail * baseLum * 1.6, 0.0, 1.2 );
+        diffuseColor.rgb = mix( diffuseColor.rgb, tex, gPbrKeep );
+      } else {
+        diffuseColor.rgb *= gs.detail;
+      }
     }
   } else if ( vWall.x > 50.5 && vWall.x < 51.5 ) {
     // ---- street-lamp lens (prop face looking down)
@@ -515,6 +681,19 @@ vec4 fStyle( float m ) {
       }
     }
     diffuseColor.rgb *= 1.0 - 0.32 * gcontact;
+  }`,
+    )
+    .replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+  if ( gPbrNtsOn > 0.5 ) {
+    // Ground PBR normal: tangent from world x, bitangent from world -z, perturbed in world space, then
+    // brought into view space for Lambert's per-fragment normal.
+    vec3 gT;
+    vec3 gB;
+    pbrGroundBasis( normalize( vGN ), gT, gB );
+    vec3 gWN = pbrPerturb( normalize( vGN ), gT, gB, gPbrNTS );
+    normal = normalize( ( viewMatrix * vec4( gWN, 0.0 ) ).xyz );
   }`,
     );
 }

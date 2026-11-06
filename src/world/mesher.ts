@@ -93,9 +93,12 @@ const WALL_MAT_MIN = 20;
 const WALL_MAT_MAX = 39;
 
 /** Ground materials whose upward faces carry their id in `walls.x` for shader detail. */
-function hasGroundDetail(mat: number): boolean {
+export function hasGroundDetail(mat: number): boolean {
   return mat === MAT.ASPHALT || mat === MAT.SIDEWALK || mat === MAT.PLAZA || mat === MAT.RAIL
-    || mat === MAT.MARKING || mat === MAT.STEEL || mat === MAT.PAVING;
+    || mat === MAT.MARKING || mat === MAT.STEEL || mat === MAT.PAVING || mat === MAT.KERB
+    || mat === MAT.GRANITE
+    // fine-only road surfaces: SETT 64 through STOP_LINE 72 (src/world/materials.ts)
+    || (mat >= MAT.SETT && mat <= MAT.STOP_LINE);
 }
 
 /** Growable quad buffer producing the final typed arrays. */
