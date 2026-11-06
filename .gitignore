@@ -10,6 +10,7 @@ data/osm/release/
 data/osm/*.pbf
 data/osm/*.partial
 public/world/
+data/material-sources/
 
 # owner reference photos: private evidence, never committed (CONSTITUTION 7.5)
 evidence/photos/

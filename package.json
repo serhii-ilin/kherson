@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "fetch-osm": "node --experimental-strip-types tools/fetch-osm.ts",
+    "fetch-materials": "node --experimental-strip-types tools/materials/fetch-materials.ts",
+    "pack-materials": "node --experimental-strip-types tools/materials/pack-materials.ts",
     "publish-snapshot": "node --experimental-strip-types tools/publish-snapshot.ts",
     "build-restoration": "node --experimental-strip-types tools/build-restoration.ts",
     "bake": "node --experimental-strip-types --max-old-space-size=8192 tools/bake.ts",

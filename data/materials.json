@@ -1,0 +1,321 @@
+{
+  "note": "CC0 1.0 PBR material sources for the shared layer library (src/world/pbr-layers.ts). Layers are in PBR_LAYER_NAMES order: append only. Asset ids were chosen after a visual check; the maintainer may still swap some. Run `npm run fetch-materials -- --resolve --write-sha` to download the zips into the git-ignored data/material-sources/ and record their hashes, then `npm run pack-materials` to write the alpha-free WebP sets.",
+  "userAgent": "voxel-kherson (https://github.com/serhii-ilin/kherson)",
+  "layers": [
+    {
+      "layer": "stucco_smooth",
+      "source": "ambientcg",
+      "assetId": "Plaster001",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Plaster001_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Plaster001",
+      "licence": "CC0-1.0",
+      "sha256": "944b4831016e42ace4a89422e4e7190912ca2f7fed6f561354c48ec7bb54d3a4",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "stucco_rough",
+      "source": "ambientcg",
+      "assetId": "Plaster003",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Plaster003_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Plaster003",
+      "licence": "CC0-1.0",
+      "sha256": "3a47249643273c82c53d8d31c9caef43aec940a4c926cf0c74858a8e96631bf1",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "plaster_painted",
+      "source": "ambientcg",
+      "assetId": "PaintedPlaster017",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=PaintedPlaster017_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=PaintedPlaster017",
+      "licence": "CC0-1.0",
+      "sha256": "bae0380d82b6ccac8943b4980417cb3c9de5c896218339c108056f1dfb8e886c",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "limestone_shell",
+      "source": "ambientcg",
+      "assetId": "Bricks084",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Bricks084_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Bricks084",
+      "licence": "CC0-1.0",
+      "sha256": "08ef86952f653ca7ea0880e25e640ab312c4b46c7f62b936aa88d65755aa245c",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.5
+    },
+    {
+      "layer": "brick_red",
+      "source": "ambientcg",
+      "assetId": "Bricks085",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Bricks085",
+      "licence": "CC0-1.0",
+      "sha256": "93202c41a65e6932e77c7c42519ee5433b90150427ae726042c616c188e570a0",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "brick_silicate",
+      "source": "ambientcg",
+      "assetId": "Bricks060",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Bricks060_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Bricks060",
+      "licence": "CC0-1.0",
+      "sha256": "e8dce6fd843fce863bd60aa118ae904d52cef020b4db7d343a2e389fc489ac6f",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "pebbledash",
+      "source": "ambientcg",
+      "assetId": "Concrete049",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Concrete049_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Concrete049",
+      "licence": "CC0-1.0",
+      "sha256": "9059f073d3424a8eefdf87dfa9deaf227c5ca9fe47b9f54f47a761ea96ad199d",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.6
+    },
+    {
+      "layer": "panel_concrete",
+      "source": "ambientcg",
+      "assetId": "Concrete042A",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Concrete042A_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Concrete042A",
+      "licence": "CC0-1.0",
+      "sha256": "07f5a1d1389bd1ecef41a528c5a0b2acee571627b27b6de0b111fef0d28610e4",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.5
+    },
+    {
+      "layer": "concrete",
+      "source": "ambientcg",
+      "assetId": "Concrete036",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Concrete036_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Concrete036",
+      "licence": "CC0-1.0",
+      "sha256": "fc46d520135bb9c8aec364ea2694a4794facd58bee1c124b3f64f119a9b74603",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.3
+    },
+    {
+      "layer": "granite",
+      "source": "ambientcg",
+      "assetId": "Granite002B",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Granite002B_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Granite002B",
+      "licence": "CC0-1.0",
+      "sha256": "e8b06ce9559b96f85fa610b09572874055e4a0eba967e56404c314d10517eaf5",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "roof_tin_seam",
+      "source": "ambientcg",
+      "assetId": "CorrugatedSteel007A",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=CorrugatedSteel007A_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=CorrugatedSteel007A",
+      "licence": "CC0-1.0",
+      "sha256": "c70ff5a3a182ab14a010105bcfbdf26617877ca6985f95ef5c6677d0c3175899",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0
+    },
+    {
+      "layer": "roof_clay_tile",
+      "source": "ambientcg",
+      "assetId": "RoofingTiles014A",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=RoofingTiles014A_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=RoofingTiles014A",
+      "licence": "CC0-1.0",
+      "sha256": "b928f75b476df36417e01b6ab60057cb94f65abd035d7a1eaf7ea884ee0f1521",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "roof_eternit",
+      "source": "ambientcg",
+      "assetId": "CorrugatedSteel005",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=CorrugatedSteel005_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=CorrugatedSteel005",
+      "licence": "CC0-1.0",
+      "sha256": "4198faced790c75c551750d323ef384ea1ab353463b2067f44f8e5f5ff2d1a09",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0
+    },
+    {
+      "layer": "roof_bitumen",
+      "source": "ambientcg",
+      "assetId": "Asphalt031",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Asphalt031_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Asphalt031",
+      "licence": "CC0-1.0",
+      "sha256": "f98114b8fb083fc65925c3b4568b131e37c9a23357d432a16e59676dbc69f964",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0
+    },
+    {
+      "layer": "asphalt",
+      "source": "ambientcg",
+      "assetId": "Road012A",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Road012A_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Road012A",
+      "licence": "CC0-1.0",
+      "sha256": "4b5a23613ad8aec610972cae9ae553fc3892464f76b727f71d06e2be679e9811",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.3
+    },
+    {
+      "layer": "asphalt_worn",
+      "source": "ambientcg",
+      "assetId": "Road012B",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Road012B_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Road012B",
+      "licence": "CC0-1.0",
+      "sha256": "d7590591c7bfe98feeb88d16d2288556b7325bb1564d50a394d1471d4b899fe7",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.3
+    },
+    {
+      "layer": "pavers_behaton",
+      "source": "ambientcg",
+      "assetId": "PavingStones128",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=PavingStones128_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=PavingStones128",
+      "licence": "CC0-1.0",
+      "sha256": "0a507f47fa86318ded7c128c1b7548ac5d6a50ae233905c2015dc2f704ac0d35",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.6
+    },
+    {
+      "layer": "sett_granite",
+      "source": "ambientcg",
+      "assetId": "PavingStones046",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=PavingStones046_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=PavingStones046",
+      "licence": "CC0-1.0",
+      "sha256": "a479a3e8db7eea8f3e931850ccd41c0f31b1b6fceee9cbd4ac519c8fef4c0024",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "layer": "concrete_slabs",
+      "source": "ambientcg",
+      "assetId": "Concrete033",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Concrete033_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Concrete033",
+      "licence": "CC0-1.0",
+      "sha256": "b1e8b2e6bd2ac02e44081b7351387dda9212d2b8734e0d3d1a30277d9dc0e96e",
+      "tint": [
+        1,
+        1,
+        1
+      ],
+      "saturation": 0.3
+    },
+    {
+      "layer": "gravel",
+      "source": "ambientcg",
+      "assetId": "Gravel041",
+      "resolution": "1K-JPG",
+      "url": "https://ambientcg.com/get?file=Gravel041_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Gravel041",
+      "licence": "CC0-1.0",
+      "sha256": "89943da9f2aa8555235f16b0bc8eee22bf8eae471bfc5431bedc95eaec468f58",
+      "tint": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "webp": {
+    "albedoQ": 78,
+    "normalQ": 82
+  }
+}
