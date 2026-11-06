@@ -146,5 +146,78 @@
     ],
     "confidence": "low",
     "notes": "Soviet-Empire / neoclassical cinema as it looked in Sept 2021 (cream stucco, white trim). Main front is the stepped EAST wall toward the pedestrian plaza (ring vertices 12-17 and 0-4); the stepped outline is the portico: six paired Corinthian columns carrying three tall arches, with a dentilled entablature and a square glazed lantern/tower with spire above. Pattern (CCW ring) is south to north: the portico bays (g = arched openings between columns) at the south end, then a blank pier/blind-window zone, then the glass wing. North end carries a 2-3 storey blue-green glass curtain wall (Rozetka shop on the ground floor, «Аренда кинотеатр» sign). The OSM footprint has 18 vertices and edges are only 3-5 m for the column steps, so only edge 17 (19.5 m) and edge 15 are described; edge 5 (north wall, 44 m, faces plaza) is a plain stucco wall with small square windows per the photo. Storeys 3 is a visual estimate; OSM says 4 (probably counting the tower). The tower/spire and the glass atrium cannot be expressed by the descriptor. Only one dated photo, taken obliquely from the north-east, so bay counts are +-3."
+  },
+  {
+    "key": "w130756591",
+    "label": "просп. Ушакова, 43 — колишній готель «Київ» (з 2010-х «Optima Kherson»)",
+    "sources": [
+      "File:Херсон, 2021 год, 01.jpg (2021-09-10, CC BY-SA 4.0, Mitte27)",
+      "Owner, 2026-11-06: the former Hotel «Київ» is the Optima building"
+    ],
+    "storeys": 5,
+    "floorHeights": [
+      4.5,
+      3.3
+    ],
+    "plinthM": 0.4,
+    "wall": {
+      "colour": "#d8d8d0",
+      "pbr": "PANEL_CONCRETE"
+    },
+    "trim": {
+      "colour": "#f0f0e8",
+      "pbr": "STUCCO_SMOOTH"
+    },
+    "roof": {
+      "kind": "flat",
+      "colour": "#9a9a94",
+      "pbr": "ROOF_BITUMEN"
+    },
+    "windows": {
+      "shape": "rect",
+      "widthM": 1.4,
+      "heightM": 1.6,
+      "surround": "band",
+      "frame": "#f0f0f0",
+      "ground": {
+        "shape": "rect",
+        "widthM": 2.6,
+        "heightM": 3.0
+      }
+    },
+    "rusticated": true,
+    "stringCourses": false,
+    "pilasters": {
+      "everyBays": 6,
+      "capital": "corinthian"
+    },
+    "cornice": {
+      "profile": "simple",
+      "heightM": 0.6,
+      "projectionM": 0.45
+    },
+    "attic": {
+      "kind": "parapet",
+      "heightM": 0.9
+    },
+    "edges": [
+      {
+        "edge": 1,
+        "pattern": "wwwwwwwwwwwwwwwww",
+        "groundPattern": "ssssdssssssdssssd"
+      },
+      {
+        "edge": 2,
+        "pattern": "ww",
+        "groundPattern": "ss"
+      },
+      {
+        "edge": 3,
+        "pattern": "wwwwwwwwwwwwwwwww",
+        "groundPattern": "ssssssdssssssdsss"
+      }
+    ],
+    "confidence": "medium",
+    "notes": "Light grey tiled cladding, chamfered corner bay (edge 2) toward the cinema plaza with pilasters and capitals, a big screen on floors 2-3 and a glazed lobby; top floor windows are round-arched in the photo (the descriptor cannot vary the shape per storey, so they are rectangular here); ground floor shops with dark bands (ELDORADO). The avenue facade (edge 3) is not in the photo and follows the plaza facade."
   }
 ]
