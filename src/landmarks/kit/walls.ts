@@ -19,6 +19,8 @@ export interface WallOpening {
   shape: OpeningShape;
   /** Per-opening LOD, overriding the wall's. */
   detail?: Detail;
+  /** Arch segments, matching `Opening.segments` so the cut and its lining line up; defaults 8 near / 4 far. */
+  segments?: number;
 }
 
 export interface WallWithOpeningsSpec {
@@ -66,7 +68,7 @@ export function wallWithOpenings(b: KitBuilder, f: Frame, spec: WallWithOpenings
     holes.push({ x0: left, x1: right, bottom: o.y, o });
     cuts.add(left); cuts.add(right);
     if (o.shape !== 'rect') {
-      const n = Math.max(2, (o.detail ?? detail) === 'far' ? 4 : 8);
+      const n = Math.max(2, Math.round(o.segments ?? ((o.detail ?? detail) === 'far' ? 4 : 8)));
       for (let i = 1; i < n; i++) cuts.add(left + ((right - left) * i) / n);
     }
   }
@@ -129,10 +131,13 @@ export interface SlabSpec {
   x1: number;
   y0: number;
   y1: number;
-  /** Front (outward) face; defaults to 0. */
-  z1?: number;
-  /** Back face; defaults to z1 - 0.2. */
+  /**
+   * Back (wall-side) plane; it must be the smaller value. With the default front at z1 = 0 the back therefore lies
+   * at z0 = −0.2, i.e. z0 ≤ z1; reversing them would invert every side face.
+   */
   z0?: number;
+  /** Front (outward) plane; defaults to 0. */
+  z1?: number;
   colour: Color;
   pbr?: number;
   bottom?: boolean;

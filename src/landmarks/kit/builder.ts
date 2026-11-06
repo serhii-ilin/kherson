@@ -13,7 +13,11 @@ export type Vec2 = readonly [number, number];
 /** Level of detail for curved elements: `far` uses about a third of the near segment count. */
 export type Detail = 'near' | 'far';
 
-/** A local facade frame: `x` along the facade, `y` up, `z` outward from the wall. `yaw` rotates the frame. */
+/**
+ * A local facade frame: `x` runs along the facade to the right when viewed from outside, `y` is up and `z` points
+ * out of the wall. At yaw the facade normal (local +z) points to world `(sin yaw, cos yaw)` and local +x to
+ * `(cos yaw, −sin yaw)`; yaw 0 therefore faces world +z with local x = world x.
+ */
 export interface Frame {
   readonly x: number;
   readonly y: number;

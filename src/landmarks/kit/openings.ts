@@ -85,10 +85,14 @@ function reveals(
     undefined, undefined, colour, pbr);
   b.quad(f.toWorld(x + w, y, d), f.toWorld(x + w, y, 0), f.toWorld(x + w, springing, 0), f.toWorld(x + w, springing, d),
     undefined, undefined, colour, pbr);
-  // The bottom of the reveal, facing up into the opening.
+  // The bottom of the reveal, facing up into the opening, and the head soffit facing down into a rect opening.
   b.quad(f.toWorld(x, y, d), f.toWorld(x, y, 0), f.toWorld(x + w, y, 0), f.toWorld(x + w, y, d),
     undefined, undefined, colour, pbr);
-  if (o.shape === 'rect') return;
+  if (o.shape === 'rect') {
+    b.quad(f.toWorld(x, springing, d), f.toWorld(x + w, springing, d),
+      f.toWorld(x + w, springing, 0), f.toWorld(x, springing, 0), undefined, undefined, colour, pbr);
+    return;
+  }
   for (let i = 0; i < segments; i++) {
     const xa = x + (w * i) / segments, xb = x + (w * (i + 1)) / segments;
     const ta = openingTop(o, xa), tb = openingTop(o, xb);
@@ -261,6 +265,11 @@ export function doorway(b: KitBuilder, f: Frame, spec: DoorwaySpec): void {
     undefined, undefined, trim, trimPbr);
   b.quad(f.toWorld(x, y0, z), f.toWorld(x, y0, 0), f.toWorld(x + w, y0, 0), f.toWorld(x + w, y0, z),
     undefined, undefined, trim, trimPbr);
+  // A plain doorway still needs the underside of its lintel; with a fanlight the arch intrados below covers it.
+  if (!spec.fanlight) {
+    b.quad(f.toWorld(x, y0 + h, z), f.toWorld(x + w, y0 + h, z),
+      f.toWorld(x + w, y0 + h, 0), f.toWorld(x, y0 + h, 0), undefined, undefined, trim, trimPbr);
+  }
   if (spec.fanlight) {
     const springing = y0 + h;
     b.quad(f.toWorld(x, y0 + h, z), f.toWorld(x + w, y0 + h, z), f.toWorld(x + w, springing, z), f.toWorld(x, springing, z),

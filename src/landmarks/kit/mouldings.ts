@@ -1,10 +1,12 @@
 /**
  * Mouldings: swept profiles for cornices, string courses, plinths and architraves, plus rusticated wall bands.
  *
- * A profile is a section in the frame's local z/y plane (`z` measured outward along the path's left normal, `y` up).
- * It is extruded along a local x/z polyline; at each bend the section is mitred (scaled by 1/cos of the half-angle)
- * so neighbouring segments meet without gaps. Open sweeps are open at their two ends; closed sweeps are seamless.
- * No caps are emitted, so a sweep is not a closed solid.
+ * A profile is a section in the frame's local z/y plane: `y` is up and positive `z` is to the left of the walk
+ * direction (the path's left normal in the x/z plane), so a path drawn along +x puts the profile on the +z side.
+ * It is extruded along a local x/z polyline; at each bend the section is mitred (scaled by 1/cos of the half-angle,
+ * clamped to 0.25..3 so a near-reversal cannot shoot off to infinity) so neighbouring segments meet without gaps.
+ * Open sweeps are open at their two ends; closed sweeps are seamless. No caps are emitted, so a sweep is not a
+ * closed solid.
  */
 import type { Color } from '../shapes.ts';
 import { emitBox, frameAt, type Frame, type KitBuilder, type Vec3 } from './builder.ts';

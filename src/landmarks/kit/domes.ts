@@ -71,6 +71,8 @@ export interface DrumSpec {
   /** Windows around the drum; default 0. */
   windows?: number;
   windowShape?: 'rect' | 'arched';
+  /** Ring segments; defaults match `dome` (32 near / 11 far) so a top-less drum joins a dome exactly. */
+  segments?: number;
   colour: Color;
   pbr?: number;
   detail?: Detail;
@@ -83,7 +85,7 @@ export function drum(b: KitBuilder, f: Frame, spec: DrumSpec): void {
   if (!(spec.h > 0) || spec.r <= 0) return;
   const pbr = spec.pbr ?? -1;
   const detail = spec.detail ?? 'near';
-  const segments = Math.max(6, detailSegments(24, detail));
+  const segments = Math.max(6, Math.round(spec.segments ?? detailSegments(32, detail)));
   lathe(b, f, spec.cx, spec.cz, [[spec.r, spec.y0], [spec.r, spec.y0 + spec.h]], segments,
     spec.colour, pbr, spec.bottom !== false, spec.top !== false);
   const count = Math.max(0, Math.round(spec.windows ?? 0));
@@ -128,7 +130,7 @@ export interface DomeSpec {
   y0: number;
   r: number;
   profile: DomeProfile;
-  /** Segments around; default 32 at near detail. */
+  /** Segments around; default 32 near / 11 far, matching `drum`. */
   segments?: number;
   /** Rings from base to apex; default 8 at near detail. */
   rings?: number;
@@ -159,7 +161,7 @@ function domeRings(profile: DomeProfile, r: number, rings: number): [number, num
 export function dome(b: KitBuilder, f: Frame, spec: DomeSpec): void {
   if (spec.r <= 0) return;
   const detail = spec.detail ?? 'near';
-  const segments = Math.max(6, detailSegments(spec.segments ?? 32, detail));
+  const segments = Math.max(6, Math.round(spec.segments ?? detailSegments(32, detail)));
   const rings = Math.max(3, detailSegments(spec.rings ?? 8, detail));
   const profile = domeRings(spec.profile, spec.r, rings).map(([r, y]) => [r, spec.y0 + y] as [number, number]);
   lathe(b, f, spec.cx, spec.cz, profile, segments, spec.colour, spec.pbr ?? -1, false, false);
@@ -264,11 +266,14 @@ export function belfryStage(b: KitBuilder, f: Frame, spec: BelfryStageSpec): voi
   const aw = Math.min((w / (perSide + 1)) * 0.62, h * 0.5);
   const rectH = h * 0.55;
   const sillY = h * 0.12;
+  // The +z/−z walls keep the corners; the +x/−x side walls are inset by the wall thickness so their volumes stop at
+  // the inner face of the front/back walls instead of overlapping them at the corners.
+  const inset = Math.min(thickness, w / 4);
   const sides = [
-    frameAt(f, cx, y0, cz + w / 2, 0),
-    frameAt(f, cx, y0, cz - w / 2, Math.PI),
-    frameAt(f, cx + w / 2, y0, cz, Math.PI / 2),
-    frameAt(f, cx - w / 2, y0, cz, -Math.PI / 2),
+    { f: frameAt(f, cx, y0, cz + w / 2, 0), inset: 0 },
+    { f: frameAt(f, cx, y0, cz - w / 2, Math.PI), inset: 0 },
+    { f: frameAt(f, cx + w / 2, y0, cz, Math.PI / 2), inset },
+    { f: frameAt(f, cx - w / 2, y0, cz, -Math.PI / 2), inset },
   ];
   for (const side of sides) {
     const openings: Opening[] = [];
@@ -276,12 +281,12 @@ export function belfryStage(b: KitBuilder, f: Frame, spec: BelfryStageSpec): voi
       const x = -w / 2 + (w * (i + 1)) / (perSide + 1) - aw / 2;
       openings.push({ x, y: sillY, w: aw, h: rectH, shape: 'arched', depth: thickness, sill: false, surround: 'band' });
     }
-    wallWithOpenings(b, side, {
-      x0: -w / 2, x1: w / 2, y0: 0, y1: h, thickness, colour, pbr, detail,
+    wallWithOpenings(b, side.f, {
+      x0: -w / 2 + side.inset, x1: w / 2 - side.inset, y0: 0, y1: h, thickness, colour, pbr, detail,
       openings: openings.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h, shape: o.shape })),
     });
     for (const o of openings) {
-      addOpening(b, side, { ...o, surround: 'band' }, { reveal: colour, surround: colour, glass: [0.05, 0.05, 0.06], pbr }, detail);
+      addOpening(b, side.f, { ...o, surround: 'band' }, { reveal: colour, surround: colour, glass: [0.05, 0.05, 0.06], pbr }, detail);
     }
   }
 }
@@ -295,20 +300,25 @@ export interface ClockFaceSpec {
   handColour?: Color;
   pbr?: number;
   detail?: Detail;
+  /** Displayed time; default 10:10, the classic clock pose. */
+  time?: { hour: number; minute: number };
 }
 
-/** A clock face on the wall plane: disc, 12 hour marks and two hands (fixed at 10:10), all thin geometry. */
+/**
+ * A clock face on the wall plane, standing 2–4 cm proud so it never z-fights the wall: disc at z 0.02, hour marks
+ * at 0.03 and hands at 0.04. Hands turn clockwise from twelve o'clock; default time 10:10.
+ */
 export function clockFace(b: KitBuilder, f: Frame, spec: ClockFaceSpec): void {
   if (spec.r <= 0) return;
   const pbr = spec.pbr ?? -1;
   const hand = spec.handColour ?? [0.1, 0.1, 0.1];
   const segments = Math.max(8, detailSegments(24, spec.detail ?? 'near'));
   const { x, y, r } = spec;
-  const centre = f.toWorld(x, y, 0);
+  const centre = f.toWorld(x, y, 0.02);
   for (let i = 0; i < segments; i++) {
     const a0 = (i / segments) * Math.PI * 2, a1 = ((i + 1) / segments) * Math.PI * 2;
-    b.tri(centre, f.toWorld(x + Math.cos(a0) * r, y + Math.sin(a0) * r, 0),
-      f.toWorld(x + Math.cos(a1) * r, y + Math.sin(a1) * r, 0), [0, 0, 1], undefined, spec.colour, pbr);
+    b.tri(centre, f.toWorld(x + Math.cos(a0) * r, y + Math.sin(a0) * r, 0.02),
+      f.toWorld(x + Math.cos(a1) * r, y + Math.sin(a1) * r, 0.02), [0, 0, 1], undefined, spec.colour, pbr);
   }
   const quad = (p0: [number, number], p1: [number, number], p2: [number, number], p3: [number, number], z: number, colour: Color): void => {
     b.quad(f.toWorld(p0[0], p0[1], z), f.toWorld(p1[0], p1[1], z), f.toWorld(p2[0], p2[1], z),
@@ -322,7 +332,7 @@ export function clockFace(b: KitBuilder, f: Frame, spec: ClockFaceSpec): void {
       [x + ux * r0 + tx * hw, y + uy * r0 + ty * hw],
       [x + ux * r0 - tx * hw, y + uy * r0 - ty * hw],
       [x + ux * r1 - tx * hw, y + uy * r1 - ty * hw],
-      [x + ux * r1 + tx * hw, y + uy * r1 + ty * hw], 0.005, hand,
+      [x + ux * r1 + tx * hw, y + uy * r1 + ty * hw], 0.03, hand,
     );
   }
   const handQuad = (angle: number, len: number, hw: number): void => {
@@ -331,11 +341,15 @@ export function clockFace(b: KitBuilder, f: Frame, spec: ClockFaceSpec): void {
       [x + ux * r * 0.05 + tx * hw, y + uy * r * 0.05 + ty * hw],
       [x + ux * r * 0.05 - tx * hw, y + uy * r * 0.05 - ty * hw],
       [x + ux * len - tx * hw, y + uy * len - ty * hw],
-      [x + ux * len + tx * hw, y + uy * len + ty * hw], 0.007, hand,
+      [x + ux * len + tx * hw, y + uy * len + ty * hw], 0.04, hand,
     );
   };
-  handQuad(((10 + 10 / 60) / 12) * Math.PI * 2, r * 0.52, r * 0.025);
-  handQuad((10 / 60) * Math.PI * 2, r * 0.78, r * 0.018);
+  const time = spec.time ?? { hour: 10, minute: 10 };
+  const fromTwelve = (frac: number): number => Math.PI / 2 - frac * Math.PI * 2;
+  const hourFrac = ((((time.hour % 12) + 12) % 12) + time.minute / 60) / 12;
+  const minuteFrac = (((time.minute % 60) + 60) % 60) / 60;
+  handQuad(fromTwelve(hourFrac), r * 0.52, r * 0.025);
+  handQuad(fromTwelve(minuteFrac), r * 0.78, r * 0.018);
 }
 
 export interface ArchGateSpec {

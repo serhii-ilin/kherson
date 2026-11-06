@@ -64,22 +64,43 @@ function checkMesh(mesh: LandmarkMeshData): number {
   return ix.length / 3;
 }
 
+interface OpenEdge { a: [number, number, number]; b: [number, number, number]; }
+
 /** Undirected edges keyed by rounded position, so separately emitted faces that meet still join. */
-function openEdges(mesh: LandmarkMeshData): string[] {
+function openEdgePairs(mesh: LandmarkMeshData): OpenEdge[] {
   const p = mesh.positions;
   const key = (i: number) => `${p[i * 3]!.toFixed(4)},${p[i * 3 + 1]!.toFixed(4)},${p[i * 3 + 2]!.toFixed(4)}`;
-  const edges = new Map<string, number>();
+  const edges = new Map<string, { a: number; b: number; count: number }>();
   const add = (a: number, b: number) => {
     const ka = key(a), kb = key(b);
     const k = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-    edges.set(k, (edges.get(k) ?? 0) + 1);
+    const found = edges.get(k);
+    if (found) found.count++;
+    else edges.set(k, { a, b, count: 1 });
   };
   for (let t = 0; t < mesh.indices.length; t += 3) {
     add(mesh.indices[t]!, mesh.indices[t + 1]!);
     add(mesh.indices[t + 1]!, mesh.indices[t + 2]!);
     add(mesh.indices[t + 2]!, mesh.indices[t]!);
   }
-  return [...edges].filter(([, count]) => count !== 2).map(([k]) => k);
+  const coord = (i: number): [number, number, number] => [p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!];
+  return [...edges.values()].filter((e) => e.count !== 2).map((e) => ({ a: coord(e.a), b: coord(e.b) }));
+}
+
+function openEdges(mesh: LandmarkMeshData): string[] {
+  return openEdgePairs(mesh).map(({ a, b }) => `${a.join(',')}|${b.join(',')}`);
+}
+
+/** Every triangle normal must point away from an interior point (catches inward faces, not just winding). */
+function expectOutward(mesh: LandmarkMeshData, cx: number, cy: number, cz: number): void {
+  const p = mesh.positions, n = mesh.normals, ix = mesh.indices;
+  for (let t = 0; t < ix.length; t += 3) {
+    const a = ix[t]! * 3, b = ix[t + 1]! * 3, c = ix[t + 2]! * 3;
+    const dx = (p[a]! + p[b]! + p[c]!) / 3 - cx;
+    const dy = (p[a + 1]! + p[b + 1]! + p[c + 1]!) / 3 - cy;
+    const dz = (p[a + 2]! + p[b + 2]! + p[c + 2]!) / 3 - cz;
+    expect(dx * n[a]! + dy * n[a + 1]! + dz * n[a + 2]!, `triangle ${t / 3} faces inward`).toBeGreaterThan(0);
+  }
 }
 
 const rectOpening = (x: number, y: number, w: number, h: number): Opening => ({
@@ -476,18 +497,58 @@ describe('walls', () => {
     }
   });
 
-  it('makes a wall with thickness a closed shell', () => {
+  it('closes a wall with thickness: 12 triangles, every perimeter edge paired', () => {
     const mesh = build((b) => wallWithOpenings(b, f0, {
       x0: -3, x1: 3, y0: 0, y1: 5, thickness: 0.5, colour: WALL, pbr: 0,
-      openings: [rectOpening(-0.8, 1, 1.6, 2)],
     }));
-    // Both faces and the perimeter are present; openings are assumed to be lined by addOpening.
-    expect(openEdges(mesh).length).toBeGreaterThan(0);
+    // Front, back and four perimeter caps: 6 quads = 12 triangles, and no open edges anywhere.
+    expect(mesh.indices.length / 3).toBe(12);
+    expect(openEdgePairs(mesh)).toEqual([]);
     const p = mesh.positions;
     let minZ = Infinity, maxZ = -Infinity;
     for (let i = 2; i < p.length; i += 3) { minZ = Math.min(minZ, p[i]!); maxZ = Math.max(maxZ, p[i]!); }
     expect(minZ).toBeCloseTo(-0.5, 5);
     expect(maxZ).toBeCloseTo(0, 5);
+  });
+
+  it('gives a rect opening a head soffit: only the four wall-plane rim edges stay open', () => {
+    const mesh = build((b) => addOpening(b, f0, {
+      x: 0, y: 1, w: 1.4, h: 2, shape: 'rect', depth: 0.2, sill: false, surround: 'none',
+    }, { reveal: WALL }, 'near'));
+    // Jambs, bottom and head soffit plus the glass: the lining is closed except where it meets the wall plane.
+    const open = openEdgePairs(mesh);
+    expect(open).toHaveLength(4);
+    for (const edge of open) {
+      expect(edge.a[2]).toBeCloseTo(0, 6);
+      expect(edge.b[2]).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('cuts the wall hole with the same arch segments as the reveals', () => {
+    for (const detail of ['near', 'far'] as const) {
+      for (const segments of [undefined, 6] as const) {
+        const o: Opening = { x: -1, y: 1, w: 2, h: 2.5, shape: 'arched', depth: 0.2, segments };
+        const wall = build((b) => wallWithOpenings(b, f0, {
+          x0: -3, x1: 3, y0: 0, y1: 6, colour: WALL,
+          openings: [{ x: o.x, y: o.y, w: o.w, h: o.h, shape: o.shape, segments }],
+          detail,
+        }), detail);
+        const lining = build((b) => addOpening(b, f0, o, { reveal: WALL }, detail), detail);
+        const rim = (mesh: LandmarkMeshData): string[] => {
+          const set = new Set<string>();
+          for (let i = 0; i < mesh.positions.length; i += 3) {
+            const x = mesh.positions[i]!, y = mesh.positions[i + 1]!, z = mesh.positions[i + 2]!;
+            if (Math.abs(z) > 1e-6 || y <= o.y + o.h + 1e-6 || x < o.x - 1e-6 || x > o.x + o.w + 1e-6) continue;
+            if (Math.abs(y - openingTop(o, x)) > 1e-5) continue;
+            set.add(`${x.toFixed(6)},${y.toFixed(6)}`);
+          }
+          return [...set].sort();
+        };
+        const cutRim = rim(wall), revealRim = rim(lining);
+        expect(revealRim.length, `${detail}/${segments}`).toBeGreaterThan(1);
+        expect(cutRim, `${detail}/${segments}`).toEqual(revealRim);
+      }
+    }
   });
 });
 
@@ -517,6 +578,44 @@ describe('mouldings', () => {
     expect(mitres).toBe(4);
   });
 
+  it('mitres a concave L path without inverted or zero-area segments', () => {
+    const mesh = build((b) => sweepProfile(b, f0, [[0, 0], [0.2, 0], [0.2, 0.3]],
+      [[0, 0], [4, 0], [4, 4], [8, 4]], false, TRIM, 0));
+    checkMesh(mesh);
+    const p = mesh.positions, ix = mesh.indices;
+    for (let t = 0; t < ix.length; t += 3) {
+      const a = ix[t]! * 3, b = ix[t + 1]! * 3, c = ix[t + 2]! * 3;
+      const ux = p[b]! - p[a]!, uy = p[b + 1]! - p[a + 1]!, uz = p[b + 2]! - p[a + 2]!;
+      const vx = p[c]! - p[a]!, vy = p[c + 1]! - p[a + 1]!, vz = p[c + 2]! - p[a + 2]!;
+      const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+      expect(Math.hypot(cx, cy, cz) / 2, `triangle ${t / 3} is degenerate`).toBeGreaterThan(1e-9);
+    }
+    // Concave corner at (4,4): the left normal bisector is (−1,+1)/√2, so the outer profile point is (3.8, 4.2).
+    let found = false;
+    for (let i = 0; i < p.length; i += 3) {
+      if (Math.abs(p[i]! - 3.8) < 1e-6 && Math.abs(p[i + 2]! - 4.2) < 1e-6) found = true;
+    }
+    expect(found).toBe(true);
+    // Every vertex stays inside the mitre clamp (scale ≤ 3) times the deepest profile point.
+    const path = [[0, 0], [4, 0], [4, 4], [8, 4]];
+    for (let i = 0; i < p.length; i += 3) {
+      const nearest = Math.min(...path.map(([x, z]) => Math.hypot(p[i]! - x!, p[i + 2]! - z!)));
+      expect(nearest).toBeLessThanOrEqual(0.2 * 3 + 0.3 + 1e-6);
+    }
+  });
+
+  it('keeps a near-reversing path finite inside the mitre clamp', () => {
+    const mesh = build((b) => sweepProfile(b, f0, [[0, 0], [0.2, 0], [0.2, 0.3]],
+      [[0, 0], [10, 0], [0, 1]], false, TRIM, 0));
+    checkMesh(mesh);
+    const p = mesh.positions;
+    for (let i = 0; i < p.length; i += 3) {
+      expect(Number.isFinite(p[i]!) && Number.isFinite(p[i + 1]!) && Number.isFinite(p[i + 2]!)).toBe(true);
+      const nearest = Math.min(Math.hypot(p[i]! - 10, p[i + 2]!), Math.hypot(p[i]!, p[i + 2]!), Math.hypot(p[i]!, p[i + 2]! - 1));
+      expect(nearest).toBeLessThanOrEqual(0.2 * 3 + 0.3 + 1e-6);
+    }
+  });
+
   it('lays banda joint courses without overlapping the wall face', () => {
     const mesh = build((b) => rustication(b, f, { x0: 0, x1: 4, y0: 0, y1: 2.4, courseH: 0.6, jointDepth: 0.04, colour: WALL, pbr: 0 }));
     const maxZ = Math.max(...Array.from({ length: mesh.positions.length / 3 }, (_, i) => mesh.positions[i * 3 + 2]!));
@@ -542,12 +641,36 @@ describe('orders', () => {
     expect(openEdges(d)).toEqual([]);
   });
 
-  it('joins a dome to its drum into one closed shell', () => {
+  it.each(['near', 'far'] as const)('joins a %s-detail dome to its drum into one closed shell', (detail) => {
     const mesh = build((b) => {
-      drum(b, f, { cx: 0, cz: 0, y0: 0, h: 3, r: 2, windows: 0, top: false, colour: WALL, pbr: 0, detail: 'near' });
-      dome(b, f, { cx: 0, cz: 0, y0: 3, r: 2, profile: 'hemi', segments: 24, colour: ROOF, pbr: 10, detail: 'near' });
-    });
+      drum(b, f, { cx: 0, cz: 0, y0: 0, h: 3, r: 2, windows: 0, top: false, colour: WALL, pbr: 0, detail });
+      dome(b, f, { cx: 0, cz: 0, y0: 3, r: 2, profile: 'hemi', colour: ROOF, pbr: 10, detail });
+    }, detail);
+    // Drum and dome default to the same ring count at each detail level, so the seam is welded.
     expect(openEdges(mesh)).toEqual([]);
+  });
+
+  it('points every dome triangle outward from its axis', () => {
+    const mesh = build((b) => dome(b, f0, {
+      cx: 0, cz: 0, y0: 10, r: 2.6, profile: 'hemi', colour: ROOF, pbr: 10,
+    }));
+    expectOutward(mesh, 0, 10, 0);
+  });
+
+  it('points every pediment face outward from its prism', () => {
+    const mesh = build((b) => pediment(b, f0, {
+      x0: -4, x1: 4, y: 6, h: 1.4, depth: 1.2, colour: TRIM, tympanumColour: WALL, pbr: 0,
+    }));
+    expectOutward(mesh, 0, 6.4, -0.6);
+  });
+});
+
+describe('roofs', () => {
+  it('points every hip-roof slope outward from the building', () => {
+    const mesh = build((b) => hipRoof(b, f0, {
+      x0: -5, x1: 5, z0: -3, z1: 3, y: 9, rise: 2.4, colour: ROOF, pbr: 10,
+    }));
+    expectOutward(mesh, 0, 8, 0);
   });
 });
 
@@ -560,8 +683,8 @@ describe('domes and gates', () => {
     expect(Math.max(...ys)).toBeCloseTo(5, 5);
   });
 
-  it('spans the clock face with 12 hour marks and two hands', () => {
-    const mesh = build((b) => clockFace(b, f, { x: 0, y: 12, r: 1.2, colour: [0.95, 0.93, 0.86], handColour: [0.1, 0.1, 0.1] }));
+  it('spans the clock face with 12 hour marks and two hands, clear of the wall', () => {
+    const mesh = build((b) => clockFace(b, f0, { x: 0, y: 12, r: 1.2, colour: [0.95, 0.93, 0.86], handColour: [0.1, 0.1, 0.1] }));
     // The disc fan plus marks and hands; count thin dark quads by their colour.
     let darkTriangles = 0;
     const c = mesh.colors;
@@ -570,7 +693,33 @@ describe('domes and gates', () => {
       if (c[i]! < 0.2) darkTriangles++;
     }
     expect(darkTriangles).toBeGreaterThanOrEqual(28);
+    // Disc at 0.02, marks at 0.03 and hands at 0.04: nothing is coplanar with the wall.
+    const zs = new Set<string>();
+    for (let i = 2; i < mesh.positions.length; i += 3) zs.add(mesh.positions[i]!.toFixed(2));
+    expect([...zs].sort()).toEqual(['0.02', '0.03', '0.04']);
     checkMesh(mesh);
+  });
+
+  it('turns the clock hands clockwise from twelve o’clock', () => {
+    const handTips = (time: { hour: number; minute: number }): Array<[number, number]> => {
+      const mesh = build((b) => clockFace(b, f0, {
+        x: 0, y: 12, r: 1, colour: [0.95, 0.93, 0.86], handColour: [0.1, 0.1, 0.1], time,
+      }));
+      const tips: Array<[number, number]> = [];
+      for (let i = 0; i < mesh.positions.length; i += 3) {
+        const x = mesh.positions[i]!, y = mesh.positions[i + 1] - 12, z = mesh.positions[i + 2]!;
+        const radial = Math.hypot(x, y);
+        // The hour hand is 0.52 r long; the hands sit at z = 0.04.
+        if (Math.abs(z - 0.04) < 1e-6 && radial > 0.5 && radial < 0.54) tips.push([x, y]);
+      }
+      return tips;
+    };
+    const three = handTips({ hour: 3, minute: 0 });
+    expect(three.length).toBeGreaterThan(0);
+    expect(three.every(([x, y]) => x > 0.5 && Math.abs(y) < 0.03)).toBe(true);
+    const twelve = handTips({ hour: 12, minute: 0 });
+    expect(twelve.length).toBeGreaterThan(0);
+    expect(twelve.every(([x, y]) => Math.abs(x) < 0.03 && y > 0.5)).toBe(true);
   });
 
   it('leaves a passage through an arched gate', () => {
