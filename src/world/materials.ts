@@ -75,6 +75,26 @@ export const MAT = {
   LEAVES: 60,
   TRUNK: 61,
   BRIDGE: 62,
+  // fine-tier road surfaces and street detail (src/fine/, docs/BUILDINGS_PLAN.md); ids 11..19 are full,
+  // so these start at 64. Only the 0.2 m tier emits them; shaders key on exact ids. Append only.
+  /** Cut granite setts (`surface=sett`, бруківка). */
+  SETT: 64,
+  /** Concrete pavers (`surface=paving_stones`, behaton); the default sidewalk in the centre. */
+  PAVERS: 65,
+  /** Concrete road plates (`surface=concrete:plates`) and tram-bed slabs. */
+  CONCRETE_SLAB: 66,
+  /** Darker asphalt repair patch. */
+  ASPHALT_PATCH: 67,
+  /** Granite kerb tops and bands on primary and secondary roads. */
+  GRANITE: 68,
+  /** Concrete track bed around rails set into the road. */
+  TRAM_BED: 69,
+  /** Cast-iron manhole cover. */
+  MANHOLE: 70,
+  /** Storm-drain grate in the gutter. */
+  DRAIN: 71,
+  /** Solid white stop line at traffic signals. */
+  STOP_LINE: 72,
 } as const;
 
 const COLORS: Record<number, number> = {
@@ -131,6 +151,15 @@ const COLORS: Record<number, number> = {
   [MAT.DOOR]: 0x5a3f2c,
   [MAT.SHOPFRONT]: 0x2c3a44,
   [MAT.LAMP]: 0xf4ecd0,
+  [MAT.SETT]: 0x6f6a66,
+  [MAT.PAVERS]: 0x9c958c,
+  [MAT.CONCRETE_SLAB]: 0x9a988f,
+  [MAT.ASPHALT_PATCH]: 0x3a3c40,
+  [MAT.GRANITE]: 0x8b8580,
+  [MAT.TRAM_BED]: 0x8f8d86,
+  [MAT.MANHOLE]: 0x3b3a38,
+  [MAT.DRAIN]: 0x2f2e2c,
+  [MAT.STOP_LINE]: 0xeceae3,
 };
 
 /** RGB bytes, 3 per material id; unknown ids are magenta. */

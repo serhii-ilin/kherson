@@ -30,7 +30,7 @@ _Last updated: 2026-11-06_
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
 | Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | ✅ | `078cd08`…`2648062` |
 | Kherson trees: 15 species with a surveyed mix, branch skeletons, leaf clumps, per-species leaf and bark textures, translucency, whitewashed street trunks ([TREES.md](TREES.md)) | ✅ | `c0fbeda`, `daf4584`, `a3763a1`, `1c2ab10`, (this commit) |
-| Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md), [ADR 0002](adr/0002-realistic-buildings.md)): CC0 PBR materials, near-LOD facades, road surfaces and detail, mid-distance road ribbons, facade descriptors for Ushakova and Suvorova, hero models for the four well-known areas | 🟡 Step 0 | `c47b75c` |
+| Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md), [ADR 0002](adr/0002-realistic-buildings.md)): CC0 PBR materials, near-LOD facades, road surfaces and detail, mid-distance road ribbons, facade descriptors for Ushakova and Suvorova, hero models for the four well-known areas | 🟡 wave 1 | `c47b75c`, `afb8158` |
 
 ## Kherson trees
 
@@ -179,7 +179,7 @@ Both poses stay inside the constitution caps (about 2.5M triangles and 400 draws
 ### Next
 - 🟡 Realistic pre-war buildings and roads ([BUILDINGS_PLAN.md](BUILDINGS_PLAN.md)). Heroes are parametric models with photo textures, not glTF ([ADR 0002](adr/0002-realistic-buildings.md)).
   - ✅ Constitution amendment 7: ≤ 15 MB asset budget, CC-BY-SA facade photos (`c47b75c`)
-  - 🟡 Step 0: ADR 0002, this plan, shared contracts (vector tile v3, ground ids 64+, PBR layers, landmark `replaces`, facade descriptors)
+  - ✅ Step 0: ADR 0002, the plan (`afb8158`), shared contracts (this commit): vector tile v3 (building OSM type, colour, roof colour, material, roof material, start year; road surface, tram-in-road and cycle flags; v2 still decodes), fine ground ids 64–72, `src/world/pbr-layers.ts`, `src/world/osm-ref.ts`, landmark `replaces` / `textured` meshes, `src/mesh/facade-profile.ts`. Vector tiles 2.13 → 2.21 MB, baked world 27.0 MB
   - ⬜ Wave 1: A material tools and CC0 assets · B runtime PBR library · C bake v3 fields · D hero research briefs (Opus)
   - ⬜ Wave 2: E1 near-LOD geometry · E2 building shading · F1 road surfaces and detail · F2 road shading · H architectural kit and hero plumbing
   - ⬜ Wave 3: G mid-distance road ribbons · K facade-descriptor builder · P photo facade pipeline and credits panel
