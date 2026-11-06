@@ -16,6 +16,11 @@ import { loadOsm, type OsmData, type Tags } from "./bake/osm.ts";
 import { readRestoration, loadOptionsFromRestoration } from "./bake/restoration.ts";
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
 import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
+import {
+  pick, speciesOfTags, TREE_PARAM, TREE_PARAM_WHITEWASH,
+  T_FOREST, T_MEADOW, T_PARK, T_REED, T_ROW, T_SAND_FOREST, T_SCRUB, T_STREET, T_UNTAGGED, T_WETLAND,
+  type Table,
+} from "./bake/trees.ts";
 import { dedupePlaces, nudgeToWalkable, type Place } from "./bake/places.ts";
 import { buildVectorTiles, roadWidthCm } from "./bake/vectors.ts";
 import { Obstacles, type RoadObstacle } from "./bake/obstacles.ts";
@@ -469,29 +474,6 @@ async function main(): Promise<void> {
 
   // e. vegetation
   const S = SPECIES;
-  type Table = readonly (readonly [number, number])[];
-  const T_UNTAGGED: Table = [[S.GENERIC, 40], [S.CHESTNUT, 20], [S.LINDEN, 15], [S.ACACIA, 15], [S.POPLAR, 10]];
-  const T_STREET: Table = [[S.CHESTNUT, 30], [S.LINDEN, 25], [S.ACACIA, 25], [S.PLANE, 10], [S.POPLAR, 10]];
-  const T_PARK: Table = [[S.CHESTNUT, 30], [S.LINDEN, 25], [S.ACACIA, 15], [S.PLANE, 10], [S.POPLAR, 15], [S.WILLOW, 5]];
-  const T_FOREST: Table = [[S.GENERIC, 40], [S.POPLAR, 20], [S.ACACIA, 20], [S.LINDEN, 10], [S.WILLOW, 10]];
-  // floodplain (#10): wetlands and reed are willow country, meadows carry sparse mixed trees, scrub a few
-  const T_WETLAND: Table = [[S.WILLOW, 70], [S.POPLAR, 20], [S.GENERIC, 10]];
-  const T_REED: Table = [[S.WILLOW, 80], [S.POPLAR, 20]];
-  const T_MEADOW: Table = [[S.GENERIC, 30], [S.POPLAR, 25], [S.ACACIA, 25], [S.WILLOW, 20]];
-  const T_SCRUB: Table = [[S.GENERIC, 40], [S.ACACIA, 35], [S.POPLAR, 15], [S.WILLOW, 10]];
-  // sandy-ground forest (#17): see the pine rule below
-  const T_SAND_FOREST: Table = [[S.ACACIA, 45], [S.GENERIC, 40], [S.POPLAR, 15]];
-  const T_ROW: Table = [[S.POPLAR, 40], [S.GENERIC, 30], [S.ACACIA, 30]];
-  const pick = (table: Table, r: number): number => {
-    let tot = 0;
-    for (const e of table) tot += e[1];
-    let acc = r * tot;
-    for (const e of table) {
-      if (acc < e[1]) return e[0];
-      acc -= e[1];
-    }
-    return table[table.length - 1]![0];
-  };
   const speciesName = new Map<number, string>(Object.entries(S).map(([n, v]) => [v, n]));
   const speciesCount = new Map<number, number>();
 
@@ -507,8 +489,9 @@ async function main(): Promise<void> {
     const g = grid.get(F_GROUND_MAT, cx, cz);
     return g !== MAT.WATER && g !== MAT.ASPHALT && g !== MAT.RAIL;
   };
+  let whitewashedTrees = 0;
   /** Places a tree; its seed (jitter) is nudged off carriageways and building footprints, or the tree is dropped (#6). */
-  const addTree = (cx: number, cz: number, species: number, h: number): boolean => {
+  const addTree = (cx: number, cz: number, species: number, h: number, param: number): boolean => {
     const s0 = h & 255;
     const seed = obstacles.freeSeed(cx, cz, s0);
     if (seed < 0) {
@@ -517,8 +500,9 @@ async function main(): Promise<void> {
     }
     if (seed !== s0) plantStats.moved++;
     treeCells.add(ck(cx, cz));
-    grid.addFeature(FEATURE_TREE, 5, cx, cz, species, seed);
+    grid.addFeature(FEATURE_TREE, param, cx, cz, species, seed);
     stats.trees++;
+    if (param === TREE_PARAM_WHITEWASH) whitewashedTrees++;
     speciesCount.set(species, (speciesCount.get(species) ?? 0) + 1);
     return true;
   };
@@ -536,25 +520,13 @@ async function main(): Promise<void> {
   };
 
   // explicit natural=tree nodes
-  const speciesOfTags = (t: Tags, h: number): number => {
-    const txt = `${t.species ?? ""} ${t.genus ?? ""} ${t.taxon ?? ""}`.toLowerCase();
-    if (txt.includes("populus")) return S.POPLAR;
-    if (txt.includes("pinus")) return S.PINE;
-    if (txt.includes("salix")) return S.WILLOW;
-    if (txt.includes("robinia")) return S.ACACIA;
-    if (txt.includes("aesculus")) return S.CHESTNUT;
-    if (txt.includes("tilia")) return S.LINDEN;
-    if (txt.includes("platanus")) return S.PLANE;
-    if (/acer|ulmus|fraxinus|quercus|betula|carpinus|fagus|morus|juglans|prunus|malus|pyrus/.test(txt)) return S.GENERIC;
-    if (t.leaf_type === "needleleaved") return S.PINE;
-    return pick(T_UNTAGGED, (hash(h, 11) & 0xffff) / 65536);
-  };
   for (const n of osm.taggedNodes) {
     if (n.tags.natural !== "tree") continue;
     const cx = Math.floor(n.cx), cz = Math.floor(n.cz);
     if (!inCity(cx, cz) || !free(cx, cz) || !canTree(cx, cz)) continue;
     const h = hash(cx, cz);
-    addTree(cx, cz, speciesOfTags(n.tags, h), hash(h, 3));
+    const param = grid.get(F_GROUND_MAT, cx, cz) === MAT.SIDEWALK ? TREE_PARAM_WHITEWASH : TREE_PARAM;
+    addTree(cx, cz, speciesOfTags(n.tags, h), hash(h, 3), param);
   }
   stage(`trees from OSM nodes: ${stats.trees}`);
 
@@ -576,7 +548,7 @@ async function main(): Promise<void> {
         const h = hash(cx, cz);
         if (inCity(cx, cz) && free(cx, cz) && canTree(cx, cz)) {
           const sp = w.tags.leaf_type === "needleleaved" ? S.PINE : pick(T_ROW, (hash(h, 5) & 0xffff) / 65536);
-          addTree(cx, cz, sp, hash(h, 7));
+          addTree(cx, cz, sp, hash(h, 7), TREE_PARAM_WHITEWASH);
         }
         d += 4 + (hash(h, 9) & 1);
       }
@@ -600,7 +572,7 @@ async function main(): Promise<void> {
       }
       if (!ok || !canTree(cx, cz, 3)) continue;
       const hs = hash(h, 21);
-      if (addTree(cx, cz, pick(T_STREET, ((hs >>> 8) & 0xffff) / 65536), hs)) stats.streetTrees++;
+      if (addTree(cx, cz, pick(T_STREET, ((hs >>> 8) & 0xffff) / 65536), hs, TREE_PARAM_WHITEWASH)) stats.streetTrees++;
     }
   }
   stage(`street trees: ${stats.streetTrees}, trees ${stats.trees}`);
@@ -650,7 +622,7 @@ async function main(): Promise<void> {
           } else sp = pick(T_FOREST, r);
         } else sp = pick(table, r);
         if ((g === MAT.PARK || g === MAT.FOREST) && sp !== S.PINE && sp !== S.WILLOW && nearWater(cx, cz) && ((hs >>> 24) & 255) / 256 < 0.6) sp = S.WILLOW;
-        if (addTree(cx, cz, sp, hs) && sandy) {
+        if (addTree(cx, cz, sp, hs, TREE_PARAM) && sandy) {
           pineStats.sandyForestTrees++;
           if (sp === S.PINE) pineStats.pines++;
         }
@@ -659,6 +631,7 @@ async function main(): Promise<void> {
   }
   console.log("sandy-forest trees: " + JSON.stringify(pineStats));
   stage(`trees: ${stats.trees}`);
+  stage(`whitewashed trees: ${whitewashedTrees}, plain trees: ${stats.trees - whitewashedTrees}`);
 
   // bushes
   const addBush = (cx: number, cz: number, h: number, hedge: boolean): void => {
