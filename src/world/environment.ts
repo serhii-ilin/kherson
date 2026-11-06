@@ -33,6 +33,7 @@ export class SkyEnvironment {
   private readonly far: number;
   private target: THREE.WebGLRenderTarget | null = null;
   private lastMinutes: number | null = null;
+  private disposed = false;
 
   constructor(renderer: THREE.WebGLRenderer, sky: { mesh: THREE.Mesh }) {
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -48,6 +49,7 @@ export class SkyEnvironment {
 
   /** Render the sky into a PMREM when the clock moved by ten minutes or more; otherwise return null. */
   update(minutesOfDay: number): THREE.Texture | null {
+    if (this.disposed) return null;
     if (!shouldRegenerate(this.lastMinutes, minutesOfDay)) return null;
     this.lastMinutes = minutesOfDay;
     if (this.target !== null) {
@@ -58,7 +60,14 @@ export class SkyEnvironment {
     return this.target.texture;
   }
 
+  /**
+   * Release the current render target and the PMREM generator. Callers must clear `scene.environment`
+   * (and any material `envMap`) first: disposing a render target does not detach the texture from the
+   * scene, and the renderer frees that texture with the target. Calling this twice is a no-op.
+   */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.target?.dispose();
     this.target = null;
     this.lastMinutes = null;
