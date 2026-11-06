@@ -58,6 +58,8 @@ export interface LandmarkBuild {
   materialCount: number;
   propExclusions?: readonly LandmarkPropExclusion[];
   report?: LandmarkReport;
+  /** Typed summary numbers a hero exposes for tests and the landmark report. */
+  stats?: Readonly<Record<string, number>>;
 }
 
 export interface LandmarkBuildContext {
