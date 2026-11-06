@@ -23,10 +23,27 @@ function seamDiff(data: Uint8Array, size: number, layer: number, axis: 0 | 1): n
   let sum = 0;
   let n = 0;
   for (let i = 0; i < size; i++) {
-    const [x0, y0, x1, y1] = axis === 0 ? [i, 0, i, size - 1] : [0, i, size - 1, i];
+    const [x0, y0, x1, y1] = axis === 0 ? [0, i, size - 1, i] : [i, 0, i, size - 1];
     for (let c = 0; c < 3; c++) {
       sum += Math.abs(at(x0, y0, c) - at(x1, y1, c));
       n++;
+    }
+  }
+  return sum / n;
+}
+
+/** Mean absolute RGB difference of adjacent interior columns (0) or rows (1). */
+function interiorStepDiff(data: Uint8Array, size: number, layer: number, axis: 0 | 1): number {
+  const at = (x: number, y: number, c: number): number => data[(layer * size * size + y * size + x) * 4 + c]!;
+  let sum = 0;
+  let n = 0;
+  for (let i = 1; i < size - 2; i++) {
+    for (let j = 0; j < size; j++) {
+      const [x0, y0, x1, y1] = axis === 0 ? [i, j, i + 1, j] : [j, i, j, i + 1];
+      for (let c = 0; c < 3; c++) {
+        sum += Math.abs(at(x0, y0, c) - at(x1, y1, c));
+        n++;
+      }
     }
   }
   return sum / n;
@@ -64,6 +81,20 @@ describe('makeLeafLayers', () => {
     expect(coverage(data, LEAF_SIZE, LEAF_LAYER.PINNATE_FINE)).toBeLessThan(heart);
     expect(coverage(data, LEAF_SIZE, LEAF_LAYER.NEEDLE_TUFT)).toBeLessThan(palmate);
     expect(coverage(data, LEAF_SIZE, LEAF_LAYER.NEEDLE_TUFT)).toBeLessThan(heart);
+  });
+
+  it('keeps dense layers at 0.55 opaque coverage or more', () => {
+    for (const layer of [LEAF_LAYER.PALMATE, LEAF_LAYER.HEART, LEAF_LAYER.BIG_HEART, LEAF_LAYER.SCALE_SPRAY]) {
+      expect(coverage(data, LEAF_SIZE, layer), `layer ${layer}`).toBeGreaterThanOrEqual(0.55);
+    }
+  });
+
+  it('keeps airy layers between 0.35 and 0.50 opaque coverage', () => {
+    for (const layer of [LEAF_LAYER.PINNATE_FINE, LEAF_LAYER.NEEDLE_TUFT]) {
+      const c = coverage(data, LEAF_SIZE, layer);
+      expect(c, `layer ${layer}`).toBeGreaterThanOrEqual(0.35);
+      expect(c, `layer ${layer}`).toBeLessThanOrEqual(0.5);
+    }
   });
 
   it('leaves a 3 px transparent border for mipmaps', () => {
@@ -125,6 +156,16 @@ describe('makeBarkLayers', () => {
     for (let layer = 0; layer < BARK_LAYERS; layer++) {
       expect(seamDiff(data, BARK_SIZE, layer, 0), `layer ${layer} columns`).toBeLessThan(25);
       expect(seamDiff(data, BARK_SIZE, layer, 1), `layer ${layer} rows`).toBeLessThan(25);
+    }
+  });
+
+  it('keeps the wrap seam no rougher than interior pixel steps', () => {
+    for (let layer = 0; layer < BARK_LAYERS; layer++) {
+      for (const axis of [0, 1] as const) {
+        const seam = seamDiff(data, BARK_SIZE, layer, axis);
+        const interior = interiorStepDiff(data, BARK_SIZE, layer, axis);
+        expect(seam, `layer ${layer} axis ${axis}`).toBeLessThanOrEqual(interior * 1.25);
+      }
     }
   });
 

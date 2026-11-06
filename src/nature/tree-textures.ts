@@ -8,8 +8,8 @@
 import { BARK_LAYER, BARK_LAYERS, LEAF_LAYER, LEAF_LAYERS } from './tree-atlas.ts';
 
 /** Leaf cards are nearly neutral: the shader multiplies them by the species vertex colour. */
-const LEAF_RGB: readonly [number, number, number] = [232, 239, 230];
-const BLOSSOM_RGB: readonly [number, number, number] = [252, 250, 252];
+const LEAF_RGB: readonly [number, number, number] = [212, 212, 212];
+const BLOSSOM_RGB: readonly [number, number, number] = [228, 226, 230];
 const BARK_MIN = 110;
 const BARK_MAX = 235;
 
@@ -123,37 +123,125 @@ function addPinnatePair(
   }
 }
 
+/** One palmate leaf: leaflets fanned from a single bud. */
+function addPalmateFan(
+  out: LeafPrim[],
+  baseX: number,
+  baseY: number,
+  scale: number,
+  rotation: number,
+  leaflets: number,
+  spread: number,
+  half: number,
+  width: number,
+  groupBase: number,
+): void {
+  for (let i = 0; i < leaflets; i++) {
+    const angle = rotation + (-spread + (2 * spread * i) / (leaflets - 1));
+    const h = half * scale * (i === (leaflets - 1) / 2 ? 1.06 : 1);
+    out.push(prim(
+      'oval',
+      baseX + Math.sin(angle) * h,
+      baseY + Math.cos(angle) * h,
+      h,
+      width * scale,
+      angle,
+      groupBase + i,
+    ));
+  }
+}
+
+/** A straight twig, with small serrated leaves alternating along it. */
+function addSerrateTwig(
+  out: LeafPrim[],
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  count: number,
+  half: number,
+  width: number,
+  groupBase: number,
+): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const angle = Math.atan2(dx, dy);
+  out.push(prim('oval', (x0 + x1) / 2, (y0 + y1) / 2, Math.hypot(dx, dy) / 2, 0.006, angle, groupBase));
+  for (let i = 0; i < count; i++) {
+    const t = 0.08 + (0.84 * i) / (count - 1);
+    const bx = x0 + dx * t;
+    const by = y0 + dy * t;
+    const leafAngle = angle + (i % 2 === 0 ? -1.0 : 1.0);
+    out.push(prim(
+      'oval',
+      bx + Math.sin(leafAngle) * half,
+      by + Math.cos(leafAngle) * half,
+      half,
+      width,
+      leafAngle,
+      groupBase + 1 + i,
+      true,
+    ));
+  }
+}
+
+/** A drooping twig, with narrow leaves alternating down its length. */
+function addDroopingTwig(
+  out: LeafPrim[],
+  xTop: number,
+  yTop: number,
+  xBottom: number,
+  yBottom: number,
+  count: number,
+  half: number,
+  width: number,
+  groupBase: number,
+): void {
+  const dx = xBottom - xTop;
+  const dy = yBottom - yTop;
+  const down = Math.atan2(dx, dy);
+  out.push(prim('oval', (xTop + xBottom) / 2, (yTop + yBottom) / 2, Math.hypot(dx, dy) / 2, 0.006, down, groupBase));
+  for (let i = 0; i < count; i++) {
+    const t = 0.06 + (0.88 * i) / (count - 1);
+    const bx = xTop + dx * t;
+    const by = yTop + dy * t;
+    const leafAngle = down + (i % 2 === 0 ? -0.55 : 0.55);
+    out.push(prim(
+      'lanceolate',
+      bx + Math.sin(leafAngle) * half,
+      by + Math.cos(leafAngle) * half,
+      half,
+      width,
+      leafAngle,
+      groupBase + 1 + i,
+    ));
+  }
+}
+
 function buildCluster(layer: number): LeafPrim[] {
   const out: LeafPrim[] = [];
   switch (layer) {
     case LEAF_LAYER.PALMATE: {
-      // Horse chestnut: seven leaflets fanned from one bud.
-      const baseX = 0.5;
-      const baseY = 0.15;
-      const count = 7;
-      for (let i = 0; i < count; i++) {
-        const angle = -0.72 + (1.44 * i) / (count - 1);
-        const half = (i === 3 ? 0.39 : 0.36) + 0.012 * Math.cos(i * 1.7);
-        out.push(prim(
-          'oval',
-          baseX + Math.sin(angle) * half,
-          baseY + Math.cos(angle) * half,
-          half,
-          0.10,
-          angle,
-          i,
-        ));
-      }
-      out.push(prim('oval', 0.5, 0.11, 0.09, 0.012, 0, 0));
+      // Horse chestnut: three palmate leaves, each a fan of five to seven leaflets.
+      addPalmateFan(out, 0.50, 0.10, 1.00, 0, 7, 0.68, 0.37, 0.170, 0);
+      addPalmateFan(out, 0.45, 0.34, 1.00, -0.35, 5, 0.45, 0.28, 0.130, 8);
+      addPalmateFan(out, 0.55, 0.34, 1.00, 0.35, 5, 0.45, 0.28, 0.130, 16);
       break;
     }
     case LEAF_LAYER.HEART: {
-      // Linden: a few small heart leaves on short stems.
-      out.push(prim('heart', 0.5, 0.53, 0.40, 0.36, 0, 0));
-      out.push(prim('heart', 0.38, 0.57, 0.30, 0.21, -0.55, 1));
-      out.push(prim('heart', 0.62, 0.57, 0.30, 0.21, 0.55, 2));
-      out.push(prim('heart', 0.5, 0.29, 0.27, 0.24, 0.06, 3));
-      out.push(prim('oval', 0.5, 0.19, 0.12, 0.009, 0, 0));
+      // Linden: a dense cluster of twelve small heart leaves.
+      out.push(prim('oval', 0.34, 0.20, 0.11, 0.005, 0.08, 0));
+      out.push(prim('oval', 0.50, 0.18, 0.13, 0.005, 0, 1));
+      out.push(prim('oval', 0.66, 0.20, 0.11, 0.005, -0.08, 2));
+      const xs = [0.26, 0.42, 0.58, 0.74];
+      const ys = [0.28, 0.49, 0.70];
+      let group = 3;
+      for (let row = 0; row < ys.length; row++) {
+        for (let col = 0; col < xs.length; col++) {
+          const angle = (col - 1.5) * 0.18 + (row - 1) * 0.05;
+          out.push(prim('heart', xs[col]!, ys[row]!, 0.195, 0.165, angle, group++));
+        }
+      }
       break;
     }
     case LEAF_LAYER.BIG_HEART: {
@@ -166,10 +254,16 @@ function buildCluster(layer: number): LeafPrim[] {
       break;
     }
     case LEAF_LAYER.LOBED: {
-      // Maple / plane: three five-lobed leaves spread across the card.
-      addLobed(out, 0.50, 0.26, 1.0, 0, 0);
-      addLobed(out, 0.30, 0.56, 0.74, -0.42, 5);
-      addLobed(out, 0.70, 0.56, 0.74, 0.42, 10);
+      // Maple / plane: nine five-lobed leaves spread across the card.
+      addLobed(out, 0.30, 0.10, 0.60, -0.25, 0);
+      addLobed(out, 0.50, 0.12, 0.64, 0, 5);
+      addLobed(out, 0.70, 0.10, 0.60, 0.25, 10);
+      addLobed(out, 0.26, 0.28, 0.55, -0.35, 15);
+      addLobed(out, 0.44, 0.31, 0.58, -0.12, 20);
+      addLobed(out, 0.56, 0.31, 0.58, 0.12, 25);
+      addLobed(out, 0.74, 0.28, 0.55, 0.35, 30);
+      addLobed(out, 0.36, 0.52, 0.58, -0.18, 35);
+      addLobed(out, 0.64, 0.52, 0.58, 0.18, 40);
       break;
     }
     case LEAF_LAYER.PINNATE_FINE: {
@@ -191,65 +285,39 @@ function buildCluster(layer: number): LeafPrim[] {
       break;
     }
     case LEAF_LAYER.SMALL_SERRATE: {
-      // Elm / mulberry: small serrated leaves alternating on a twig.
-      const stemX0 = 0.27;
-      const stemY0 = 0.16;
-      const stemX1 = 0.68;
-      const stemY1 = 0.84;
-      out.push(prim('oval', (stemX0 + stemX1) / 2, (stemY0 + stemY1) / 2, 0.35, 0.008, -0.55, 0));
-      for (let i = 0; i < 13; i++) {
-        const t = 0.05 + (0.9 * i) / 12;
-        const bx = stemX0 + (stemX1 - stemX0) * t;
-        const by = stemY0 + (stemY1 - stemY0) * t;
-        const side = i % 2 === 0 ? -1 : 1;
-        const angle = side * 0.92;
-        const half = 0.165;
-        out.push(prim(
-          'oval',
-          bx + Math.sin(angle) * half,
-          by + Math.cos(angle) * half,
-          half,
-          0.083,
-          angle,
-          i,
-          true,
-        ));
-      }
+      // Elm / mulberry: three twigs with eighteen small serrated leaves.
+      addSerrateTwig(out, 0.28, 0.14, 0.36, 0.82, 6, 0.13, 0.070, 0);
+      addSerrateTwig(out, 0.50, 0.12, 0.50, 0.86, 6, 0.13, 0.070, 10);
+      addSerrateTwig(out, 0.72, 0.14, 0.64, 0.82, 6, 0.13, 0.070, 20);
       break;
     }
     case LEAF_LAYER.LANCEOLATE: {
-      // Willow: narrow leaves hanging from a twig.
-      out.push(prim('oval', 0.5, 0.52, 0.38, 0.007, 0, 0));
-      for (let i = 0; i < 8; i++) {
-        const by = 0.86 - i * 0.07;
-        const side = i % 2 === 0 ? -1 : 1;
-        const angle = Math.PI - side * 1.15;
-        const half = 0.24;
-        out.push(prim(
-          'lanceolate',
-          0.5 + Math.sin(angle) * half,
-          by + Math.cos(angle) * half,
-          half,
-          0.08,
-          angle,
-          i,
-        ));
-      }
+      // Willow: twenty-one narrow leaves on three drooping stems.
+      addDroopingTwig(out, 0.38, 0.87, 0.22, 0.30, 7, 0.16, 0.050, 0);
+      addDroopingTwig(out, 0.50, 0.89, 0.50, 0.30, 7, 0.16, 0.050, 10);
+      addDroopingTwig(out, 0.62, 0.87, 0.78, 0.30, 7, 0.16, 0.050, 20);
       break;
     }
     case LEAF_LAYER.TRIANGULAR: {
-      // Poplar: broad triangular leaves spread around a shoot.
-      out.push(prim('triangular', 0.5, 0.57, 0.34, 0.23, 0, 0));
-      out.push(prim('triangular', 0.36, 0.68, 0.22, 0.15, -0.45, 1));
-      out.push(prim('triangular', 0.64, 0.68, 0.22, 0.15, 0.45, 2));
-      out.push(prim('triangular', 0.30, 0.76, 0.16, 0.11, -0.50, 8));
-      out.push(prim('triangular', 0.70, 0.76, 0.16, 0.11, 0.50, 9));
-      out.push(prim('triangular', 0.34, 0.46, 0.28, 0.17, -0.70, 3));
-      out.push(prim('triangular', 0.66, 0.46, 0.28, 0.17, 0.70, 4));
-      out.push(prim('triangular', 0.38, 0.25, 0.24, 0.17, -0.30, 5));
-      out.push(prim('triangular', 0.62, 0.25, 0.24, 0.17, 0.30, 6));
-      out.push(prim('triangular', 0.5, 0.20, 0.18, 0.13, Math.PI, 7));
-      out.push(prim('oval', 0.5, 0.12, 0.09, 0.012, 0, 0));
+      // Poplar: fifteen triangular leaves in pairs around a shoot.
+      out.push(prim('oval', 0.5, 0.48, 0.38, 0.006, 0, 0));
+      for (let i = 0; i < 7; i++) {
+        const y = 0.18 + i * 0.10;
+        for (const side of [-1, 1]) {
+          const angle = side * 0.80;
+          const half = 0.19;
+          out.push(prim(
+            'triangular',
+            0.5 + Math.sin(angle) * half,
+            y + Math.cos(angle) * half,
+            half,
+            0.145,
+            angle,
+            1 + i * 2 + (side > 0 ? 0 : 1),
+          ));
+        }
+      }
+      out.push(prim('triangular', 0.5, 0.84, 0.13, 0.10, 0, 20));
       break;
     }
     case LEAF_LAYER.NEEDLE_TUFT: {
@@ -281,7 +349,7 @@ function buildCluster(layer: number): LeafPrim[] {
         [0.16, -0.90, 0.40], [0.16, 0.90, 0.40],
         [0.34, -0.80, 0.38], [0.34, 0.80, 0.38],
         [0.52, -0.70, 0.34], [0.52, 0.70, 0.34],
-        [0.64, -0.60, 0.28], [0.64, 0.60, 0.28],
+        [0.62, -0.60, 0.26], [0.62, 0.60, 0.26],
         [0.28, -1.15, 0.36], [0.28, 1.15, 0.36],
         [0.48, -1.10, 0.28], [0.48, 1.10, 0.28],
       ];
@@ -291,15 +359,15 @@ function buildCluster(layer: number): LeafPrim[] {
           const t = 0.1 + i * 0.14;
           const bx = 0.5 + Math.sin(branchAngle) * branchLen * t;
           const by = baseY + Math.cos(branchAngle) * branchLen * t;
-          out.push(prim('oval', bx, by, 0.080, 0.058, branchAngle, group));
+          out.push(prim('oval', bx, by, 0.116, 0.084, branchAngle, group));
           const side = i % 2 === 0 ? -1 : 1;
           const angle = branchAngle + side * 0.9;
           out.push(prim(
             'oval',
             bx + Math.sin(angle) * 0.045,
             by + Math.cos(angle) * 0.045,
-            0.075,
-            0.052,
+            0.110,
+            0.077,
             angle,
             group + 1,
           ));
@@ -307,8 +375,8 @@ function buildCluster(layer: number): LeafPrim[] {
             'oval',
             bx - Math.sin(angle) * 0.045,
             by - Math.cos(angle) * 0.045,
-            0.068,
-            0.048,
+            0.103,
+            0.070,
             angle + Math.PI,
             group + 2,
           ));
@@ -370,8 +438,8 @@ function leafColour(layer: number, group: number, a: number, b: number): [number
   const blossom = layer === LEAF_LAYER.BLOSSOM;
   const base = blossom ? BLOSSOM_RGB : LEAF_RGB;
   const t = Math.max(0, Math.min(1, (a + 1) * 0.5));
-  const variation = blossom ? 0.94 + 0.12 * hash01(layer * 1009 + group) : 0.88 + 0.24 * hash01(layer * 1009 + group);
-  const tip = 1 + 0.10 * t;
+  const variation = blossom ? 0.94 + 0.10 * hash01(layer * 1009 + group) : 0.88 + 0.24 * hash01(layer * 1009 + group);
+  const tip = 1 + (blossom ? 0.06 : 0.07) * t;
   let vein = 1;
   if (blossom) {
     if (Math.abs(b) < 0.05) vein = 0.9;
@@ -379,10 +447,11 @@ function leafColour(layer: number, group: number, a: number, b: number): [number
     vein = 0.75;
   }
   const shade = variation * tip * vein;
+  const floor = blossom ? 0 : 150;
   return [
-    clampByte(base[0] * shade),
-    clampByte(base[1] * shade),
-    clampByte(base[2] * shade),
+    Math.max(floor, clampByte(base[0] * shade)),
+    Math.max(floor, clampByte(base[1] * shade)),
+    Math.max(floor, clampByte(base[2] * shade)),
   ];
 }
 
@@ -547,8 +616,9 @@ function barkPixel(layer: number, u: number, v: number): [number, number, number
     case BARK_LAYER.SMOOTH_LENTICEL: {
       // Poplar / ailanthus: smooth grey bark with short horizontal dashes.
       const grain = noise2(u, v, 4, 4, 151);
-      const dash = noise2(u, v, 9, 28, 157);
-      const shade = (0.94 + 0.12 * grain) * (dash > 0.68 ? 0.70 : 1);
+      const raw = noise2(u, v, 9, 28, 160);
+      const dash = Math.max(0, (raw - 0.55) / 0.45);
+      const shade = (0.94 + 0.12 * grain) * (1 - 0.30 * dash * dash);
       return [
         clampByte(216 * shade, BARK_MIN, BARK_MAX),
         clampByte(210 * shade, BARK_MIN, BARK_MAX),
@@ -577,7 +647,7 @@ function barkPixel(layer: number, u: number, v: number): [number, number, number
     case BARK_LAYER.FIBROUS: {
       // Thuja: long, thin reddish strips with a shallow warp.
       const warp = (noise2(u, v, 3, 2, 191) - 0.5) * 0.06;
-      const strip = Math.sin(Math.PI * 2 * (u * 10 + warp));
+      const strip = Math.sin(Math.PI * 2 * (u * 10 + 0.75 + warp));
       const ridge = 0.5 + 0.5 * strip;
       const fine = noise2(u, v, 8, 4, 197);
       const shade = (0.78 + 0.30 * ridge) * (0.96 + 0.07 * fine);
@@ -588,11 +658,12 @@ function barkPixel(layer: number, u: number, v: number): [number, number, number
       ];
     }
     default: {
-      // Linden / maple / chestnut: fine shallow fissures.
-      const fissure = noise2(u, v, 12, 6, 211);
-      const grain = noise2(u, v, 20, 20, 223);
-      const crack = Math.abs(fissure - 0.5) < 0.05 ? 0.84 : 1;
-      const shade = crack * (0.95 + 0.10 * grain);
+      // Linden / maple / chestnut: shallow, mostly vertical fine fissures.
+      const warp = (noise2(u, v, 3, 2, 219) - 0.5) * 0.04;
+      const streak = noise2(u + warp, v, 20, 7, 218);
+      const fissure = Math.max(0, (0.42 - streak) / 0.42);
+      const grain = noise2(u, v, 20, 20, 220);
+      const shade = (0.96 + 0.07 * grain) * (1 - 0.13 * fissure * fissure);
       return [
         clampByte(198 * shade, BARK_MIN, BARK_MAX),
         clampByte(186 * shade, BARK_MIN, BARK_MAX),
