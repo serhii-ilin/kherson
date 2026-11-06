@@ -60,7 +60,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.5
     },
     {
       "layer": "brick_red",
@@ -105,7 +106,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.6
     },
     {
       "layer": "panel_concrete",
@@ -120,7 +122,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.5
     },
     {
       "layer": "concrete",
@@ -135,7 +138,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.3
     },
     {
       "layer": "granite",
@@ -202,17 +206,18 @@
     {
       "layer": "roof_bitumen",
       "source": "ambientcg",
-      "assetId": "Asphalt025C",
+      "assetId": "Asphalt031",
       "resolution": "1K-JPG",
-      "url": "https://ambientcg.com/get?file=Asphalt025C_1K-JPG.zip",
-      "page": "https://ambientcg.com/view?id=Asphalt025C",
+      "url": "https://ambientcg.com/get?file=Asphalt031_1K-JPG.zip",
+      "page": "https://ambientcg.com/view?id=Asphalt031",
       "licence": "CC0-1.0",
-      "sha256": "5a21213be4892b152c544ac20d2ee376fd6d332257ab4572920a459b9c4042e0",
+      "sha256": "f98114b8fb083fc65925c3b4568b131e37c9a23357d432a16e59676dbc69f964",
       "tint": [
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0
     },
     {
       "layer": "asphalt",
@@ -227,7 +232,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.3
     },
     {
       "layer": "asphalt_worn",
@@ -242,7 +248,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.3
     },
     {
       "layer": "pavers_behaton",
@@ -257,7 +264,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.6
     },
     {
       "layer": "sett_granite",
@@ -287,7 +295,8 @@
         1,
         1,
         1
-      ]
+      ],
+      "saturation": 0.3
     },
     {
       "layer": "gravel",

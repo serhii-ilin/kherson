@@ -137,11 +137,11 @@
     },
     {
       "name": "roof_bitumen",
-      "assetId": "Asphalt025C",
+      "assetId": "Asphalt031",
       "meanSrgb": [
-        40,
-        39,
-        37
+        110,
+        110,
+        110
       ],
       "tileM": 3
     },

@@ -22,7 +22,7 @@ Facade photos (CC0 / CC-BY / CC-BY-SA / public domain, dated before 24 February 
 | `roof_tin_seam` | [CorrugatedSteel007A](https://ambientcg.com/view?id=CorrugatedSteel007A) | ambientcg | CC0-1.0 |
 | `roof_clay_tile` | [RoofingTiles014A](https://ambientcg.com/view?id=RoofingTiles014A) | ambientcg | CC0-1.0 |
 | `roof_eternit` | [CorrugatedSteel005](https://ambientcg.com/view?id=CorrugatedSteel005) | ambientcg | CC0-1.0 |
-| `roof_bitumen` | [Asphalt025C](https://ambientcg.com/view?id=Asphalt025C) | ambientcg | CC0-1.0 |
+| `roof_bitumen` | [Asphalt031](https://ambientcg.com/view?id=Asphalt031) | ambientcg | CC0-1.0 |
 | `asphalt` | [Road012A](https://ambientcg.com/view?id=Road012A) | ambientcg | CC0-1.0 |
 | `asphalt_worn` | [Road012B](https://ambientcg.com/view?id=Road012B) | ambientcg | CC0-1.0 |
 | `pavers_behaton` | [PavingStones128](https://ambientcg.com/view?id=PavingStones128) | ambientcg | CC0-1.0 |
