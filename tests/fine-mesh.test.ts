@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAT } from '../src/world/materials';
 import { LINE, POINT, ROAD, ROAD_SIDEWALK } from '../src/world/vector-format';
 import { generateFineChunk } from '../src/fine/generate';
-import { meshFineGround } from '../src/fine/mesh';
+import { meshFineGround, sideMaterial } from '../src/fine/mesh';
 import { NO_GROUND } from '../src/fine/raster';
 import { FINE_CELL, FINE_N, GCX, GCZ, emptyTile, flatPatch, line, point, raster, road, setCoarse } from './fine-util';
 
@@ -165,5 +165,17 @@ describe('fine ground mesh', () => {
     for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) setCoarse(p, 2 + i * 5, 3 + j * 5, MAT.WALL_APART, 2, 4);
     const m = generateFineChunk({ gcx: GCX, gcz: GCZ, patch: p, tiles: [tile] });
     expect(m.indices.length / 3).toBeLessThan(30000);
+    // F1 baseline for this fixture was 10,760 triangles; road patches, manholes and drains may add at
+    // most 15% (12,374), as the task's fine-tier triangle budget allows.
+    expect(m.indices.length / 3).toBeLessThanOrEqual(12374);
+  });
+
+  it('maps sidewalk-like side faces to kerb and granite kerb tops to granite', () => {
+    expect(sideMaterial(MAT.SIDEWALK)).toBe(MAT.KERB);
+    expect(sideMaterial(MAT.PAVING)).toBe(MAT.KERB);
+    expect(sideMaterial(MAT.PLAZA)).toBe(MAT.KERB);
+    expect(sideMaterial(MAT.PAVERS)).toBe(MAT.KERB);
+    expect(sideMaterial(MAT.GRANITE)).toBe(MAT.GRANITE);
+    expect(sideMaterial(MAT.GRASS)).toBe(MAT.DIRT);
   });
 });

@@ -3,11 +3,14 @@
  * from the coarse cells and the decoded vector tiles. Pure and deterministic; runs in a worker.
  *
  * Composition order: coarse base -> areas -> track ballast -> footways -> sidewalks (raised kerb)
- * -> carriageways -> lane/centre/edge markings -> zebra crossings -> bridge-deck markings (overlay)
- * -> rail/tram steel -> sandy banks -> AO. Water polygons (when the tiles have them) carve the shoreline
- * at 0.2 m: see paintWater.
+ * -> carriageways (surface tag) -> granite kerb tops -> asphalt patches -> manholes/drains -> tram beds
+ * -> lane/centre/edge markings -> stop lines at signals -> zebra crossings -> bridge-deck markings
+ * (overlay) -> rail/tram steel -> sandy banks -> AO. Water polygons (when the tiles have them) carve the
+ * shoreline at 0.2 m: see paintWater. Street detail placements come from the pure helpers in
+ * `street-detail.ts`; all of their choices are hashes of the road seed (Constitution 2.3).
  */
 import { MAT } from '../world/materials.ts';
+import { surfaceMat } from '../world/pbr-layers.ts';
 import {
   LINE,
   NO_DIR,
@@ -16,6 +19,7 @@ import {
   ROAD_BRIDGE,
   ROAD_ONEWAY,
   ROAD_SIDEWALK,
+  ROAD_TRAM_EMBEDDED,
   ROAD_UNPAVED,
   type VRoad,
   type VectorTile,
@@ -37,9 +41,19 @@ import {
   fillMask,
   fillRings,
   paintBuffer,
+  paintDisc,
+  paintObb,
   paintStripe,
   type StripeOpts,
 } from './raster.ts';
+import {
+  drainsAlong,
+  hashSeed,
+  manholesAlong,
+  patchesAlong,
+  stopLines,
+  type RoadRect,
+} from './street-detail.ts';
 
 export interface FineInput {
   /** Global chunk coordinates. */
@@ -61,6 +75,15 @@ export interface FineInput {
 /** Sidewalk kerb height above the carriageway in cm. */
 export const KERB_CM = 15;
 const REGION_M = REGION_CHUNKS * CHUNK * VOXEL;
+/**
+ * Freedom Square («Площа Свободи»), world metres. Untagged sidewalks within
+ * {@link CENTRE_PAVERS_M} of it are concrete behaton pavers, as in central Kherson; elsewhere they stay
+ * asphalt (MAT.SIDEWALK). The rule is per cell, so a band crossing the radius changes at the boundary.
+ */
+const CITY_CENTRE_X = 10293;
+const CITY_CENTRE_Z = 8817;
+const CENTRE_PAVERS_M = 1500;
+const CENTRE_PAVERS_R2 = CENTRE_PAVERS_M * CENTRE_PAVERS_M;
 const SIDEWALK_WIDTH = 2.5;
 const SIDEWALK_WIDTH_MAJOR = 3.5;
 /** Centre of a rail to the centre of the other: 1520 mm gauge. */
@@ -82,6 +105,21 @@ function table(...mats: number[]): Uint8Array {
 }
 const ROAD_MATS = table(MAT.ASPHALT, MAT.SIDEWALK, MAT.RAIL, MAT.WATER, MAT.AIR);
 const ASPHALT_ONLY = table(MAT.ASPHALT);
+/** Asphalt plus the repair patches laid over it: markings still paint on both (rule 8). */
+const ASPHALT_MARK = table(MAT.ASPHALT, MAT.ASPHALT_PATCH);
+/** Any paved carriageway material a stop line may cross (never a marking cell). */
+const CAR_ANY = table(MAT.ASPHALT, MAT.ASPHALT_PATCH, MAT.SETT, MAT.PAVERS, MAT.CONCRETE_SLAB);
+/** Sidewalk-like tops the granite kerb strip may cover (it only paints unowned cells). */
+const PAVED_SIDEWALK = table(
+  MAT.SIDEWALK, MAT.PAVERS, MAT.ASPHALT, MAT.SETT, MAT.CONCRETE_SLAB, MAT.PAVING, MAT.PLAZA,
+);
+/** Ground the tram bed is allowed to replace: only the carriageway surface under the rails. */
+const TRAM_BED_PROTECT = (() => {
+  const t = new Uint8Array(256).fill(1);
+  t[MAT.ASPHALT] = 0;
+  t[MAT.ASPHALT_PATCH] = 0;
+  return t;
+})();
 const GRASSY = table(MAT.GRASS, MAT.PARK, MAT.FOREST, MAT.DIRT, MAT.SAND);
 const NOT_GRASSY = (() => {
   const t = new Uint8Array(256).fill(1);
@@ -127,6 +165,10 @@ interface LRoad {
   half: number;
   lanes: number;
   name: number;
+  /** `SURFACE` tag (0 = untagged): the carriageway/footway material default is derived from it. */
+  surface: number;
+  /** Stable hash of the whole road piece (kind, width, name, flags, region-level end points). */
+  seed: number;
   /** Paint order (rank, then input order). */
   order: number;
   /** Owner id (index in the carriageway paint order + 1); set while painting. */
@@ -176,9 +218,16 @@ function cumulative(pts: Float64Array): Float64Array {
 function toLRoad(pts: Float64Array, r: VRoad, order: number): LRoad {
   const cum = cumulative(pts);
   const minW = isFootKind(r.kind) ? 1 : 2.5;
+  // v3 roads carry no OSM id: the region-level end points plus the tags identify a piece stably, so
+  // details start at the same arc length in every chunk (Constitution 2.3).
+  const seed = hashSeed(
+    r.pts[0] ?? 0, r.pts[1] ?? 0, r.pts[r.pts.length - 2] ?? 0, r.pts[r.pts.length - 1] ?? 0,
+    r.kind, r.widthCm, r.name, r.flags,
+  );
   return {
     pts, n: pts.length >> 1, cum, len: cum[cum.length - 1]!, kind: r.kind, flags: r.flags,
-    half: Math.max(r.widthCm / 100, minW) / 2, lanes: r.lanes, name: r.name, order, ownerId: 0,
+    half: Math.max(r.widthCm / 100, minW) / 2, lanes: r.lanes, name: r.name,
+    surface: r.surface ?? 0, seed, order, ownerId: 0,
   };
 }
 
@@ -292,7 +341,7 @@ function zonesNear(all: Float64Array, r: LRoad): { zones: Float64Array; count: n
 // ---------------------------------------------------------------- markings
 
 const stripe: StripeOpts = {
-  offset: 0, half: MARK_HALF, period: 0, mat: MAT.MARKING, need: ASPHALT_ONLY, owner: 0, zones: null, zoneCount: 0,
+  offset: 0, half: MARK_HALF, period: 0, mat: MAT.MARKING, need: ASPHALT_MARK, owner: 0, zones: null, zoneCount: 0,
 };
 
 function paintMark(g: FineGrid, r: LRoad, offset: number, dashed: boolean, zones: Float64Array, count: number): void {
@@ -300,7 +349,8 @@ function paintMark(g: FineGrid, r: LRoad, offset: number, dashed: boolean, zones
   stripe.half = MARK_HALF;
   stripe.period = dashed ? dashPeriod(r.len) : 0;
   stripe.mat = MAT.MARKING;
-  stripe.need = ASPHALT_ONLY;
+  // Patches are painted before markings, so a worn rectangle never breaks a lane line (rule 8).
+  stripe.need = ASPHALT_MARK;
   stripe.owner = r.ownerId;
   stripe.zones = zones;
   stripe.zoneCount = count;
@@ -392,7 +442,9 @@ function paintZebra(g: FineGrid, roads: readonly LRoad[], x: number, z: number, 
     const pz = (cz + 0.5) * FINE_CELL - bpz;
     for (let cx = x0; cx <= x1; cx++) {
       const i = cz * FINE_N + cx;
-      if (g.mat[i] !== MAT.ASPHALT) continue;
+      const m = g.mat[i]!;
+      // zebras win over patches (painted under them) and over a stop bar at the same node
+      if (m !== MAT.ASPHALT && m !== MAT.ASPHALT_PATCH && m !== MAT.STOP_LINE) continue;
       const px = (cx + 0.5) * FINE_CELL - bpx;
       const u = px * dx + pz * dz;
       if (u < -ZEBRA_LENGTH / 2 || u > ZEBRA_LENGTH / 2) continue;
@@ -804,6 +856,141 @@ function paintBridgeMarkings(g: FineGrid, input: FineInput, tiles: readonly Vect
   }
 }
 
+// ---------------------------------------------------------------- street detail
+
+/** Paint a placement rectangle for road `r`; its owner stays recorded so markings can follow. */
+function paintRoadRect(g: FineGrid, r: LRoad, q: RoadRect, mat: number, need: Uint8Array | null): void {
+  const nx = -q.uz, nz = q.ux;
+  paintObb(
+    g, q.x + nx * q.offset, q.z + nz * q.offset, q.ux, q.uz,
+    q.length / 2, q.width / 2, mat, need, r.ownerId,
+  );
+}
+
+/** Carriageway material from the v3 surface tag; dirties stay dirt, everything else defaults to asphalt. */
+function carriagewayMat(r: LRoad): number {
+  const fallback = (r.flags & ROAD_UNPAVED) !== 0 || r.kind === ROAD.TRACK ? MAT.DIRT : MAT.ASPHALT;
+  return surfaceMat(r.surface, fallback);
+}
+
+/**
+ * Granite kerbs (rule 4): on primary/secondary/trunk roads the outermost 0.2 m of the carriageway-facing
+ * sidewalk edge is GRANITE. Painted after the carriageways and only over unowned sidewalk-like cells, so
+ * a crossing carriageway or a patch never turns into kerb stone. Other sidewalk sides stay KERB.
+ */
+const graniteStripe: StripeOpts = {
+  offset: 0, half: FINE_CELL / 2, period: 0, mat: MAT.GRANITE, need: PAVED_SIDEWALK, owner: 0,
+  unowned: true, zones: null, zoneCount: 0,
+};
+
+function paintGraniteKerbs(g: FineGrid, roads: readonly LRoad[]): void {
+  for (const r of roads) {
+    if ((r.flags & ROAD_SIDEWALK) === 0) continue;
+    if (r.kind !== ROAD.PRIMARY && r.kind !== ROAD.SECONDARY && r.kind !== ROAD.TRUNK) continue;
+    for (const side of [-1, 1]) {
+      graniteStripe.offset = side * (r.half + FINE_CELL / 2);
+      paintStripe(g, r.pts, r.n, r.cum, graniteStripe);
+    }
+  }
+}
+
+/**
+ * Asphalt repair patches (rule 5) on ASPHALT carriageway cells only, before the markings so a lane line
+ * still runs over a patch. One rectangle per 15..35 m of road, aligned to the tangent and kept inside
+ * the carriageway; the seed is the road piece hash, never `Math.random`.
+ */
+function paintAsphaltPatches(g: FineGrid, roads: readonly LRoad[]): void {
+  for (const r of roads) {
+    if (isFootKind(r.kind) || r.kind === ROAD.TRACK || (r.flags & ROAD_UNPAVED) !== 0) continue;
+    if (carriagewayMat(r) !== MAT.ASPHALT) continue;
+    for (const q of patchesAlong(r.pts, r.half, hashSeed(r.seed, 0x50415443))) {
+      paintRoadRect(g, r, q, MAT.ASPHALT_PATCH, ASPHALT_ONLY);
+    }
+  }
+}
+
+/** Right normal of the road direction at a point on its centre line. */
+function rightNormalAt(r: LRoad, x: number, z: number): { nx: number; nz: number } {
+  let best = Infinity, nx = 0, nz = 1;
+  for (let k = 0; k + 1 < r.n; k++) {
+    const ax = r.pts[k * 2]!, az = r.pts[k * 2 + 1]!;
+    const ex = r.pts[k * 2 + 2]! - ax, ez = r.pts[k * 2 + 3]! - az;
+    const l2 = ex * ex + ez * ez;
+    if (l2 < 1e-12) continue;
+    let t = ((x - ax) * ex + (z - az) * ez) / l2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const d = Math.hypot(x - (ax + t * ex), z - (az + t * ez));
+    if (d < best) {
+      const l = Math.sqrt(l2);
+      best = d;
+      nx = -ez / l;
+      nz = ex / l;
+    }
+  }
+  return { nx, nz };
+}
+
+/**
+ * Manholes and gutter drains (rule 7) on residential class and above, on asphalt (or a patch over it).
+ * Manholes are 0.7 m discs near a lane centre every 30..45 m; drains are 0.4 x 0.8 m grates 0.3 m from
+ * the right-hand kerb every 25..40 m. Both are flat at road height, so the mesher adds no sides.
+ */
+function paintStreetFurniture(g: FineGrid, roads: readonly LRoad[]): void {
+  for (const r of roads) {
+    if (isFootKind(r.kind) || r.kind === ROAD.TRACK || (r.flags & ROAD_UNPAVED) !== 0) continue;
+    if (roadRank(r.kind) < roadRank(ROAD.RESIDENTIAL)) continue;
+    if (carriagewayMat(r) !== MAT.ASPHALT) continue;
+    for (const m of manholesAlong(r.pts, r.half, hashSeed(r.seed, 0x4d414e48), r.lanes)) {
+      const { nx, nz } = rightNormalAt(r, m.x, m.z);
+      paintDisc(g, m.x + nx * m.offset, m.z + nz * m.offset, m.r, MAT.MANHOLE, ASPHALT_MARK, r.ownerId);
+    }
+    for (const q of drainsAlong(r.pts, r.half, hashSeed(r.seed, 0x44524149))) {
+      paintRoadRect(g, r, q, MAT.DRAIN, ASPHALT_MARK);
+    }
+  }
+}
+
+/**
+ * Stop lines (rule 6): at every TRAFFIC_SIGNALS point, each carriageway passing within 3 m gets a 0.4 m
+ * STOP_LINE across the right-hand half, 4 m before the point on both approaches (the incoming one only
+ * on one-way roads). Painted after the markings, so it never covers a lane line, and before the zebras,
+ * which repaint over it where a crossing shares the signal.
+ */
+function paintSignalStopLines(
+  g: FineGrid, roads: readonly LRoad[], tiles: readonly VectorTile[], gcx: number, gcz: number,
+): void {
+  for (const t of tiles) {
+    const ox = t.rx * REGION_M - gcx * CHUNK_SIZE_M;
+    const oz = t.rz * REGION_M - gcz * CHUNK_SIZE_M;
+    for (const p of t.points) {
+      if (p.kind !== POINT.TRAFFIC_SIGNALS) continue;
+      const x = ox + p.x / 100, z = oz + p.z / 100;
+      // a stop bar may be 4 m before a signal just outside the chunk
+      if (x < -8 || x > CHUNK_SIZE_M + 8 || z < -8 || z > CHUNK_SIZE_M + 8) continue;
+      for (const r of roads) {
+        if (isFootKind(r.kind) || r.kind === ROAD.TRACK || (r.flags & ROAD_UNPAVED) !== 0) continue;
+        const oneWay = (r.flags & ROAD_ONEWAY) !== 0;
+        for (const q of stopLines(r.pts, r.half, oneWay, x, z)) {
+          paintRoadRect(g, r, q, MAT.STOP_LINE, CAR_ANY);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Concrete tram bed where OSM tags tram rails as embedded (`ROAD_TRAM_EMBEDDED`, same plan as
+ * BUILDINGS_PLAN F1): a 2.2 m slab between and beside the rails, only over asphalt or a patch. The
+ * bake sets the flag on the road piece the tram runs along, so the bed follows that road's centre
+ * line rather than every tram crossing in the chunk.
+ */
+function paintTramBeds(g: FineGrid, roads: readonly LRoad[]): void {
+  for (const r of roads) {
+    if ((r.flags & ROAD_TRAM_EMBEDDED) === 0) continue;
+    paintBuffer(g, r.pts, r.n, RAIL_GAUGE / 2 + 0.35, MAT.TRAM_BED, -1, 0, TRAM_BED_PROTECT);
+  }
+}
+
 // ---------------------------------------------------------------- composition
 
 /** Rasterises one chunk's fine ground. */
@@ -859,30 +1046,45 @@ export function rasterizeGround(input: FineInput): FineGrid {
     else paintBuffer(g, l.pts, l.n, 1.2, MAT.RAIL, 0, 0, NOT_GRASSY);
   }
 
-  // ---- footways, paths, cycleways, steps, pedestrian streets
+  // ---- footways, paths, cycleways, steps, pedestrian streets: honour surface (rule 2), keeping the
+  // PAVING / PLAZA / DIRT defaults when untagged
   for (const f of foot) {
-    const mat = f.kind === ROAD.PEDESTRIAN ? MAT.PLAZA
+    const fallback = f.kind === ROAD.PEDESTRIAN ? MAT.PLAZA
       : f.kind === ROAD.PATH || (f.flags & ROAD_UNPAVED) !== 0 ? MAT.DIRT : MAT.PAVING;
-    paintBuffer(g, f.pts, f.n, f.half, mat, 0, 0, null);
+    paintBuffer(g, f.pts, f.n, f.half, surfaceMat(f.surface, fallback), 0, 0, null);
   }
 
   // ---- raised sidewalk bands, then the carriageways over them
+  // Rule 3 is per cell: inside 1,500 m of Freedom Square an untagged sidewalk is behaton PAVERS, outside
+  // it stays asphalt SIDEWALK. The height is unchanged (+KERB_CM). The road's surface tag describes its
+  // carriageway (and separately its footway pieces), so the sidewalk band keeps this class default.
+  const wx0 = gcx * CHUNK_SIZE_M, wz0 = gcz * CHUNK_SIZE_M;
+  const sidewalkMat = (px: number, pz: number): number => {
+    const dx = wx0 + px - CITY_CENTRE_X, dz = wz0 + pz - CITY_CENTRE_Z;
+    return dx * dx + dz * dz <= CENTRE_PAVERS_R2 ? MAT.PAVERS : MAT.SIDEWALK;
+  };
   for (const r of veh) {
     if ((r.flags & ROAD_SIDEWALK) === 0 || r.kind === ROAD.TRACK) continue;
     const band = r.kind === ROAD.PRIMARY || r.kind === ROAD.TRUNK || r.kind === ROAD.SECONDARY
       ? SIDEWALK_WIDTH_MAJOR : SIDEWALK_WIDTH;
-    paintBuffer(g, r.pts, r.n, r.half + band, MAT.SIDEWALK, KERB_CM, 0, null);
+    paintBuffer(g, r.pts, r.n, r.half + band, sidewalkMat, KERB_CM, 0, null);
   }
   for (let i = 0; i < veh.length; i++) {
     const r = veh[i]!;
     r.ownerId = (i % 65534) + 1;
-    const mat = (r.flags & ROAD_UNPAVED) !== 0 || r.kind === ROAD.TRACK ? MAT.DIRT : MAT.ASPHALT;
-    paintBuffer(g, r.pts, r.n, r.half, mat, 0, r.ownerId, null);
+    paintBuffer(g, r.pts, r.n, r.half, carriagewayMat(r), 0, r.ownerId, null);
   }
 
-  // ---- markings
+  // ---- street detail, then markings (patches go under them; rule 5, rule 8)
+  paintGraniteKerbs(g, veh);
+  paintAsphaltPatches(g, veh);
+  paintStreetFurniture(g, veh);
+  paintTramBeds(g, veh);
   const junctions = findJunctions(veh);
   for (const r of veh) paintRoadMarkings(g, r, junctions);
+
+  // ---- stop lines at traffic signals, before the zebras so a crossing always wins (rule 6)
+  paintSignalStopLines(g, veh, tiles, gcx, gcz);
   for (const t of tiles) {
     const ox = t.rx * REGION_M - gcx * CHUNK_SIZE_M;
     const oz = t.rz * REGION_M - gcz * CHUNK_SIZE_M;

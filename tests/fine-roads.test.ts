@@ -41,7 +41,11 @@ describe('fine ground: roads', () => {
     const tile = emptyTile();
     tile.roads.push(road([[-10, -10], [75, 75]], 8, { flags: ROAD_SIDEWALK }));
     const g = raster(flatPatch(), tile);
-    const a = columnRun(g, 32, MAT.ASPHALT);
+    // the carriageway is asphalt plus its repair patches (rule 5) and flat street detail (rule 7)
+    const a = {
+      n: columnRun(g, 32, MAT.ASPHALT).n + columnRun(g, 32, MAT.ASPHALT_PATCH).n
+        + columnRun(g, 32, MAT.MANHOLE).n + columnRun(g, 32, MAT.DRAIN).n,
+    };
     expect(Math.abs((a.n * FINE_CELL) / Math.SQRT2 - 8)).toBeLessThan(0.5);
     const s = columnRun(g, 32, MAT.SIDEWALK);
     expect(Math.abs((s.n * FINE_CELL) / Math.SQRT2 - 5)).toBeLessThan(0.7);
@@ -118,5 +122,20 @@ describe('fine ground: roads', () => {
     expect(hAt(g, 30, 10.1)).toBe(400);
     const n = columnRun(g, 30, MAT.PAVING).n * FINE_CELL;
     expect(Math.abs(n - 2)).toBeLessThanOrEqual(0.25);
+  });
+
+  it('honours a tagged carriageway surface without changing the raised sidewalk band', () => {
+    const tile = emptyTile();
+    // surface=sett (SURFACE.SETT): the carriageway becomes granite setts, the sidewalk keeps its class
+    // material (asphalt away from the centre) and its 15 cm kerb.
+    tile.roads.push(road([[-10, 32.1], [75, 32.1]], 8, { flags: ROAD_SIDEWALK, surface: 5 }));
+    const g = raster(flatPatch(), tile);
+    expect(matAt(g, 20, 32.1)).toBe(MAT.SETT);
+    expect(matAt(g, 20, 32.1 + 2.5)).toBe(MAT.SETT);
+    expect(matAt(g, 20, 32.1 - 5)).toBe(MAT.SIDEWALK);
+    expect(hAt(g, 20, 32.1 - 5)).toBe(400 + KERB_CM);
+    // the carriageway width is unchanged
+    const a = columnRun(g, 20, MAT.SETT);
+    expect(Math.abs(a.n - 40)).toBeLessThanOrEqual(1);
   });
 });

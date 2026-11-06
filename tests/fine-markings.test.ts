@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAT } from '../src/world/materials';
-import { LINE, POINT, ROAD, ROAD_ONEWAY, ROAD_UNPAVED } from '../src/world/vector-format';
+import { LINE, POINT, ROAD, ROAD_ONEWAY, ROAD_TRAM_EMBEDDED, ROAD_UNPAVED } from '../src/world/vector-format';
 import { RAIL_GAUGE } from '../src/fine/ground';
 import { FINE_CELL, FINE_N, countMat, emptyTile, flatPatch, line, matAt, point, raster, road } from './fine-util';
 
@@ -99,6 +99,33 @@ describe('fine ground: markings', () => {
     expect(r.length).toBeGreaterThan(3);
     expect(r[0]!.len).toBeLessThan(4);
   });
+
+  it('lays solid stop lines 4 m before a traffic signal, one per approach, right half only', () => {
+    const tile = emptyTile();
+    tile.roads.push(road([[-20, 32.1], [85, 32.1]], 8)); // two-way
+    tile.points.push(point(32, 32.1, POINT.TRAFFIC_SIGNALS, 255));
+    const g = raster(flatPatch(), tile);
+    const bars: Array<[number, number]> = [];
+    for (let cz = 0; cz < FINE_N; cz++) {
+      for (let cx = 0; cx < FINE_N; cx++) {
+        if (g.mat[cz * FINE_N + cx] === MAT.STOP_LINE) bars.push([(cx + 0.5) * FINE_CELL, (cz + 0.5) * FINE_CELL]);
+      }
+    }
+    expect(bars.length).toBeGreaterThan(20);
+    const incoming = bars.filter(([x]) => x < 32);
+    const outgoing = bars.filter(([x]) => x > 32);
+    expect(incoming.length).toBeGreaterThan(10);
+    expect(outgoing.length).toBeGreaterThan(10);
+    // 0.4 m wide along the road, perpendicular to it (no x spread beyond one 0.2 m cell each side)
+    for (const [x, z] of incoming) {
+      expect(Math.abs(x - 28)).toBeLessThanOrEqual(0.4);
+      expect(z).toBeGreaterThanOrEqual(32.1 - 0.01);
+    }
+    for (const [x, z] of outgoing) {
+      expect(Math.abs(x - 36)).toBeLessThanOrEqual(0.4);
+      expect(z).toBeLessThanOrEqual(32.1 + 0.01);
+    }
+  });
 });
 
 /** Cell centres of marking cells within `radius` of (x, z). */
@@ -189,6 +216,18 @@ describe('fine ground: tracks', () => {
       count++;
     }
     expect(Math.abs(sum / count - 1.52)).toBeLessThan(0.07);
+  });
+
+  it('paints a concrete tram bed between the rails of an embedded tram', () => {
+    const tile = emptyTile();
+    tile.roads.push(road([[-5, 20.1], [70, 20.1]], 8, { flags: ROAD_TRAM_EMBEDDED }));
+    tile.lines.push(line([[-5, 20.1], [70, 20.1]], LINE.TRAM));
+    const g = raster(flatPatch(), tile);
+    expect(matAt(g, 30, 20.1)).toBe(MAT.TRAM_BED);
+    expect(matAt(g, 30, 20.1 + 1.2)).not.toBe(MAT.TRAM_BED);
+    // the rails stay steel on top of the bed
+    expect(matAt(g, 30, 20.1 - 0.76)).toBe(MAT.STEEL);
+    expect(matAt(g, 30, 20.1 + 0.76)).toBe(MAT.STEEL);
   });
 
   it('keeps tram rails on top of asphalt and rails on a 3 m ballast bed', () => {

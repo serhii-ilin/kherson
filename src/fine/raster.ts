@@ -46,12 +46,15 @@ function clampCell(v: number): number {
  * Paints every non-empty cell whose centre is within `r` metres of the polyline.
  * `raise` is the height above the coarse ground in cm (-1 keeps the cell height);
  * `owner` (when non-zero) is recorded in the owner map; `protect[mat]` cells are left alone.
+ * `mat` may be a callback for a band whose material varies per cell (the central pavers rule);
+ * it receives chunk-local metres.
  */
 export function paintBuffer(
   g: FineGrid, pts: Float64Array, n: number, r: number,
-  mat: number, raise: number, owner: number, protect: Uint8Array | null,
+  mat: number | ((x: number, z: number) => number), raise: number, owner: number, protect: Uint8Array | null,
 ): void {
   const r2 = r * r;
+  const direct = typeof mat === 'number';
   for (let k = 0; k + 1 < n; k++) {
     const ax = pts[k * 2]!, az = pts[k * 2 + 1]!;
     const ex = pts[k * 2 + 2]! - ax, ez = pts[k * 2 + 3]! - az;
@@ -74,7 +77,7 @@ export function paintBuffer(
         const dx = px - ax - t * ex;
         const dz = pz - az - t * ez;
         if (dx * dx + dz * dz > r2) continue;
-        g.mat[i] = mat;
+        g.mat[i] = direct ? (mat as number) : (mat as (x: number, z: number) => number)(px, pz);
         if (raise >= 0) g.hcm[i] = g.base[i]! + raise;
         if (owner !== 0) g.own[i] = owner;
       }
@@ -95,6 +98,8 @@ export interface StripeOpts {
   need: Uint8Array | null;
   /** When non-zero only cells owned by this road are painted. */
   owner: number;
+  /** When true only cells without a carriageway owner (sidewalk cells) are painted. */
+  unowned?: boolean;
   /** Circular exclusion zones (junctions): x, z, radius squared. */
   zones: Float64Array | null;
   zoneCount: number;
@@ -135,6 +140,7 @@ export function paintStripe(g: FineGrid, pts: Float64Array, n: number, cum: Floa
         const m = g.mat[i]!;
         if (m === 0 || (o.need !== null && o.need[m] !== 1)) continue;
         if (o.owner !== 0 && g.own[i] !== o.owner) continue;
+        if (o.unowned === true && g.own[i] !== 0) continue;
         const px = (cx + 0.5) * FINE_CELL;
         const rx = px - ax, rz = pz - az;
         const p = rx * ux + rz * uz;
@@ -156,6 +162,62 @@ export function paintStripe(g: FineGrid, pts: Float64Array, n: number, cum: Floa
         }
         g.mat[i] = o.mat;
       }
+    }
+  }
+}
+
+/**
+ * Paints an oriented rectangle centred at (cx, cz), with unit axes `ux/uz` (along) and a right normal
+ * (across). Only non-empty cells matching `need` and (when non-zero) the road `owner` are painted; the
+ * owner map is left alone, so a patch, stop line or grate still belongs to its carriageway for later
+ * marking passes. Used for patches, stop lines and drain grates.
+ */
+export function paintObb(
+  g: FineGrid, cx: number, cz: number, ux: number, uz: number,
+  alongHalf: number, acrossHalf: number, mat: number, need: Uint8Array | null, owner: number,
+): void {
+  if (!(alongHalf > 0) || !(acrossHalf > 0)) return;
+  const reach = Math.hypot(alongHalf, acrossHalf);
+  const x0 = clampCell(Math.floor((cx - reach) / FINE_CELL));
+  const x1 = clampCell(Math.floor((cx + reach) / FINE_CELL));
+  const z0 = clampCell(Math.floor((cz - reach) / FINE_CELL));
+  const z1 = clampCell(Math.floor((cz + reach) / FINE_CELL));
+  for (let czz = z0; czz <= z1; czz++) {
+    const pz = (czz + 0.5) * FINE_CELL;
+    for (let cxx = x0; cxx <= x1; cxx++) {
+      const i = czz * FINE_N + cxx;
+      const m = g.mat[i]!;
+      if (m === 0 || (need !== null && need[m] !== 1)) continue;
+      if (owner !== 0 && g.own[i] !== owner) continue;
+      const dx = (cxx + 0.5) * FINE_CELL - cx;
+      const dz = pz - cz;
+      if (Math.abs(dx * ux + dz * uz) > alongHalf) continue;
+      if (Math.abs(-dx * uz + dz * ux) > acrossHalf) continue;
+      g.mat[i] = mat;
+    }
+  }
+}
+
+/** Paints a flat disc of radius `r` (manhole covers). Filters work as in {@link paintObb}. */
+export function paintDisc(
+  g: FineGrid, cx: number, cz: number, r: number, mat: number, need: Uint8Array | null, owner: number,
+): void {
+  if (!(r > 0)) return;
+  const x0 = clampCell(Math.floor((cx - r) / FINE_CELL));
+  const x1 = clampCell(Math.floor((cx + r) / FINE_CELL));
+  const z0 = clampCell(Math.floor((cz - r) / FINE_CELL));
+  const z1 = clampCell(Math.floor((cz + r) / FINE_CELL));
+  const r2 = r * r;
+  for (let czz = z0; czz <= z1; czz++) {
+    const dz = (czz + 0.5) * FINE_CELL - cz;
+    for (let cxx = x0; cxx <= x1; cxx++) {
+      const dx = (cxx + 0.5) * FINE_CELL - cx;
+      if (dx * dx + dz * dz > r2) continue;
+      const i = czz * FINE_N + cxx;
+      const m = g.mat[i]!;
+      if (m === 0 || (need !== null && need[m] !== 1)) continue;
+      if (owner !== 0 && g.own[i] !== owner) continue;
+      g.mat[i] = mat;
     }
   }
 }

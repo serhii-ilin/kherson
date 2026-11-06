@@ -41,11 +41,11 @@ function cm(pts: ReadonlyArray<readonly [number, number]>): Int32Array {
 
 export function road(
   pts: ReadonlyArray<readonly [number, number]>, widthM: number,
-  o: Partial<Pick<VRoad, 'kind' | 'flags' | 'lanes' | 'name' | 'layer'>> = {},
+  o: Partial<Pick<VRoad, 'kind' | 'flags' | 'lanes' | 'name' | 'layer' | 'surface'>> = {},
 ): VRoad {
   return {
     pts: cm(pts), kind: o.kind ?? ROAD.RESIDENTIAL, flags: o.flags ?? 0, widthCm: Math.round(widthM * 100),
-    lanes: o.lanes ?? 0, layer: o.layer ?? 0, name: o.name ?? -1,
+    lanes: o.lanes ?? 0, layer: o.layer ?? 0, ...(o.surface ? { surface: o.surface } : {}), name: o.name ?? -1,
   };
 }
 
