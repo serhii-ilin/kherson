@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SPECIES, TREE_SPECIES, BUSH_SPECIES, VARIANTS, buildModel, type VegModel } from '../src/nature/models.ts';
 import { LEAF_LAYER, speciesLayers } from '../src/nature/tree-atlas.ts';
-import { variantScale } from '../src/nature/realistic.ts';
+import { skeletonOf, variantScale } from '../src/nature/realistic.ts';
 
 describe('buildModel', () => {
   it('builds all species', () => {
@@ -358,11 +358,31 @@ describe('finest model (lod 3, 0.2 m)', () => {
 describe('realistic tree models: skeleton, clumps and texture layers', () => {
   const ALL = [...TREE_SPECIES, ...BUSH_SPECIES];
   const isBush = (s: number): boolean => s >= SPECIES.BUSH;
+  const LEAF_COLOR: Readonly<Record<number, [number, number, number]>> = {
+    [SPECIES.CHESTNUT]: [70, 112, 46],
+    [SPECIES.LINDEN]: [88, 130, 56],
+    [SPECIES.ACACIA]: [130, 160, 74],
+    [SPECIES.POPLAR]: [76, 124, 52],
+    [SPECIES.WILLOW]: [140, 168, 98],
+    [SPECIES.PINE]: [52, 92, 56],
+    [SPECIES.PLANE]: [98, 140, 62],
+    [SPECIES.MAPLE]: [82, 128, 54],
+    [SPECIES.ELM]: [86, 122, 58],
+    [SPECIES.GLEDITSIA]: [120, 150, 70],
+    [SPECIES.MULBERRY]: [80, 126, 52],
+    [SPECIES.AILANTHUS]: [96, 138, 64],
+    [SPECIES.CATALPA]: [132, 176, 82],
+    [SPECIES.THUJA]: [48, 86, 48],
+    [SPECIES.WALNUT]: [78, 118, 52],
+    [SPECIES.BUSH]: [70, 120, 48],
+    [SPECIES.BUSH_LILAC]: [74, 116, 52],
+    [SPECIES.BUSH_PINK]: [86, 130, 58],
+  };
 
   it('caps triangles per LOD for every species and variant', () => {
     const limits: [0 | 2 | 3, number, number][] = [
-      [3, 2000, 400],
-      [0, 800, 200],
+      [3, 3000, 500],
+      [0, 1200, 200],
       [2, 160, 160],
     ];
     for (const [lod, treeCap, bushCap] of limits) {
@@ -372,6 +392,13 @@ describe('realistic tree models: skeleton, clumps and texture layers', () => {
           expect(tris, `species ${s} variant ${v} lod ${lod}`).toBeLessThanOrEqual(isBush(s) ? bushCap : treeCap);
         }
       }
+    }
+  });
+
+  it('fills dense crowns toward the near budget', () => {
+    for (const s of [SPECIES.CHESTNUT, SPECIES.LINDEN, SPECIES.MAPLE, SPECIES.CATALPA]) {
+      const tris = buildModel(s, 0, 3).indices.length / 3;
+      expect(tris, `species ${s}`).toBeGreaterThanOrEqual(2400);
     }
   });
 
@@ -398,6 +425,179 @@ describe('realistic tree models: skeleton, clumps and texture layers', () => {
           }
         }
       }
+    }
+  });
+
+  it('attaches every scaffold and child branch to existing wood', () => {
+    const pointSeg = (px: number, py: number, pz: number, a: number[], b: number[]): number => {
+      const dx = b[0]! - a[0]!, dy = b[1]! - a[1]!, dz = b[2]! - a[2]!;
+      const len2 = dx * dx + dy * dy + dz * dz;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - a[0]!) * dx + (py - a[1]!) * dy + (pz - a[2]!) * dz) / len2));
+      return Math.hypot(px - (a[0]! + dx * t), py - (a[1]! + dy * t), pz - (a[2]! + dz * t));
+    };
+    for (const s of TREE_SPECIES) {
+      const sk = skeletonOf(s, 0);
+      const segs: { owner: number; a: number[]; b: number[] }[] = [];
+      for (let i = 1; i < sk.trunk.length; i++) {
+        const a = sk.trunk[i - 1]!, b = sk.trunk[i]!;
+        segs.push({ owner: -1, a: [a.x, a.y, a.z], b: [b.x, b.y, b.z] });
+      }
+      sk.limbs.forEach((l, li) => {
+        for (let i = 1; i < l.points.length; i++) {
+          const a = l.points[i - 1]!, b = l.points[i]!;
+          segs.push({ owner: li, a: [a.x, a.y, a.z], b: [b.x, b.y, b.z] });
+        }
+      });
+      sk.limbs.forEach((l, li) => {
+        if (l.stub) return;
+        const p0 = l.points[0]!;
+        let best = Infinity;
+        for (const seg of segs) {
+          if (seg.owner === li) continue;
+          best = Math.min(best, pointSeg(p0.x, p0.y, p0.z, seg.a, seg.b));
+        }
+        expect(best, `species ${s} limb ${li}`).toBeLessThanOrEqual(0.05);
+      });
+    }
+  });
+
+  it('keeps pine wood continuous under the umbrella', () => {
+    const m = buildModel(SPECIES.PINE, 0, 3);
+    let lowestLeaf = Infinity;
+    for (let i = 0; i < m.positions.length; i += 3) {
+      if (m.leaf![i / 3]! > 0.5) lowestLeaf = Math.min(lowestLeaf, m.positions[i + 1]!);
+    }
+    const sk = skeletonOf(SPECIES.PINE, 0);
+    const trunkTop = Math.max(...sk.trunk.map((p) => p.y));
+    expect(trunkTop).toBeGreaterThanOrEqual(m.height * 0.85);
+    // The trunk is continuous from 0 to its top, so wood spans 0.5 h up to the needles.
+    for (let y = m.height * 0.5; y < lowestLeaf; y += 0.25) {
+      let covered = false;
+      for (let i = 1; i < sk.trunk.length; i++) {
+        const a = sk.trunk[i - 1]!, b = sk.trunk[i]!;
+        if (Math.min(a.y, b.y) <= y && Math.max(a.y, b.y) >= y) covered = true;
+      }
+      expect(covered, `pine trunk gap at ${y.toFixed(2)} m`).toBe(true);
+    }
+  });
+
+  it('covers the crown in side view', () => {
+    const coverage = (m: VegModel): number => {
+      const p = m.positions;
+      let minY = Infinity, maxY = -Infinity;
+      for (let i = 0; i < p.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        minY = Math.min(minY, p[i + 1]!);
+        maxY = Math.max(maxY, p[i + 1]!);
+      }
+      const R = m.radius;
+      const cy = (minY + maxY) * 0.5;
+      const halfH = Math.max(0.01, (maxY - minY) * 0.5);
+      const cell = 0.25;
+      const x0 = -R - cell;
+      const y0 = minY - cell;
+      const nx = Math.ceil((2 * R) / cell) + 3;
+      const ny = Math.ceil((maxY - minY) / cell) + 3;
+      const counts = new Uint16Array(nx * ny);
+      const inPoly = (px: number, py: number, v: [number, number][]): boolean => {
+        let inside = false;
+        for (let i = 0, j = v.length - 1; i < v.length; j = i++) {
+          const xi = v[i]![0], yi = v[i]![1], xj = v[j]![0], yj = v[j]![1];
+          if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+      };
+      for (let i = 0; i < m.indices.length; i += 6) {
+        const a = m.indices[i]!, b = m.indices[i + 1]!, c = m.indices[i + 2]!, d = m.indices[i + 5]!;
+        if (m.leaf![a]! < 0.5) continue;
+        const quad: [number, number][] = [
+          [p[a * 3]!, p[a * 3 + 1]!],
+          [p[b * 3]!, p[b * 3 + 1]!],
+          [p[c * 3]!, p[c * 3 + 1]!],
+          [p[d * 3]!, p[d * 3 + 1]!],
+        ];
+        const qx0 = Math.min(...quad.map((q) => q[0]));
+        const qx1 = Math.max(...quad.map((q) => q[0]));
+        const qy0 = Math.min(...quad.map((q) => q[1]));
+        const qy1 = Math.max(...quad.map((q) => q[1]));
+        const gx0 = Math.max(0, Math.floor((qx0 - x0) / cell));
+        const gx1 = Math.min(nx - 1, Math.ceil((qx1 - x0) / cell));
+        const gy0 = Math.max(0, Math.floor((qy0 - y0) / cell));
+        const gy1 = Math.min(ny - 1, Math.ceil((qy1 - y0) / cell));
+        for (let gy = gy0; gy <= gy1; gy++) {
+          for (let gx = gx0; gx <= gx1; gx++) {
+            const px = x0 + gx * cell;
+            const py = y0 + gy * cell;
+            if (inPoly(px, py, quad)) counts[gx + gy * nx]!++;
+          }
+        }
+      }
+      let inside = 0, covered = 0;
+      for (let gy = 0; gy < ny; gy++) {
+        for (let gx = 0; gx < nx; gx++) {
+          const px = x0 + gx * cell;
+          const py = y0 + gy * cell;
+          if ((px / R) ** 2 + ((py - cy) / halfH) ** 2 > 1) continue;
+          inside++;
+          if (counts[gx + gy * nx]! >= 3) covered++;
+        }
+      }
+      return inside === 0 ? 0 : covered / inside;
+    };
+    const required: Readonly<Record<number, [number, number]>> = {
+      [SPECIES.CHESTNUT]: [0.8, 1],
+      [SPECIES.LINDEN]: [0.8, 1],
+      [SPECIES.MAPLE]: [0.8, 1],
+      [SPECIES.CATALPA]: [0.8, 1],
+      [SPECIES.WALNUT]: [0.8, 1],
+      [SPECIES.THUJA]: [0.8, 1],
+      [SPECIES.POPLAR]: [0.8, 1],
+      [SPECIES.PLANE]: [0.6, 1],
+      [SPECIES.ELM]: [0.6, 1],
+      [SPECIES.MULBERRY]: [0.6, 1],
+      [SPECIES.WILLOW]: [0.6, 1],
+      [SPECIES.PINE]: [0.6, 1],
+      [SPECIES.ACACIA]: [0.4, 0.8],
+      [SPECIES.GLEDITSIA]: [0.4, 0.8],
+      [SPECIES.AILANTHUS]: [0.4, 0.8],
+    };
+    for (const s of TREE_SPECIES) {
+      const [lo, hi] = required[s]!;
+      const f = coverage(buildModel(s, 0, 3));
+      expect(f, `species ${s} side coverage ${f.toFixed(3)}`).toBeGreaterThanOrEqual(lo);
+      expect(f, `species ${s} side coverage ${f.toFixed(3)}`).toBeLessThanOrEqual(hi);
+    }
+  });
+
+  it('uses real leaf-card scale', () => {
+    for (const s of TREE_SPECIES) {
+      const m = buildModel(s, 0, 3);
+      const p = m.positions;
+      const long = s === SPECIES.WILLOW || s === SPECIES.AILANTHUS || s === SPECIES.WALNUT;
+      for (let i = 0; i < m.indices.length; i += 6) {
+        const ids = [m.indices[i]!, m.indices[i + 1]!, m.indices[i + 2]!, m.indices[i + 5]!];
+        if (m.leaf![ids[0]!]! < 0.5) continue;
+        let maxEdge = 0;
+        for (let e = 0; e < 4; e++) {
+          const a = ids[e]!, b = ids[(e + 1) % 4]!;
+          maxEdge = Math.max(maxEdge, Math.hypot(p[a * 3]! - p[b * 3]!, p[a * 3 + 1]! - p[b * 3 + 1]!, p[a * 3 + 2]! - p[b * 3 + 2]!));
+        }
+        expect(maxEdge, `species ${s}`).toBeLessThanOrEqual(long ? 3.2 : 1.0);
+      }
+    }
+  });
+
+  it('keeps leaf colours bright', () => {
+    for (const s of ALL) {
+      const m = buildModel(s, 0, 3);
+      const base = LEAF_COLOR[s]!;
+      const baseSum = (base[0] + base[1] + base[2]) / 255;
+      let minSum = Infinity;
+      for (let i = 0; i < m.colors.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        minSum = Math.min(minSum, m.colors[i]! + m.colors[i + 1]! + m.colors[i + 2]!);
+      }
+      expect(minSum, `species ${s}`).toBeGreaterThanOrEqual(baseSum * 0.55);
     }
   });
 
@@ -468,22 +668,31 @@ describe('realistic tree models: skeleton, clumps and texture layers', () => {
   it('bakes ambient occlusion into leaf colours', () => {
     for (const s of TREE_SPECIES) {
       const m = buildModel(s, 0, 3);
+      let minY = Infinity, maxY = -Infinity;
+      for (let i = 0; i < m.positions.length; i += 3) {
+        if (m.leaf![i / 3]! < 0.5) continue;
+        minY = Math.min(minY, m.positions[i + 1]!);
+        maxY = Math.max(maxY, m.positions[i + 1]!);
+      }
+      const cy = (minY + maxY) * 0.5;
+      const halfH = Math.max(0.01, (maxY - minY) * 0.5);
       let inner = 0, innerN = 0, outer = 0, outerN = 0;
       for (let i = 0; i < m.indices.length; i += 6) {
         const ids = [m.indices[i]!, m.indices[i + 1]!, m.indices[i + 2]!, m.indices[i + 5]!];
         if (m.leaf![ids[0]!]! < 0.5) continue;
-        let cx = 0, cz = 0, lum = 0;
+        let cx = 0, cyv = 0, cz = 0, lum = 0;
         for (const id of ids) {
           cx += m.positions[id * 3]!;
+          cyv += m.positions[id * 3 + 1]!;
           cz += m.positions[id * 3 + 2]!;
           lum += 0.2126 * m.colors[id * 3]! + 0.7152 * m.colors[id * 3 + 1]! + 0.0722 * m.colors[id * 3 + 2]!;
         }
-        cx /= 4; cz /= 4; lum /= 4;
-        const r = Math.hypot(cx, cz);
-        if (r < m.radius * 0.4) {
+        cx /= 4; cyv /= 4; cz /= 4; lum /= 4;
+        const d = Math.hypot(cx / m.radius, (cyv - cy) / halfH);
+        if (d < 0.55) {
           inner += lum;
           innerN++;
-        } else if (r > m.radius * 0.8) {
+        } else if (d > 0.85) {
           outer += lum;
           outerN++;
         }
