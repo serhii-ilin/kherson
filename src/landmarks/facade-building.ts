@@ -44,6 +44,10 @@ export interface FacadeEdgeStats {
   shops: number;
   gates: number;
   blinds: number;
+  /** Outward wall normal in world x/z. */
+  normal: [number, number];
+  /** World position of bay 0's centre on the wall plane, or null for a photo edge. */
+  bay0: [number, number] | null;
 }
 
 export interface FacadeBuildStats {
@@ -105,6 +109,8 @@ interface EdgeInfo {
   bays: number;
   bayW: number;
   planned: PlannedOpening[];
+  normal: [number, number];
+  bay0: [number, number] | null;
 }
 
 const GLASS: Color = [0.16, 0.22, 0.28];
@@ -260,7 +266,9 @@ function baseHeights(profile: FacadeProfile): number[] {
 }
 
 function layoutFor(profile: FacadeProfile, heightM: number, rect: Rect): Layout {
-  const atticKind = profile.attic?.kind ?? 'none';
+  const requestedAtticKind = profile.attic?.kind ?? 'none';
+  // A parapet is a flat-roof detail; on a pitched roof the roof shell is the silhouette, so ignore it.
+  const atticKind = requestedAtticKind === 'parapet' && profile.roof.kind !== 'flat' ? 'none' : requestedAtticKind;
   const atticH = atticKind === 'none' ? 0 : Math.max(0, profile.attic?.heightM ?? 0);
   const flat = profile.roof.kind === 'flat';
   const roofRise = flat ? 0 : clamp(Math.min(rect.w, rect.d) * 0.22, 1.0, 2.6);
@@ -414,6 +422,7 @@ function prepareEdge(
 ): EdgeInfo {
   const f = edgeFrame.frame;
   const length = edgeFrame.length;
+  const normal: [number, number] = [Math.sin(f.yaw), Math.cos(f.yaw)];
   const photo = street?.photo;
   if (photo) {
     let builder = photoBuilders.get(photo.id);
@@ -427,7 +436,10 @@ function prepareEdge(
       x0: 0, x1: length, y0: 0, y1: layout.wallTop, colour: wall, pbr: -1,
       photo: { u0, u1, v0: photo.v0, v1: photo.v1 },
     });
-    return { edge: edgeFrame.edge, frame: f, length, street, photo: true, bays: street?.pattern.length ?? 0, bayW: 0, planned: [] };
+    return {
+      edge: edgeFrame.edge, frame: f, length, street, photo: true, bays: street?.pattern.length ?? 0,
+      bayW: 0, planned: [], normal, bay0: null,
+    };
   }
 
   const bays = street ? bayCount(street, length) : (length >= 4 ? Math.max(1, Math.floor(length / 3.2)) : 0);
@@ -511,7 +523,11 @@ function prepareEdge(
     }
   }
 
-  return { edge: edgeFrame.edge, frame: f, length, street, photo: false, bays, bayW, planned };
+  const bay0Point = f.toWorld(bays > 0 ? bayW / 2 : length / 2, 0, 0);
+  return {
+    edge: edgeFrame.edge, frame: f, length, street, photo: false, bays, bayW, planned,
+    normal, bay0: [bay0Point[0], bay0Point[2]],
+  };
 }
 
 function emitEdgeBox(
@@ -656,12 +672,15 @@ function addBalconies(
   main: KitBuilder, infos: readonly EdgeInfo[], profile: FacadeProfile, layout: Layout,
   trim: Color, trimPbr: number, detail: Detail,
 ): void {
+  const defaultEdge = profile.edges[0]?.edge;
   for (const group of profile.balconies ?? []) {
+    const targetEdge = group.edge ?? defaultEdge;
+    if (targetEdge === undefined) continue;
     for (const storey of group.storeys) {
       if (storey < 0 || storey >= profile.storeys) continue;
       for (const bay of group.bays) {
         for (const info of infos) {
-          if (!info.street || info.photo || bay >= info.bays) continue;
+          if (info.edge !== targetEdge || info.photo || bay >= info.bays) continue;
           addBalcony(main, info, storey, bay, group.kind, layout, trim, trimPbr, detail);
         }
       }
@@ -729,6 +748,8 @@ export function buildFacadeBuilding(row: FacadeBuildingRow, groundY: number, lod
         }),
       openings: ba.length,
       ...counts,
+      normal: info.normal,
+      bay0: info.bay0,
     };
   });
 

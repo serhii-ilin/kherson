@@ -14,6 +14,9 @@ import type { FacadeProfile } from '../mesh/facade-profile.ts';
 
 export type FacadeFetchJson = (url: string) => Promise<unknown>;
 
+/** Unknown-version warning is once per page, not once per approach or module import. */
+let warnedUnknownVersion = false;
+
 interface FileRow {
   profile: FacadeProfile;
   ring: [number, number][];
@@ -105,7 +108,15 @@ export class FacadeLandmarks {
   private async load(base: string, fetchJson: FacadeFetchJson): Promise<void> {
     try {
       const data = await fetchJson(versioned(`${base}world/facades.json`));
-      if (!isRecord(data) || data.version !== 1 || !Array.isArray(data.rows)) return;
+      if (!isRecord(data)) return;
+      if (data.version !== 1) {
+        if (!warnedUnknownVersion) {
+          warnedUnknownVersion = true;
+          console.warn(`facades.json: unsupported version ${JSON.stringify(data.version)}; ignoring it`);
+        }
+        return;
+      }
+      if (!Array.isArray(data.rows)) return;
       const list: Landmark[] = [];
       for (const value of data.rows) {
         const row = parseRow(value);

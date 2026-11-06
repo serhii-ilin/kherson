@@ -202,14 +202,19 @@ export function validateFacadeProfile(row: unknown): string[] {
             }
           });
         }
+        if (balcony.edge !== undefined
+          && (!isFiniteNumber(balcony.edge) || !Number.isInteger(balcony.edge) || balcony.edge < 0)) {
+          errors.push(`balconies[${i}].edge: expected a non-negative integer`);
+        }
       });
     }
   }
 
+  const streetEdgeIndexes = new Set<number>();
   if (!Array.isArray(row.edges) || row.edges.length === 0) {
     errors.push('edges: expected a non-empty array');
   } else {
-    const seenEdges = new Set<number>();
+    const seenEdges = streetEdgeIndexes;
     row.edges.forEach((edge, i) => {
       const path = `edges[${i}]`;
       if (!isRecord(edge)) {
@@ -253,7 +258,38 @@ export function validateFacadeProfile(row: unknown): string[] {
     });
   }
 
+  if (Array.isArray(row.balconies)) {
+    row.balconies.forEach((balcony, i) => {
+      if (!isRecord(balcony) || !isFiniteNumber(balcony.edge) || !Number.isInteger(balcony.edge) || balcony.edge < 0) return;
+      if (!streetEdgeIndexes.has(balcony.edge)) {
+        errors.push(`balconies[${i}].edge: ${balcony.edge} is not one of the listed edges`);
+      }
+    });
+  }
+
   return errors;
+}
+
+/** Non-fatal descriptor notes: the bake logs these but still builds the row. */
+export function warnFacadeProfile(row: unknown): string[] {
+  if (!isRecord(row)) return [];
+  const warnings: string[] = [];
+  const roof = isRecord(row.roof) ? row.roof : null;
+  const attic = isRecord(row.attic) ? row.attic : null;
+  if (roof !== null && attic !== null && attic.kind === 'parapet' && roof.kind !== 'flat') {
+    warnings.push('attic.kind: a parapet attic is ignored on a pitched roof (only flat roofs use it)');
+  }
+  return warnings;
+}
+
+/** Warnings for a whole file, with row positions. */
+export function warnFacadeFile(rows: unknown): string[] {
+  if (!Array.isArray(rows)) return [];
+  const warnings: string[] = [];
+  rows.forEach((row, i) => {
+    for (const warning of warnFacadeProfile(row)) warnings.push(`rows[${i}]: ${warning}`);
+  });
+  return warnings;
 }
 
 /** Validates a whole file: each row plus unique keys across the rows. */

@@ -92,6 +92,46 @@ describe('buildFacadeBuilding', () => {
     }
   });
 
+  it('orients the street wall outward and puts bay 0 on the left end for CW and CCW rings', () => {
+    const ccw: [number, number][] = [[0, 0], [25, 0], [25, 12], [0, 12]];
+    const cw: [number, number][] = [[0, 0], [0, 12], [25, 12], [25, 0]];
+    const cases = [{ ring: ccw, streetEdge: 0 }, { ring: cw, streetEdge: 3 }];
+    for (const { ring, streetEdge } of cases) {
+      const p = clone(profile());
+      p.balconies = [];
+      p.edges = [{ edge: streetEdge, pattern: 'wwww' }];
+      const build = buildFacadeBuilding({ ...row(p), ring }, 0, 'near');
+      const edge = build.stats.edges.find((item) => item.edge === streetEdge)!;
+      const a = ring[streetEdge]!;
+      const b = ring[(streetEdge + 1) % ring.length]!;
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const cx = ring.reduce((sum, point) => sum + point[0], 0) / ring.length;
+      const cz = ring.reduce((sum, point) => sum + point[1], 0) / ring.length;
+
+      expect(edge.normal[0] * (mid[0] - cx) + edge.normal[1] * (mid[1] - cz)).toBeGreaterThan(0);
+
+      // The viewer faces the wall, so their left is (-normal.z, normal.x).
+      const left: [number, number] = [-edge.normal[1], edge.normal[0]];
+      const leftEnd = a[0] * left[0] + a[1] * left[1] > b[0] * left[0] + b[1] * left[1] ? a : b;
+      const rightEnd = leftEnd === a ? b : a;
+      const bay0 = edge.bay0!;
+      const distance = (point: [number, number]): number => Math.hypot(bay0[0] - point[0], bay0[1] - point[1]);
+      expect(distance(leftEnd)).toBeLessThan(distance(rightEnd));
+    }
+  });
+
+  it('ignores a parapet attic on a pitched roof', () => {
+    const plain = clone(profile());
+    plain.roof.kind = 'gable';
+    plain.attic = { kind: 'none', heightM: 0 };
+    plain.balconies = [];
+    const withParapet = clone(plain);
+    withParapet.attic = { kind: 'parapet', heightM: 0.7 };
+    expect(buildFacadeBuilding(row(withParapet), 0, 'near').triangleCount).toBe(
+      buildFacadeBuilding(row(plain), 0, 'near').triangleCount,
+    );
+  });
+
   it('keeps near and far triangle budgets for a 3-storey 25 m facade', () => {
     const near = buildFacadeBuilding(row(), 0, 'near');
     const far = buildFacadeBuilding(row(), 0, 'far');
@@ -207,5 +247,21 @@ describe('FacadeLandmarks', () => {
     });
     await facades.ready;
     expect(facades.landmarks()).toEqual([]);
+  });
+
+  it('warns once when facades.json has an unknown version', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const fetchJson = vi.fn(async (_url: string) => ({ version: 2, rows: [] }));
+      const first = new FacadeLandmarks('/base/', fetchJson);
+      const second = new FacadeLandmarks('/base/', fetchJson);
+      await Promise.all([first.ready, second.ready]);
+      expect(first.landmarks()).toEqual([]);
+      expect(second.landmarks()).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('unsupported version 2');
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

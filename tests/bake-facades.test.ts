@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildFacadeRows, readFacadeRows } from '../tools/bake/facades.ts';
-import { REGION_CM } from '../tools/bake/vectors.ts';
+import { buildVectorTiles, REGION_CM, type VectorInput } from '../tools/bake/vectors.ts';
 import { OSM_TYPE, type VBuilding, type VectorTile } from '../src/world/vector-format.ts';
 import type { FacadeProfile } from '../src/mesh/facade-profile.ts';
 
@@ -80,6 +80,50 @@ describe('facade bake', () => {
     const invalid = profile('w7');
     invalid.storeys = 0;
     expect(() => buildFacadeRows([invalid], [tile(0, 0, [building(7)])])).toThrow(/validation failed/);
+  });
+
+  it('fails the bake when an edge index is outside the baked outer ring', () => {
+    const invalid = profile('w7');
+    invalid.edges = [{ edge: 4, pattern: 'wwww' }];
+    expect(() => buildFacadeRows([invalid], [tile(0, 0, [building(7)])])).toThrow(
+      /facade w7: edges\[0\]\.edge 4 is outside the 4-vertex outer ring/,
+    );
+  });
+
+  it('preserves the OSM node order in the baked ring, so edge indices match the way', () => {
+    const input: VectorInput = {
+      areas: [{
+        id: 777,
+        tags: { building: 'yes' },
+        rings: [[[100, 200], [120, 200], [120, 220], [100, 220], [100, 200]]],
+      }],
+      lines: [], barriers: [], taggedNodes: [], regionsX: 4, regionsZ: 4, centre: [0, 0],
+    };
+    const bakedTile = [...buildVectorTiles(input).tiles.values()][0]!;
+    const outer = Array.from(bakedTile.buildings[0]!.rings[0]!);
+    // First OSM node first, closing node removed, no rotation and no reversal.
+    expect(outer).toEqual([20000, 40000, 24000, 40000, 24000, 44000, 20000, 44000]);
+
+    const row = profile('w777');
+    row.edges = [{ edge: 3, pattern: 'www' }];
+    const result = buildFacadeRows([row], [bakedTile]);
+    expect(result.unmatched).toEqual([]);
+    expect(result.rows[0]!.ring).toEqual([
+      [(20000 + bakedTile.rx * REGION_CM) / 100, (40000 + bakedTile.rz * REGION_CM) / 100],
+      [(24000 + bakedTile.rx * REGION_CM) / 100, (40000 + bakedTile.rz * REGION_CM) / 100],
+      [(24000 + bakedTile.rx * REGION_CM) / 100, (44000 + bakedTile.rz * REGION_CM) / 100],
+      [(20000 + bakedTile.rx * REGION_CM) / 100, (44000 + bakedTile.rz * REGION_CM) / 100],
+    ]);
+  });
+
+  it('logs the pitched-parapet warning without failing the row', () => {
+    const warn = vi.fn();
+    const row = profile('w7');
+    row.roof.kind = 'gable';
+    row.attic = { kind: 'parapet', heightM: 0.7 };
+    const result = buildFacadeRows([row], [tile(0, 0, [building(7)])], warn);
+    expect(result.rows).toHaveLength(1);
+    expect(warn.mock.calls.some((call) => String(call[0]).includes('parapet attic is ignored'))).toBe(true);
   });
 
   it('matches both hand-written example rows against the real snapshot keys', () => {

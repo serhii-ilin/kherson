@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { FacadeProfile } from '../src/mesh/facade-profile.ts';
-import { validateFacadeFile, validateFacadeProfile } from '../src/mesh/facade-profile-validate.ts';
+import { validateFacadeFile, validateFacadeProfile, warnFacadeProfile } from '../src/mesh/facade-profile-validate.ts';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -130,5 +130,26 @@ describe('validateFacadeProfile', () => {
     row.confidence = 'low';
     row.notes = 'compare with the 2019 photo before building';
     expect(validateFacadeProfile(row)).toEqual([]);
+  });
+
+  it('validates the optional balcony edge against the listed street edges', () => {
+    const valid = clone(base());
+    valid.balconies![0]!.edge = 0;
+    expect(validateFacadeProfile(valid)).toEqual([]);
+    expect(errorsAfter((row) => { row.balconies![0]!.edge = -1; })).toContain(
+      'balconies[0].edge: expected a non-negative integer',
+    );
+    expect(errorsAfter((row) => { row.balconies![0]!.edge = 7; })).toContain(
+      'balconies[0].edge: 7 is not one of the listed edges',
+    );
+  });
+
+  it('warns, but does not fail, when a parapet attic sits on a pitched roof', () => {
+    const row = clone(base());
+    row.roof.kind = 'gable';
+    expect(validateFacadeProfile(row)).toEqual([]);
+    expect(warnFacadeProfile(row)).toEqual([
+      'attic.kind: a parapet attic is ignored on a pitched roof (only flat roofs use it)',
+    ]);
   });
 });

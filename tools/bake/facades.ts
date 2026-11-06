@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FacadeBuildingRow } from '../../src/landmarks/facade-building.ts';
 import type { FacadeProfile } from '../../src/mesh/facade-profile.ts';
-import { validateFacadeFile } from '../../src/mesh/facade-profile-validate.ts';
+import { validateFacadeFile, warnFacadeFile } from '../../src/mesh/facade-profile-validate.ts';
 import { buildingKey } from '../../src/world/osm-ref.ts';
 import type { VBuilding, VectorTile } from '../../src/world/vector-format.ts';
 import { REGION_CM } from './vectors.ts';
@@ -34,6 +34,7 @@ export function buildFacadeRows(
   if (errors.length > 0) {
     throw new Error(`facade validation failed:\n${errors.join('\n')}`);
   }
+  for (const warning of warnFacadeFile(profiles)) warn(warning);
 
   const index = new Map<string, BuildingIndexEntry>();
   for (const tile of tiles) {
@@ -42,6 +43,7 @@ export function buildFacadeRows(
 
   const rows: FacadeBuildingRow[] = [];
   const unmatched: string[] = [];
+  const edgeErrors: string[] = [];
   for (const profile of profiles) {
     const found = index.get(profile.key);
     const outer = found?.building.rings[0];
@@ -49,6 +51,8 @@ export function buildFacadeRows(
       unmatched.push(profile.key);
       continue;
     }
+    // The vector bake keeps the OSM way node order (first node first, no rotation or reversal) and drops only the
+    // closing node and consecutive duplicate points, so descriptor edge i is the i-th distinct ring vertex.
     const ring: [number, number][] = [];
     for (let i = 0; i + 1 < outer.length; i += 2) {
       ring.push([
@@ -56,6 +60,13 @@ export function buildFacadeRows(
         (outer[i + 1]! + found.tile.rz * REGION_CM) / 100,
       ]);
     }
+    profile.edges.forEach((edge, edgeIndex) => {
+      if (edge.edge >= ring.length) {
+        edgeErrors.push(
+          `facade ${profile.key}: edges[${edgeIndex}].edge ${edge.edge} is outside the ${ring.length}-vertex outer ring`,
+        );
+      }
+    });
     rows.push({
       profile,
       ring,
@@ -63,6 +74,8 @@ export function buildFacadeRows(
       minHeightM: found.building.minHeightCm / 100,
     });
   }
+
+  if (edgeErrors.length > 0) throw new Error(`facade edge index check failed:\n${edgeErrors.join('\n')}`);
 
   rows.sort((a, b) => a.profile.key.localeCompare(b.profile.key));
   unmatched.sort();
