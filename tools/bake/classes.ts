@@ -6,6 +6,9 @@ import type { Tags } from "./osm.ts";
 export function groundClass(t: Tags): { mat: number; prio: number } | null {
   if (t.place === "square" || (t.highway === "pedestrian" && t.area === "yes")) return { mat: MAT.PLAZA, prio: 5 };
   const lu = t.landuse;
+  // markets and retail zones are paved (stall rows, car parks, forecourts), not lawn: the Central Market's
+  // landuse=retail polygon drew as an empty green field (owner, 2026-11-06)
+  if (t.amenity === "marketplace" || lu === "retail") return { mat: MAT.PLAZA, prio: 2 };
   if (lu === "forest") return { mat: MAT.FOREST, prio: 1 };
   if (lu === "industrial" || lu === "railway" || lu === "quarry" || lu === "construction" || lu === "brownfield" || lu === "landfill")
     return { mat: MAT.DIRT, prio: 1 };

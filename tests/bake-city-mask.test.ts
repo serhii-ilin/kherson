@@ -54,6 +54,12 @@ describe('city mask', () => {
     expect(keepOutsideGround({ landuse: 'farmland' })).toBe(false);
   });
 
+  it('paves markets and retail land', () => {
+    expect(groundClass({ landuse: 'retail', name: 'Центральний ринок' })?.mat).toBe(MAT.PLAZA);
+    expect(groundClass({ amenity: 'marketplace' })?.mat).toBe(MAT.PLAZA);
+    expect(keepOutsideGround({ landuse: 'retail' })).toBe(false);
+  });
+
   it('centroid and ring tests', () => {
     const m = buildCityMask([square], 100, 100, 0);
     expect(ringCentroid([[0, 0], [10, 0], [10, 10], [0, 10]])).toEqual([5, 5]);
