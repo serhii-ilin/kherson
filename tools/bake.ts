@@ -49,6 +49,8 @@ interface Area {
   id: number;
   tags: Tags;
   rings: Pt[][];
+  /** True for a multipolygon relation (so the vector bake can tag its buildings). */
+  rel?: boolean;
 }
 
 interface Line {
@@ -125,7 +127,7 @@ function main_(osm: OsmData): { areas: Area[]; lines: Line[]; barriers: Line[] }
     if (outers.length === 0) continue;
     const inners = joinRings(innerSegs);
     const rings: Pt[][] = [...outers, ...inners].map(ptsOf).filter((r) => r.length >= 3);
-    if (rings.length) areas.push({ id: rel.id, tags: t, rings });
+    if (rings.length) areas.push({ id: rel.id, tags: t, rings, rel: true });
   }
   return { areas, lines, barriers };
 }
@@ -766,7 +768,14 @@ async function main(): Promise<void> {
   );
   console.log(
     `vectors: files ${vec.tiles.size}, bytes ${vecBytes}, largest ${vecLargest.name} ${vecLargest.size}; ` +
-      Object.entries(vec.stats).map(([k, v]) => `${k}=${v}`).join(" "),
+      Object.entries(vec.stats).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k}=${v}`).join(" "),
+  );
+  console.log(
+    `vector v3 tags: buildings colour=${vec.stats.buildingsColour} roofColour=${vec.stats.buildingsRoofColour} ` +
+      `material=${vec.stats.buildingsMaterial} roofMaterial=${vec.stats.buildingsRoofMaterial} ` +
+      `startYear=${vec.stats.buildingsStartYear} relation=${vec.stats.buildingsRelation}; ` +
+      `roads tramEmbedded=${vec.stats.roadsTramEmbedded} cycle=${vec.stats.roadsCycle}; surfaces ` +
+      Object.entries(vec.stats.roadsBySurface).map(([k, v]) => `${k}=${v}`).join(" "),
   );
   console.log("stats", JSON.stringify(stats), "plants nudged/dropped off carriageways+footprints:", JSON.stringify(plantStats));
   console.log(`spawn world (m): ${spawn[0].toFixed(1)}, ${spawn[1].toFixed(1)}; total ${((Date.now() - t0) / 1000).toFixed(1)}s`);

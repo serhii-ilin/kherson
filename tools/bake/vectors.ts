@@ -7,10 +7,12 @@
 // the clipped copy is DUPLICATED into each of those regions.
 import { REGION, VOXEL } from "../../src/world/constants.ts";
 import {
-  LINE, NO_DIR, POINT, ROAD, ROAD_BRIDGE, ROAD_LINK, ROAD_LIT, ROAD_ONEWAY, ROAD_SIDEWALK, ROAD_UNPAVED, ROOF,
+  LINE, NO_DIR, OSM_TYPE, POINT, ROAD, ROAD_BRIDGE, ROAD_CYCLE, ROAD_LINK, ROAD_LIT, ROAD_ONEWAY, ROAD_SIDEWALK,
+  ROAD_TRAM_EMBEDDED, ROAD_UNPAVED, ROOF, SURFACE,
   type VectorTile, type VArea, type VBuilding, type VLine, type VPoint, type VRoad,
 } from "../../src/world/vector-format.ts";
 import { buildingSpec, parseNum } from "./building-style.ts";
+import { hasCycleLane, parseBuildingMaterial, parseColour, parseRoofMaterial, parseStartYear, parseSurface } from "./tags.ts";
 import { keepOutsideGround } from "./city-mask.ts";
 import { HW, SIDEWALK_ROAD, groundClass, isWater } from "./classes.ts";
 import type { Tags } from "./osm.ts";
@@ -22,6 +24,8 @@ export interface VArea_ {
   id: number;
   tags: Tags;
   rings: Pt[][];
+  /** True when the area came from an OSM relation (multipolygon building), not a way. */
+  rel?: boolean;
 }
 export interface VLineIn {
   id: number;
@@ -63,6 +67,18 @@ export interface VectorStats {
   straddleDropped: number;
   lines: number;
   points: number;
+  /** Buildings that carry each v3 tag field (relation type included). */
+  buildingsColour: number;
+  buildingsRoofColour: number;
+  buildingsMaterial: number;
+  buildingsRoofMaterial: number;
+  buildingsStartYear: number;
+  buildingsRelation: number;
+  /** Road pieces with the v3 flags. */
+  roadsTramEmbedded: number;
+  roadsCycle: number;
+  /** Road pieces by `SURFACE` value (all values present, including `unknown`). */
+  roadsBySurface: Record<string, number>;
 }
 
 /** Region side in cm. */
@@ -224,6 +240,108 @@ const ROOF_SHAPE: Record<string, number> = {
 };
 const SHOP_AMENITY = new Set(["cafe", "restaurant", "pharmacy", "bank", "fast_food", "bar", "pub", "post_office", "clinic", "dentist"]);
 
+const SURFACE_NAMES: Record<number, string> = {
+  [SURFACE.UNKNOWN]: "unknown",
+  [SURFACE.ASPHALT]: "asphalt",
+  [SURFACE.CONCRETE]: "concrete",
+  [SURFACE.CONCRETE_PLATES]: "concrete_plates",
+  [SURFACE.PAVING_STONES]: "paving_stones",
+  [SURFACE.SETT]: "sett",
+  [SURFACE.COBBLESTONE]: "cobblestone",
+  [SURFACE.COMPACTED]: "compacted",
+  [SURFACE.GRAVEL]: "gravel",
+  [SURFACE.DIRT]: "dirt",
+  [SURFACE.OTHER]: "other",
+};
+const SURFACE_ORDER = [
+  "unknown", "asphalt", "concrete", "concrete_plates", "paving_stones", "sett", "cobblestone", "compacted",
+  "gravel", "dirt", "other",
+];
+/** Road kinds that carry a carriageway; trams can only be set into these. */
+const NON_CARRIAGEWAY = new Set<number>([ROAD.FOOTWAY, ROAD.PATH, ROAD.CYCLEWAY, ROAD.STEPS, ROAD.PEDESTRIAN]);
+
+const TRAM_CELL_CM = 6400;
+const TRAM_GRID_OFFSET = 4096;
+interface TramSeg { x0: number; z0: number; x1: number; z1: number }
+
+const tramKey = (cx: number, cz: number): number =>
+  (cx + TRAM_GRID_OFFSET) * 8192 + (cz + TRAM_GRID_OFFSET);
+
+/** Uniform 64 m grid of tram segments, so a road sample only checks its 3×3 neighbourhood. */
+function buildTramGrid(lines: readonly VLineIn[]): Map<number, TramSeg[]> {
+  const grid = new Map<number, TramSeg[]>();
+  for (const l of lines) {
+    if (l.tags.railway !== "tram" || has(l.tags.tunnel)) continue;
+    const pts = dedupe(l.pts.map(toCm));
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1]!, b = pts[i]!;
+      if (a[0] === b[0] && a[1] === b[1]) continue;
+      const seg: TramSeg = { x0: a[0], z0: a[1], x1: b[0], z1: b[1] };
+      const cx0 = Math.floor(Math.min(seg.x0, seg.x1) / TRAM_CELL_CM);
+      const cx1 = Math.floor(Math.max(seg.x0, seg.x1) / TRAM_CELL_CM);
+      const cz0 = Math.floor(Math.min(seg.z0, seg.z1) / TRAM_CELL_CM);
+      const cz1 = Math.floor(Math.max(seg.z0, seg.z1) / TRAM_CELL_CM);
+      for (let cz = cz0; cz <= cz1; cz++) {
+        for (let cx = cx0; cx <= cx1; cx++) {
+          const k = tramKey(cx, cz);
+          let list = grid.get(k);
+          if (!list) grid.set(k, (list = []));
+          list.push(seg);
+        }
+      }
+    }
+  }
+  return grid;
+}
+
+function distanceToSeg(px: number, pz: number, s: TramSeg): number {
+  const dx = s.x1 - s.x0, dz = s.z1 - s.z0;
+  const l2 = dx * dx + dz * dz;
+  let t = l2 > 0 ? ((px - s.x0) * dx + (pz - s.z0) * dz) / l2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s.x0 + dx * t), pz - (s.z0 + dz * t));
+}
+
+function nearTram(px: number, pz: number, halfCm: number, grid: Map<number, TramSeg[]>): boolean {
+  const cx = Math.floor(px / TRAM_CELL_CM), cz = Math.floor(pz / TRAM_CELL_CM);
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const list = grid.get(tramKey(cx + dx, cz + dz));
+      if (!list) continue;
+      for (const s of list) if (distanceToSeg(px, pz, s) <= halfCm) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Length of a road piece (cm) whose 2 m samples lie within `widthCm / 2` of a tram segment.
+ * Only samples are tested, so a tram crossing at right angles touches a few metres at most.
+ */
+function tramEmbeddedLength(piece: readonly Cm[], widthCm: number, grid: Map<number, TramSeg[]>): number {
+  if (grid.size === 0) return 0;
+  let total = 0;
+  for (let i = 1; i < piece.length; i++) total += Math.hypot(piece[i]![0] - piece[i - 1]![0], piece[i]![1] - piece[i - 1]![1]);
+  if (total < 2000) return 0;
+  const half = widthCm / 2;
+  let samples = 0;
+  let acc = 0;
+  let next = 0;
+  for (let i = 1; i < piece.length; i++) {
+    const a = piece[i - 1]!, b = piece[i]!;
+    const dx = b[0] - a[0], dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz);
+    if (len <= 0) continue;
+    while (next <= acc + len) {
+      const f = (next - acc) / len;
+      if (nearTram(a[0] + dx * f, a[1] + dz * f, half, grid)) samples++;
+      next += 200;
+    }
+    acc += len;
+  }
+  return samples * 200;
+}
+
 const flat = (pts: readonly Cm[], ox: number, oz: number): Int32Array => {
   const a = new Int32Array(pts.length * 2);
   for (let i = 0; i < pts.length; i++) {
@@ -265,7 +383,13 @@ function dirOf(dx: number, dz: number): number {
 export function buildVectorTiles(input: VectorInput): { tiles: Map<number, VectorTile>; stats: VectorStats } {
   const { regionsX, regionsZ, inCity } = input;
   const accs = new Map<number, TileAcc>();
-  const stats: VectorStats = { buildings: 0, roads: 0, areas: 0, areaCopies: 0, waterAreas: 0, straddleDropped: 0, lines: 0, points: 0 };
+  const roadsBySurface: Record<string, number> = {};
+  for (const name of SURFACE_ORDER) roadsBySurface[name] = 0;
+  const stats: VectorStats = {
+    buildings: 0, roads: 0, areas: 0, areaCopies: 0, waterAreas: 0, straddleDropped: 0, lines: 0, points: 0,
+    buildingsColour: 0, buildingsRoofColour: 0, buildingsMaterial: 0, buildingsRoofMaterial: 0, buildingsStartYear: 0,
+    buildingsRelation: 0, roadsTramEmbedded: 0, roadsCycle: 0, roadsBySurface,
+  };
   const acc = (rx: number, rz: number): TileAcc | null => {
     if (rx < 0 || rz < 0 || rx >= regionsX || rz >= regionsZ) return null;
     const k = rz * 65536 + rx;
@@ -311,6 +435,11 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
     const heightCm = Math.round(Math.min(spec.hm, 500) * 100);
     const minM = parseNum(t.min_height) ?? (parseNum(t["building:min_level"]) !== null ? parseNum(t["building:min_level"])! * 3 : 0);
     const levels = parseNum(t["building:levels"]);
+    const colour = parseColour(t["building:colour"]);
+    const roofColour = parseColour(t["roof:colour"]);
+    const material = parseBuildingMaterial(t);
+    const roofMaterial = parseRoofMaterial(t);
+    const startYear = parseStartYear(t.start_date);
     tile.buildings.push({
       id: a.id >>> 0,
       rings,
@@ -318,12 +447,24 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
       minHeightCm: Math.min(Math.round(minM * 100), heightCm),
       levels: levels === null ? Math.max(0, Math.min(255, spec.levels)) : Math.max(0, Math.min(255, Math.round(levels))),
       ...(spec.heightHeuristic ? { heightHeuristic: 1 } : {}),
+      ...(a.rel ? { osmType: OSM_TYPE.RELATION } : {}),
+      ...(colour ? { colour } : {}),
+      ...(roofColour ? { roofColour } : {}),
+      ...(material ? { material } : {}),
+      ...(roofMaterial ? { roofMaterial } : {}),
+      ...(startYear ? { startYear } : {}),
       wall: spec.wall,
       roof: spec.roof,
       roofShape: ROOF_SHAPE[t["roof:shape"] ?? ""] ?? ROOF.FLAT,
       name: tile.strings.idx(t.name),
     });
     stats.buildings++;
+    if (a.rel) stats.buildingsRelation++;
+    if (colour) stats.buildingsColour++;
+    if (roofColour) stats.buildingsRoofColour++;
+    if (material) stats.buildingsMaterial++;
+    if (roofMaterial) stats.buildingsRoofMaterial++;
+    if (startYear) stats.buildingsStartYear++;
   }
 
   // ---- roads (+ node directions for crossings/signals)
@@ -348,6 +489,7 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
   recordDirs(0);
   recordDirs(1);
 
+  const tramGrid = buildTramGrid(sortedLines);
   const addPieces = (pts: Cm[], emit: (tile: TileAcc, piece: Cm[], ox: number, oz: number) => void): void => {
     for (const piece of splitPolyline(pts)) {
       const [mx, mz] = midpoint(piece);
@@ -380,14 +522,27 @@ export function buildVectorTiles(input: VectorInput): { tiles: Map<number, Vecto
       if (t.lit === "yes") flags |= ROAD_LIT;
       if (link) flags |= ROAD_LINK;
       if (t.surface !== undefined ? UNPAVED.has(t.surface) : hw === "track") flags |= ROAD_UNPAVED;
+      if (hasCycleLane(t)) flags |= ROAD_CYCLE;
+      const surface = parseSurface(t.surface);
+      const carriageway = !NON_CARRIAGEWAY.has(kind);
       const widthCm = roadWidthCm(t, hwRaw.endsWith("_link") ? hw : hwRaw);
       const lanesN = parseNum(t.lanes);
       const lanes = lanesN === null ? 0 : Math.max(0, Math.min(255, Math.round(lanesN)));
       const layerN = parseInt(t.layer ?? "", 10);
       const layer = Number.isFinite(layerN) ? Math.max(-128, Math.min(127, layerN)) : 0;
       addPieces(pts, (tile, piece, ox, oz) => {
-        tile.roads.push({ pts: flat(piece, ox, oz), kind, flags, widthCm, lanes, layer, name: tile.strings.idx(t.name) });
+        let pieceFlags = flags;
+        if (carriageway && tramEmbeddedLength(piece, widthCm, tramGrid) >= 2000) pieceFlags |= ROAD_TRAM_EMBEDDED;
+        tile.roads.push({
+          pts: flat(piece, ox, oz), kind, flags: pieceFlags, widthCm, lanes, layer,
+          ...(surface ? { surface } : {}),
+          name: tile.strings.idx(t.name),
+        });
         stats.roads++;
+        if (pieceFlags & ROAD_TRAM_EMBEDDED) stats.roadsTramEmbedded++;
+        if (pieceFlags & ROAD_CYCLE) stats.roadsCycle++;
+        const surfaceName = SURFACE_NAMES[surface] ?? "other";
+        stats.roadsBySurface[surfaceName] = (stats.roadsBySurface[surfaceName] ?? 0) + 1;
       });
     } else if (t.railway === "rail" || t.railway === "tram") {
       if (has(t.tunnel)) continue;
