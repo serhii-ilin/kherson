@@ -52,6 +52,9 @@ function neighbourhood(gcx: number, gcz: number): VectorTile[] {
 let tris = 0;
 let bytes = 0;
 let chunks = 0;
+let nearTris = 0;
+let nearBytes = 0;
+let nearChunks = 0;
 const seen = new Set<number>();
 const ground = (): number => 4;
 let viewTris = 0;
@@ -73,6 +76,9 @@ for (let gcz = gz0 - 8; gcz <= gz1 + 8; gcz++) {
     if (inBox) {
       for (const b of buildingsInChunk(neigh, gcx, gcz, ground, box)) seen.add(b.id);
       if (n > 0) { chunks++; tris += n; bytes += meshByteSize(mesh); }
+      const near = buildChunkMesh(neigh, gcx, gcz, ground, box, { lod: 'near' });
+      const nn = triangleCount(near);
+      if (nn > 0) { nearChunks++; nearTris += nn; nearBytes += meshByteSize(near); }
     }
     if (inView && n > 0) {
       viewChunks++;
@@ -92,6 +98,11 @@ console.log(JSON.stringify({
   triangles: tris,
   gpuBytes: bytes,
   gpuMB: Number((bytes / 1e6).toFixed(3)),
+  nearChunksWithMesh: nearChunks,
+  nearTriangles: nearTris,
+  nearGpuBytes: nearBytes,
+  nearGpuMB: Number((nearBytes / 1e6).toFixed(3)),
+  nearTrianglesPerBuilding: seen.size > 0 ? Number((nearTris / seen.size).toFixed(1)) : 0,
   vectorTileFiles: tileFiles,
   vectorTileBytes: tileBytes,
   vectorTileMB: Number((tileBytes / 1e6).toFixed(3)),
