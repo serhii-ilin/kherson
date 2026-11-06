@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildVectorTiles, roadWidthCm, REGION_CM, type VectorInput } from '../tools/bake/vectors';
-import { decodeVectorTile, encodeVectorTile, LINE, NO_DIR, POINT, ROAD, ROAD_ONEWAY, ROAD_SIDEWALK } from '../src/world/vector-format';
+import {
+  BUILDING_MATERIAL, decodeVectorTile, encodeVectorTile, LINE, NO_DIR, OSM_TYPE, POINT, ROAD, ROAD_CYCLE,
+  ROAD_ONEWAY, ROAD_SIDEWALK, ROAD_TRAM_EMBEDDED, ROOF_MATERIAL, SURFACE,
+} from '../src/world/vector-format';
 
 // 1 cell = 2 m = 200 cm; a region is 256 cells.
 const base = (): VectorInput => ({
@@ -149,6 +152,102 @@ describe('bake vector tiles', () => {
       const z = (l.pts[1]! + l.pts[3]!) / 2 / 200;
       return x < 3 && z < 1;
     })).toBe(false); // no panel through the warehouse
+  });
+
+  it('marks a building from a relation with osmType and leaves way buildings untagged', () => {
+    const input = base();
+    input.areas.push({
+      id: 100, rel: true, tags: { building: 'yes' },
+      rings: [[[10, 10], [14, 10], [14, 14], [10, 14], [10, 10]]],
+    });
+    input.areas.push({
+      id: 101, tags: { building: 'yes' },
+      rings: [[[20, 10], [24, 10], [24, 14], [20, 14], [20, 10]]],
+    });
+    const buildings = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.buildings);
+    expect(buildings.find((b) => b.id === 100)!.osmType).toBe(OSM_TYPE.RELATION);
+    expect('osmType' in buildings.find((b) => b.id === 101)!).toBe(false);
+  });
+
+  it('bakes colour, roof colour, materials and start year and round-trips them', () => {
+    const input = base();
+    input.areas.push({
+      id: 7,
+      tags: {
+        building: 'yes',
+        'building:colour': 'red',
+        'roof:colour': '#808080',
+        'building:material': 'brick',
+        'roof:material': 'slate',
+        start_date: '~1891',
+      },
+      rings: [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]],
+    });
+    const tile = buildVectorTiles(input).tiles.get(key(0, 0))!;
+    const b = tile.buildings[0]!;
+    expect(b.colour).toBe(0xff0000 + 1);
+    expect(b.roofColour).toBe(0x808080 + 1);
+    expect(b.material).toBe(BUILDING_MATERIAL.BRICK);
+    expect(b.roofMaterial).toBe(ROOF_MATERIAL.ETERNIT);
+    expect(b.startYear).toBe(1891);
+    expect(decodeVectorTile(encodeVectorTile(tile))).toEqual(tile);
+  });
+
+  it('omits the v3 building fields when they are untagged', () => {
+    const input = base();
+    input.areas.push({
+      id: 8, tags: { building: 'yes' },
+      rings: [[[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]]],
+    });
+    const b = buildVectorTiles(input).tiles.get(key(0, 0))!.buildings[0]!;
+    for (const field of ['osmType', 'colour', 'roofColour', 'material', 'roofMaterial', 'startYear'] as const) {
+      expect(field in b).toBe(false);
+    }
+    expect(b.heightHeuristic).toBe(1); // the existing omitted-when-unknown pattern still works
+  });
+
+  it('bakes road surface and omits it when untagged', () => {
+    const input = base();
+    input.lines.push({ id: 2, tags: { highway: 'residential', surface: 'sett' }, pts: [[10, 10], [30, 10]] });
+    input.lines.push({ id: 3, tags: { highway: 'secondary' }, pts: [[10, 20], [30, 20]] });
+    const roads = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.roads);
+    expect(roads.find((r) => r.kind === ROAD.RESIDENTIAL)!.surface).toBe(SURFACE.SETT);
+    expect('surface' in roads.find((r) => r.kind === ROAD.SECONDARY)!).toBe(false);
+  });
+
+  it('sets ROAD_TRAM_EMBEDDED when a tram runs along the carriageway for >= 20 m', () => {
+    const input = base();
+    input.lines.push({ id: 2, tags: { highway: 'residential' }, pts: [[10, 10], [40, 10]] });
+    input.lines.push({ id: 3, tags: { railway: 'tram' }, pts: [[10, 10], [40, 10]] });
+    const roads = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.roads);
+    expect(roads[0]!.flags & ROAD_TRAM_EMBEDDED).toBe(ROAD_TRAM_EMBEDDED);
+  });
+
+  it('does not set ROAD_TRAM_EMBEDDED for a tram crossing at right angles', () => {
+    const input = base();
+    input.lines.push({ id: 2, tags: { highway: 'residential' }, pts: [[10, 20], [40, 20]] });
+    input.lines.push({ id: 3, tags: { railway: 'tram' }, pts: [[25, 10], [25, 30]] });
+    const roads = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.roads);
+    expect(roads[0]!.flags & ROAD_TRAM_EMBEDDED).toBe(0);
+  });
+
+  it('does not set ROAD_TRAM_EMBEDDED on a footway', () => {
+    const input = base();
+    input.lines.push({ id: 2, tags: { highway: 'footway' }, pts: [[10, 10], [40, 10]] });
+    input.lines.push({ id: 3, tags: { railway: 'tram' }, pts: [[10, 10], [40, 10]] });
+    const roads = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.roads);
+    expect(roads[0]!.flags & ROAD_TRAM_EMBEDDED).toBe(0);
+  });
+
+  it('sets ROAD_CYCLE from cycleway lane and track tags', () => {
+    const input = base();
+    input.lines.push({ id: 2, tags: { highway: 'residential', cycleway: 'lane' }, pts: [[10, 10], [30, 10]] });
+    input.lines.push({ id: 3, tags: { highway: 'secondary', 'cycleway:right': 'track' }, pts: [[10, 20], [30, 20]] });
+    input.lines.push({ id: 4, tags: { highway: 'tertiary', cycleway: 'shared_lane' }, pts: [[10, 30], [30, 30]] });
+    const roads = [...buildVectorTiles(input).tiles.values()].flatMap((t) => t.roads);
+    expect(roads.find((r) => r.kind === ROAD.RESIDENTIAL)!.flags & ROAD_CYCLE).toBe(ROAD_CYCLE);
+    expect(roads.find((r) => r.kind === ROAD.SECONDARY)!.flags & ROAD_CYCLE).toBe(ROAD_CYCLE);
+    expect(roads.find((r) => r.kind === ROAD.TERTIARY)!.flags & ROAD_CYCLE).toBe(0);
   });
 
   it('is deterministic and round-trips through the codec', () => {
