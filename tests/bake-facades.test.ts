@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildFacadeRows, readFacadeRows } from '../tools/bake/facades.ts';
+import { buildFacadeRows, descriptorHeightM, readFacadeRows } from '../tools/bake/facades.ts';
 import { buildVectorTiles, REGION_CM, type VectorInput } from '../tools/bake/vectors.ts';
 import { OSM_TYPE, type VBuilding, type VectorTile } from '../src/world/vector-format.ts';
 import type { FacadeProfile } from '../src/mesh/facade-profile.ts';
@@ -126,14 +126,24 @@ describe('facade bake', () => {
     expect(warn.mock.calls.some((call) => String(call[0]).includes('parapet attic is ignored'))).toBe(true);
   });
 
+  it('uses the descriptor storeys only when the tile height is the footprint guess', () => {
+    const row = { ...profile('w7'), storeys: 5, floorHeights: [4.5, 3.6], roof: { kind: 'flat' as const, colour: '#808080' } };
+    // 4.5 + 4 × 3.6 + 0.55 parapet allowance
+    expect(descriptorHeightM(row)).toBeCloseTo(19.45, 2);
+    const guessed = buildFacadeRows([row], [tile(0, 0, [{ ...building(7, 660), heightHeuristic: 1 }])]);
+    expect(guessed.rows[0]!.heightM).toBeCloseTo(19.45, 2);
+    const tagged = buildFacadeRows([row], [tile(0, 0, [building(7, 1300)])]);
+    expect(tagged.rows[0]!.heightM).toBe(13);
+  });
+
   it('matches every committed row when its building is present', () => {
     const rows = readFacadeRows('data/facades');
     expect(rows.length).toBeGreaterThan(0);
     const ids = rows.map((row) => Number(row.key.slice(1)));
     expect(rows.every((row) => row.key.startsWith('w'))).toBe(true);
-    // a 12-sided ring, so every committed edge index (≤ 11) exists; the real bake checks the true rings
-    const ring = Int32Array.from(Array.from({ length: 12 }, (_, i) => {
-      const a = (i / 12) * Math.PI * 2;
+    // a 24-sided ring, so every committed edge index (≤ 23) exists; the real bake checks the true rings
+    const ring = Int32Array.from(Array.from({ length: 24 }, (_, i) => {
+      const a = (i / 24) * Math.PI * 2;
       return [Math.round(300 + 200 * Math.cos(a)), Math.round(400 + 200 * Math.sin(a))];
     }).flat());
     const result = buildFacadeRows(rows, [tile(0, 0, ids.map((id) => ({ ...building(id), rings: [ring] })))]);
