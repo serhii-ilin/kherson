@@ -17,7 +17,7 @@ import { readRestoration, loadOptionsFromRestoration } from "./bake/restoration.
 import { bufferLine, fillPolygon, type Pt } from "./bake/rasterize.ts";
 import { buildingSpec, hash, parseNum } from "./bake/building-style.ts";
 import {
-  pick, speciesOfTags, TREE_PARAM, TREE_PARAM_WHITEWASH,
+  nearWaterWillow, pick, speciesOfTags, TREE_PARAM, TREE_PARAM_WHITEWASH,
   T_FOREST, T_MEADOW, T_PARK, T_REED, T_ROW, T_SAND_FOREST, T_SCRUB, T_STREET, T_UNTAGGED, T_WETLAND,
   type Table,
 } from "./bake/trees.ts";
@@ -506,10 +506,6 @@ async function main(): Promise<void> {
     speciesCount.set(species, (speciesCount.get(species) ?? 0) + 1);
     return true;
   };
-  const nearWater = (cx: number, cz: number): boolean => {
-    for (let dz = -10; dz <= 10; dz += 2) for (let dx = -10; dx <= 10; dx += 2) if (grid.get(F_GROUND_MAT, cx + dx, cz + dz) === MAT.WATER) return true;
-    return false;
-  };
   const ptsOfNodes = (ids: number[]): Pt[] => {
     const out: Pt[] = [];
     for (const id of ids) {
@@ -621,7 +617,7 @@ async function main(): Promise<void> {
             sp = r < 0.7 ? S.PINE : pick(T_SAND_FOREST, ((hs >>> 4) & 0xffff) / 65536);
           } else sp = pick(T_FOREST, r);
         } else sp = pick(table, r);
-        if ((g === MAT.PARK || g === MAT.FOREST) && sp !== S.PINE && sp !== S.WILLOW && nearWater(cx, cz) && ((hs >>> 24) & 255) / 256 < 0.6) sp = S.WILLOW;
+        sp = nearWaterWillow(sp, g, inGrid ? wd3 / DIST_UNIT : Infinity, ((hs >>> 24) & 255) / 256);
         if (addTree(cx, cz, sp, hs, TREE_PARAM) && sandy) {
           pineStats.sandyForestTrees++;
           if (sp === S.PINE) pineStats.pines++;

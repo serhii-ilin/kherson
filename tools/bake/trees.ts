@@ -1,6 +1,7 @@
 // Pure vegetation logic for the bake: the species mix of docs/TREES.md and explicit OSM tag mapping.
 
 import { SPECIES } from "../../src/nature/species.ts";
+import { MAT } from "../../src/world/materials.ts";
 import { hash } from "./building-style.ts";
 import type { Tags } from "./osm.ts";
 
@@ -82,6 +83,18 @@ export function pick(table: Table, r: number): number {
     acc -= e[1];
   }
   return table[table.length - 1]![0];
+}
+
+/**
+ * Near-water willow rule: species after the rule for a park or forest tree. Forest within 10 cells (20 m) of water turns
+ * willow with probability 0.6. Park turns willow only within 3 cells (6 m), on a natural bank rather than behind the
+ * embankment's quay and promenade, with probability 0.35. Pine and willow keep their species, and other ground is unchanged.
+ */
+export function nearWaterWillow(sp: number, ground: number, waterDistCells: number, r: number): number {
+  if (sp === SPECIES.PINE || sp === SPECIES.WILLOW) return sp;
+  if (ground === MAT.FOREST && waterDistCells <= 10 && r < 0.6) return SPECIES.WILLOW;
+  if (ground === MAT.PARK && waterDistCells <= 3 && r < 0.35) return SPECIES.WILLOW;
+  return sp;
 }
 
 /** Species of an explicit natural=tree node: OSM tags win, otherwise the untagged mix. */
