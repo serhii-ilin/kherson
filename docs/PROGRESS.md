@@ -232,7 +232,7 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 | 45 | P3 | Administration pilasters read weakly at street distance; more relief contrast (deeper pilasters, shadowed recess) | hero tweak |
 | 46 | P3 | 18 Suvorova buildings have no dated photo on Commons, so they keep the generic near-LOD look | find other licence-clean sources or leave generic |
 | 47 | P3 | Real-device fps with the new buildings and textures not yet measured | owner: check the street and park poses on the MacBook Air and phone |
-| 48 | P2 | Buildings around Freedom Square (Свободи площа 2, 3, 4, 5, 6, 8, the former «Дитячий світ», the hotel) render as grey khrushchevkas: OSM has no style or date for them and the bake's heuristic picks khrushchevka for 4–5 storeys; Commons has no dated pre-war photos | owner: identify «Дитячий світ», confirm the 1950s style, or provide reference photos (kept private) |
+| 48 | P3 | Freedom Square ensemble: Свободи площа 2–8 now use the generic Stalin-era style (owner), but their real colours, cornices and shop fronts are not modelled, and the former «Дитячий світ» is unidentified; Commons has no dated pre-war photos | owner: address of «Дитячий світ»; colours or reference photos (kept private) for per-building descriptors |
 | 49 | P3 | Facade descriptors cannot vary the window shape per storey (the former Hotel «Київ» has round-arched windows only on its top floor) | add an optional `topWindows` override to `FacadeProfile` |
 | 24 | P3 | Shadow flicker at low sun (06:30 / 19:45) not checked with motion; `normalBias` grows as the sun gets lower | check while walking at golden hour |
 
