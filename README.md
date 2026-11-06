@@ -19,6 +19,7 @@ The interface is Ukrainian by default, with English available.
 - **Walk and fly modes**:
   - **Walk:** gravity, step-up, collision with buildings, tree trunks and water.
   - **Fly:** free flight that cannot pass through the ground or buildings.
+  - **Remembers where you were:** reloading the page puts you back at your last spot, in the same mode and facing the same way (saved in this browser only). A link with `?x=&z=` still wins.
 - **Touch controls** for phones and tablets: virtual joystick, look-drag, and up/down/mode buttons.
 - **Nature**:
   - **Trees:** about 396k trees of seven species (chestnut, linden, acacia, poplar, willow, pine, plane), including about 74k street trees. The default model is a low-poly trunk and branches with alpha-tested summer leaf cards, four levels of detail, wind sway, and a different colour and scale per tree. `?renderer=voxel` keeps the old micro-voxel crowns.

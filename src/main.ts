@@ -13,6 +13,7 @@ import { FishSystem } from './nature/fish.ts';
 import { Ambience, createMuteButton, type AudioScene } from './nature/audio.ts';
 import { MAT } from './world/materials.ts';
 import { PlayerController } from './player/controller.ts';
+import { readPose, writePose } from './player/pose-memory.ts';
 import { Input } from './player/input.ts';
 import { applyDocument, createAttribution, createLangSwitcher, createQualityButton, createShareButton, createTimeButton, t } from './i18n.ts';
 import { daylightAt, formatTime, readStoredTime, resolveTime, writeStoredTime } from './world/daylight.ts';
@@ -241,12 +242,23 @@ async function start(): Promise<void> {
   const input = new Input();
   input.attach(renderer.domElement);
   const player = new PlayerController(camera, input);
+  const worldSpan = REGION * VOXEL;
+  const worldW = manifest.regionsX * worldSpan;
+  const worldH = manifest.regionsZ * worldSpan;
   // ?x=&z= (metres) jumps to a spot; add y/yaw/pitch (degrees) and mode=fly for an exact view.
+  // Without them a reload returns to the last pose saved in this browser.
   const num = (k: string): number | null => (q.has(k) && Number.isFinite(Number(q.get(k))) ? Number(q.get(k)) : null);
+  const saved = num('x') === null && num('z') === null ? readPose(worldW, worldH) : null;
   const sx = num('x') ?? manifest.spawn[0];
   const sz = num('z') ?? manifest.spawn[1];
   const deg = Math.PI / 180;
-  if (q.get('mode') === 'fly') {
+  if (saved?.mode === 'fly') {
+    player.setFlyPose(saved.x, saved.y, saved.z, saved.yaw, saved.pitch);
+  } else if (saved) {
+    player.spawn(saved.x, saved.z);
+    player.yaw = saved.yaw;
+    player.pitch = saved.pitch;
+  } else if (q.get('mode') === 'fly') {
     player.setFlyPose(sx, num('y') ?? 120, sz, (num('yaw') ?? 0) * deg, (num('pitch') ?? -20) * deg);
   } else {
     player.spawn(sx, sz);
@@ -260,10 +272,9 @@ async function start(): Promise<void> {
     input.touch = touch;
   }
 
-  const worldSpan = REGION * VOXEL;
   const minimap = new Minimap(document.body, {
-    worldW: manifest.regionsX * worldSpan,
-    worldH: manifest.regionsZ * worldSpan,
+    worldW,
+    worldH,
     size: isMobile ? 120 : 180,
   });
   const teleport = (x: number, z: number): void => {
@@ -389,12 +400,25 @@ async function start(): Promise<void> {
   let fps = 0;
   let hudAt = 0;
 
+  const savePose = (): void => writePose({
+    mode: player.mode, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch,
+  });
+  let poseSavedAt = 0;
+  addEventListener('pagehide', savePose);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') savePose();
+  });
+
   const frame = (now: number): void => {
     requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
 
     player.update(dt, physics);
+    if (now - poseSavedAt > 1000) {
+      poseSavedAt = now;
+      savePose();
+    }
     const agl = camera.position.y - (streamer.heightAt(camera.position.x, camera.position.z) ?? 0);
     if (shadowsOn) {
       // Above ~300 m the 200 m shadow box is a speck: fade the shadows out over 250..320 m and, once

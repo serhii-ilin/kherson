@@ -28,7 +28,7 @@ _Last updated: 2026-11-06_
 | Whole-city mid meshes, on by default; props and signs stay | ✅ | `3f6017f` |
 | Realistic trees and bushes: leaf-card crowns, default; voxel crowns behind `?renderer=voxel` | ✅ | `8fb1ee8` |
 | Near crowns: no full-size plane up close; fuller mid and far crowns | 🟡 | this branch |
-| Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | 🟡 | `audio/recorded-birds-only` |
+| Birds only from recordings: no synthetic calls; tree sparrow, crow, wagtail, woodpecker, cuckoo, gulls added; looped sparrow take replaced | ✅ | `078cd08`…`2648062` |
 
 ## Near crowns
 
@@ -188,8 +188,9 @@ Priority: **P1** must fix soon (licence or budget breach) · **P2** visible defe
 
 | Fix | Commit |
 |---|---|
-| Gulls over the Dnipro: CC0 black-headed gull calls and a herring-gull laughing call (standing in for yellow-legged and Caspian), only near the water, about once a minute at the edge. Bird-recording budget raised to 1.6 MB (constitution amendment 5); 50 clips, 1,568,087 bytes | `6771c7f`, (this commit) |
-| Birds only from recordings: synthetic calls removed (including the synthetic pigeons, doves and swifts the ambient slots played), CC0 tree sparrow, crow, white wagtail, woodpecker and cuckoo added, a looped-sounding sparrow take replaced; crows, woodpeckers and cuckoos kept occasional. 47 clips, 1,473,902 bytes. Constitution amendment 4 | `078cd08`, (this commit) |
+| Reload keeps your place: walk/fly mode, position and view direction are saved in `localStorage` (`vk-pose`) about once a second and when the tab is hidden, and restored on load; `?x=&z=` links still win. Checked in headless Chromium for walk and fly | (this commit) |
+| Gulls over the Dnipro: CC0 black-headed gull calls and a herring-gull laughing call (standing in for yellow-legged and Caspian), only near the water, about once a minute at the edge. Bird-recording budget raised to 1.6 MB (constitution amendment 5); 50 clips, 1,568,087 bytes | `6771c7f`, `2648062` |
+| Birds only from recordings: synthetic calls removed (including the synthetic pigeons, doves and swifts the ambient slots played), CC0 tree sparrow, crow, white wagtail, woodpecker and cuckoo added, a looped-sounding sparrow take replaced; crows, woodpeckers and cuckoos kept occasional. 47 clips, 1,473,902 bytes. Constitution amendment 4 | `078cd08`, `17afbb6` |
 | Bird recordings: CC0 / public-domain swifts (daytime screams and an evening party, Doppler on fly-bys), feral-pigeon coo and wing clap, collared-dove song and landing, plus house sparrow, great tit, blackbird and starling. 34 mono clips, Opus/WebM and AAC/M4A, 1,000,694 bytes, fetched after a gesture; other species and the wind/water beds stay synthesised, with a synthetic fallback if a file fails. Provenance in [AUDIO_CREDITS.md](AUDIO_CREDITS.md). Constitution Article 4 budget and Article 8.2 exception | `b6994d8` |
 | Pre-war restoration on the current OSM snapshot, not a rollback to the January 2022 extract (that extract dropped buildings and tree rows that were mapped later). `data/osm/restoration.json` reverts ruin/lifecycle tags, restores the Antonivskyi carriageways, puts street names back to the 2022-01-01 reference (current name kept in `old_name`), re-adds 1,016 deleted buildings that were not redrawn, and drops 13 war additions. `building=ruins/destroyed/damaged` 156 → 5. Baked buildings 10,118 → 10,956; tree rows stay 798. Corridor mask unchanged | `e446c4e` |
 | #39 No more 1 m staircases on skewed apartment blocks: flat-roofed khrushchevka/panel/Stalin/brick/apartment blocks whose walls are > 4° off the grid are drawn true-angle in the block tier (`src/fine/smooth.ts`): walls along the real polygon edges, flat roof with a low parapet, windows painted along each wall by the facade shader, entrances with canopies and stair windows on the long wall facing the service drive, balcony stacks on long walls; physics keeps the 1 m column raster; the chunk holding the ring's first vertex emits the mesh. Fine worker +12 kB | (next commit) |
